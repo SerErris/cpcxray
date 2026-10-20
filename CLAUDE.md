@@ -52,7 +52,8 @@ ruff format                       # format (Markdown is excluded)
 pylint src tests tools            # must rate 10/10; disables only with a stated reason
 cpcxray config                    # show parsed config/machine.toml, missing ROMs, sjasmplus
 cpcxray mcp                       # headless MCP server on stdio (Claude Code: .mcp.json)
-cpcxray gui                       # emulator window; MCP over HTTP on 127.0.0.1:8765 (--mcp-port 0: off)
+cpcxray gui                       # window, starts running (--paused: stopped at &0000); MCP over
+                                  #   HTTP on 127.0.0.1:8765 (--mcp-port 0: off)
 CPCXRAY_UPDATE_GOLDEN=1 pytest tests/disasm   # regenerate the disassembler golden listing
 python -m tools.extract_firmware_symbols      # regenerate the 464 firmware jumpblock names
 ```
@@ -95,14 +96,26 @@ Implement strictly one phase of design.md §9 at a time. A phase is finished onl
 milestone tests pass together with the full suite, `ruff check` and `ruff format --check`.
 Do not start the next phase without the owner's go-ahead.
 
-**Status:** Phases 0-5 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
+**Status:** Phases 0-6 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
 pass); CPU validation (ZEXDOC/ZEXALL, z80test); disassembler, CPC RST profile, symbols, Session,
 MCP server; CPC 464 booting to "BASIC 1.0 / Ready"; renderer and Dear PyGui window (real time,
-MCP over HTTP). Next: Phase 6 (keyboard: host key mapping, type-text helper). VDOS (decoder
-slot) is skipped until phase 7 (owner decision).
+MCP over HTTP); keyboard (key map from the ROM, type_text, PC keyboard). Next: Phase 7
+(decoding and analysis: VDOS decoder, shadow ROM, access map, targets, provenance, dump, ROM map).
 
 Validation runtimes on CPython (8 cores): z80test ~1 min for all variants; ZEXDOC+ZEXALL ~30 min,
 dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on one core).
+
+## Keyboard notes (phase 6)
+
+- devices/key_map.py reads the firmware's key translation tables (normal/shift/control, 80 keys
+  each) from the installed OS ROM, found by the sequence "09oilkm,"; key = row * 8 + bit. Key
+  names and characters therefore always match the ROM (no hand-typed key table).
+- devices/keyboard.py: keys held per source ("api", "host", "typing"), combined; typing holds
+  each character's keys 40 ms and releases 40 ms (the firmware scans once per frame).
+- `type_text(text, wait=True)` runs the machine until typed; `wait=False` only queues (GUI).
+- GUI (ui/host_keys.py): letters/digits by label, symbols by CPC position (owner: German
+  layout), "Type text" box for exact characters. Dear PyGui 2.3 quirks: mvKey_Plus/Colon/Quote/
+  Tilde have wrong (ASCII) values - use ImGui codes; only one dpg context per process.
 
 ## Renderer and GUI notes (phase 5)
 

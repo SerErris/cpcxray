@@ -32,6 +32,7 @@ from cpcxray.cpu.disasm import Flow, Instruction, disassemble
 from cpcxray.debugger.breakpoints import Breakpoints
 from cpcxray.debugger.symbols import GLOBAL, SymbolError, SymbolTable, parse_address
 from cpcxray.debugger.trace import Trace
+from cpcxray.devices.key_map import KeyMap, KeyMapError
 from cpcxray.machine.config import ConfigError
 from cpcxray.machine.cpc464 import CPC464, build_cpc464
 from cpcxray.machine.flat import FlatMachine, Machine
@@ -357,6 +358,80 @@ class Session:  # pylint: disable=too-many-public-methods  # one method per MCP 
             file.write_bytes(png)
         height, width = image.shape[:2]
         return {"width": width, "height": height, "path": str(file) if file else None, "png": png}
+
+    # -- keyboard (phase 6) -------------------------------------------------------------------
+
+    def _key_map(self) -> KeyMap:
+        """Return the machine's key map, as a SessionError if it is unavailable."""
+        try:
+            return self._cpc().key_map()
+        except KeyMapError as error:
+            raise SessionError(str(error)) from None
+
+    def type_text(
+        self, text: str, wait: bool = True, timeout_s: float | None = None
+    ) -> dict[str, Any]:
+        r"""Type text on the CPC keyboard, e.g. "PRINT 1+1\r" (\r or \n = RETURN).
+
+        Each character's keys (with SHIFT or CONTROL where needed) are held for 40 ms and
+        released for 40 ms of emulated time, so the firmware sees every key (about 12
+        characters per emulated second).
+
+        Args:
+            text: The characters to type.
+            wait: Run the machine until everything is typed (plus 0.1 s for the firmware to
+                react); False only queues the keys (the GUI keeps running and types them).
+            timeout_s: Wall-clock limit when waiting (default 10 s).
+        """
+        key_map = self._key_map()
+        try:
+            groups = [key_map.keys_for_character(character) for character in text]
+        except KeyMapError as error:
+            raise SessionError(str(error)) from None
+        machine = self._cpc()
+        done_us = machine.keyboard.schedule_typing(groups, machine.clock_us)
+        result: dict[str, Any] = {"characters": len(text), "typed_by_us": done_us}
+        if not wait:
+            return result
+        settle_us = done_us + 100_000
+        limits = self._limits(None, settle_us - machine.clock_us + 1_000_000, timeout_s)
+
+        def typed() -> str | None:
+            """Stop once the keys are typed and the firmware had time to react."""
+            if not machine.keyboard.typing and machine.clock_us >= settle_us:
+                return "typed"
+            return None
+
+        result.update(self._run_loop(limits, finished=typed))
+        return result
+
+    def key_press(self, key: str) -> dict[str, Any]:
+        """Hold a CPC key until key_release.
+
+        Key names come from the OS ROM tables: characters like "a", "1", "," and names like
+        "return", "shift", "control", "cursor_up", "f1", "space", "esc", "copy", "del",
+        "joy_fire1".
+        """
+        number = self._key_number(key)
+        keyboard = self._cpc().keyboard
+        keyboard.press(number, "api")
+        return {"key": key, "number": number, "held": keyboard.held_keys()}
+
+    def key_release(self, key: str) -> dict[str, Any]:
+        """Release a key held by key_press; "all" releases every key held by key_press."""
+        keyboard = self._cpc().keyboard
+        if key == "all":
+            keyboard.release_all("api")
+        else:
+            keyboard.release(self._key_number(key), "api")
+        return {"key": key, "held": keyboard.held_keys()}
+
+    def _key_number(self, name: str) -> int:
+        """Return the key number for a key name (SessionError if unknown)."""
+        try:
+            return self._key_map().key_number(name)
+        except KeyMapError as error:
+            raise SessionError(str(error)) from None
 
     def devices_get(self) -> dict[str, Any]:
         """Return the state of Gate Array, CRTC, ROM select, SystemIO and keyboard."""

@@ -25,7 +25,8 @@ from dataclasses import dataclass
 FONT_ADDRESS = 0x3800  # in the lower ROM
 CELL_BYTES = {0: 4, 1: 2, 2: 1, 3: 4}  # bytes per character cell line, per mode
 PIXELS_PER_BYTE = {0: 2, 1: 4, 2: 8, 3: 2}
-_SPECIAL_CHARACTERS = {164: "©"}  # CPC character set codes outside ASCII that matter in text
+# CPC character codes outside ASCII that matter in screen text (143: full block, the cursor)
+_SPECIAL_CHARACTERS = {164: "©", 143: "█"}
 
 
 @dataclass(frozen=True)

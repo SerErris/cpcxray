@@ -28,6 +28,7 @@ from cpcxray.cpu.z80 import Z80
 from cpcxray.debugger.symbols import GLOBAL
 from cpcxray.devices.crtc import Crtc
 from cpcxray.devices.gate_array import GateArray
+from cpcxray.devices.key_map import KeyMap, KeyMapError
 from cpcxray.devices.keyboard import Keyboard
 from cpcxray.devices.rom_select import RomSelect
 from cpcxray.devices.system_io import DEFAULT_PORT_B, SystemIO
@@ -80,6 +81,8 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
         self.cpu = Z80(self.bus)
         self.skipped_roms: list[str] = []
         self._profile = CpcProfile()
+        self._key_map: KeyMap | None = None
+        self._key_map_source: RomSlot | None = None
         if config is not None:
             self.apply_config(config)
         self.reset()
@@ -162,6 +165,8 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
         cost = cpu.step()
         self.clock_us += cost
         self.gate_array.tick(self.clock_us)
+        if self.keyboard.typing:
+            self.keyboard.tick(self.clock_us)
         return cost
 
     def run(self, budget_us: int) -> int:
@@ -202,6 +207,19 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
             "skipped_roms": list(self.skipped_roms),
         }
 
+    def key_map(self) -> KeyMap:
+        """Return the key names and characters, read from the installed OS ROM.
+
+        Raises:
+            KeyMapError: If no OS ROM is installed or it has no keyboard tables.
+        """
+        if self.memory.lower_rom is None:
+            raise KeyMapError("no OS ROM installed: the keyboard tables come from it")
+        if self._key_map is None or self._key_map_source is not self.memory.lower_rom:
+            self._key_map = KeyMap.from_rom(self.memory.lower_rom.data)
+            self._key_map_source = self.memory.lower_rom
+        return self._key_map
+
     def snapshot(self) -> ScreenSnapshot:
         """Copy RAM, mode, inks and CRTC registers for the renderer (D-13, §6.10)."""
         return ScreenSnapshot(
@@ -219,6 +237,8 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
             "rom_select": self.rom_select.state(),
             "system_io": self.system_io.state(),
             "keyboard_rows": self.keyboard.rows.hex(" ").upper(),
+            "keys_held": self.keyboard.held_keys(),
+            "typing": self.keyboard.typing,
         }
 
 

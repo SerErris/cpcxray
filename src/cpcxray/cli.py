@@ -7,8 +7,9 @@ Subcommands:
   from the project's .mcp.json. By default it drives a CPC 464 with the ROMs of
   config/machine.toml (`--machine flat` for the bare Z80). Needs the optional dependency `mcp`.
 
-* `gui`: the Dear PyGui window with a CPC 464 from the configuration; by default it also serves
-  MCP over HTTP on 127.0.0.1:8765 so Claude can attach (`--mcp-port 0` turns that off).
+* `gui`: the Dear PyGui window with a CPC 464 from the configuration. The machine starts
+  running (`--paused` starts it stopped at &0000); by default the window also serves MCP over
+  HTTP on 127.0.0.1:8765 so Claude can attach (`--mcp-port 0` turns that off).
 """
 
 from __future__ import annotations
@@ -54,12 +55,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     p_gui.add_argument(
         "--mcp-port", type=int, default=8765, help="MCP over HTTP on 127.0.0.1 (0: off)"
     )
+    p_gui.add_argument(
+        "--paused", action="store_true", help="start stopped at the reset vector (debug the boot)"
+    )
 
     args = parser.parse_args(argv)
     if args.command == "config":
         return _cmd_config(args.config)
     if args.command == "gui":
-        return _cmd_gui(args.project_dir, args.config, args.mcp_port)
+        return _cmd_gui(args.project_dir, args.config, args.mcp_port, args.paused)
     if args.command == "mcp":
         return _cmd_mcp(args.project_dir, args.machine, args.config)
     parser.print_help()
@@ -94,8 +98,10 @@ def _cmd_mcp(project_dir: str, machine_kind: str, config: str) -> int:
     return 0
 
 
-def _cmd_gui(project_dir: str, config: str, mcp_port: int) -> int:
+def _cmd_gui(project_dir: str, config: str, mcp_port: int, paused: bool) -> int:
     """Run `cpcxray gui`: the emulator window with a CPC 464 from the configuration.
+
+    The machine starts running (it boots like a real CPC) unless `paused` is set.
 
     Returns:
         0 when the window is closed, 1 if the GUI packages are missing or the config is bad.
@@ -112,7 +118,7 @@ def _cmd_gui(project_dir: str, config: str, mcp_port: int) -> int:
     except ConfigError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
-    App(Session(machine, project_dir=project_dir), mcp_port or None).run()
+    App(Session(machine, project_dir=project_dir), mcp_port or None, autostart=not paused).run()
     return 0
 
 

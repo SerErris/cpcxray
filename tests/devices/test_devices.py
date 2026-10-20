@@ -127,14 +127,14 @@ def test_port_b_vsync(machine: CPC464) -> None:
 
 def test_keyboard_scan_sequence(machine: CPC464) -> None:
     """The firmware's sequence reads a keyboard row through PSG register 14 (§6.9)."""
-    machine.keyboard.press(8, 2)  # row 8, bit 2
+    machine.keyboard.press(8 * 8 + 2)  # key 66: row 8, bit 2
     machine.bus.io_out(0xF400, 14)  # register number on port A
     machine.bus.io_out(0xF600, 0xC0)  # PSG function "select register"
     machine.bus.io_out(0xF600, 0x40 | 8)  # PSG read, row 8
     assert machine.bus.io_in(0xF400) == 0xFB
     machine.bus.io_out(0xF600, 0x40 | 3)
     assert machine.bus.io_in(0xF400) == 0xFF
-    machine.keyboard.release(8, 2)
+    machine.keyboard.release(8 * 8 + 2)
     machine.bus.io_out(0xF600, 0x40 | 8)
     assert machine.bus.io_in(0xF400) == 0xFF
 

@@ -262,3 +262,28 @@ def test_http_transport(tmp_path: Path) -> None:
         anyio.run(main)
     finally:
         stop.set()
+
+
+def test_type_text_and_screen_text_over_mcp(tmp_path: Path) -> None:
+    """The design's MCP example: type PRINT 1+1 and RETURN, then screen_text contains 2."""
+    from cpcxray.machine.config import load_config  # pylint: disable=import-outside-toplevel
+    from cpcxray.machine.cpc464 import CPC464  # pylint: disable=import-outside-toplevel
+
+    config = load_config(Path(__file__).resolve().parents[2] / "config" / "machine.toml")
+    if config.lower_rom is None or not config.lower_rom.exists:
+        pytest.skip("ROMs missing")
+    worker = SessionWorker(Session(CPC464(config), project_dir=tmp_path))
+
+    async def main() -> None:
+        """Boot, type, read the screen."""
+        async with Client(build_server(worker)) as client:
+            await client.call_tool("run", {"max_us": 3_000_000, "timeout_s": 60})
+            typed = await client.call_tool("type_text", {"text": "PRINT 1+1\r"})
+            assert json.loads(typed.content[0].text)["reason"] == "typed"
+            screen = await client.call_tool("screen_text", {})
+            assert " 2" in json.loads(screen.content[0].text)["lines"]
+
+    try:
+        anyio.run(main)
+    finally:
+        worker.close()
