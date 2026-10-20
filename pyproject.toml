@@ -25,7 +25,8 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra -m 'not slow'"  # `pytest -m slow` runs the long CPU validation runs
+markers = ["slow: complete CPU validation runs (ZEXDOC/ZEXALL, z80test); minutes to hours"]
 
 [tool.ruff]
 target-version = "py312"

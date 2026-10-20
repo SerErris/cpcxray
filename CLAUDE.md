@@ -54,15 +54,21 @@ cpcxray config                    # show parsed config/machine.toml, missing ROM
 
 `sjasmplus` must be on the PATH (round-trip check, D-33); `tests/test_tools.py` checks it.
 
-External CPU test vectors (not committed) live in `tests/data/external/`:
+External CPU test programs (not committed, pinned with SHA-256) live in `tests/data/external/`:
+SingleStepTests/z80 (~1.4 GB), ZEXDOC/ZEXALL (agn453/ZEXALL), raxoft z80test 1.2a.
 
 ```bash
-tools/fetch_test_data.sh          # SingleStepTests/z80, ~1.4 GB
-python -m tools.run_singlestep    # all 1.6 M per-opcode tests in parallel (~10 s); globs: 'ed b*'
-CPCXRAY_SST=all pytest tests/cpu  # same via pytest (slow); default pytest runs 25 per opcode file
+tools/fetch_test_data.sh               # download / verify all of them
+python -m tools.run_singlestep         # 1.6 M per-opcode tests in parallel (~10 s); globs: 'ed b*'
+python -m tools.run_cpu_validation     # ZEXDOC, ZEXALL, 6 z80test variants (~30 min, background)
+python -m tools.run_cpu_validation --only zexall --group daa   # a single program / group
+CPCXRAY_SST=all pytest tests/cpu       # all SingleStepTests via pytest (default: 25 per file)
+pytest -m slow                         # the complete ZEX / z80test runs via pytest (sequential)
 ```
 
-Tests that need external data skip when it is missing.
+Tests that need external data skip when it is missing. Tests marked `slow` are excluded by
+default (`addopts` in pyproject.toml). Harnesses: `tests/cpu/singlestep.py` (JSON vectors) and
+`tests/cpu/exercisers.py` (CP/M BDOS and Spectrum ROM print traps on a flat 64 KB bus).
 
 ## Conventions
 
@@ -84,8 +90,12 @@ Implement strictly one phase of design.md §9 at a time. A phase is finished onl
 milestone tests pass together with the full suite, `ruff check` and `ruff format --check`.
 Do not start the next phase without the owner's go-ahead.
 
-**Status:** Phase 0 (skeleton, tooling, config loader) and Phase 1 (Z80 core, all 1.6 M
-SingleStepTests pass) done. Next: Phase 2 (ZEXDOC/ZEXALL, raxoft z80test).
+**Status:** Phases 0-2 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
+pass); CPU validation (ZEXDOC and ZEXALL all 67 groups, z80test all 6 variants pass; z80ccfscr
+is visual only). Next: Phase 3 (disassembler, Session, minimal debugger, headless MCP server).
+
+Validation runtimes on CPython (8 cores): z80test ~1 min for all variants; ZEXDOC+ZEXALL ~30 min,
+dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on one core).
 
 ## Z80 core notes (`src/cpcxray/cpu/`)
 
