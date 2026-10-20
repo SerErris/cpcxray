@@ -16,13 +16,16 @@ selects a slot 0-15; an unpopulated number, or a value above 15, makes the slot 
 `unpopulated_rom` answer (slot 0, BASIC, as on a real 464, D-10).
 
 The read path tells the ROM slot whether the access is an M1 fetch: scrambled ROMs decode
-data reads only (D-11). Phase 4 loads no decoders (owner decision: VDOS waits for phase 7), so
-`RomSlot.read` returns the raw byte; the parameter is already in place.
+data reads only and record every read in their shadow (D-11, D-17). `peek` reads the same way
+without recording, for the debugger and the disassembler.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+
+from cpcxray.decoding.shadow_rom import ShadowRom
 
 ROM_SIZE = 0x4000
 UPPER_SLOTS = range(16)
@@ -30,25 +33,57 @@ UPPER_SLOTS = range(16)
 
 @dataclass
 class RomSlot:
-    """A 16 KB ROM image in a slot.
+    """A 16 KB ROM image in a slot, optionally scrambled (design.md §6.4; D-11, D-17).
+
+    For a scrambled ROM, `decoder` is the decode function (e.g. `vortex_decode`) and the slot
+    applies the M1 rule: opcode fetches get the raw byte, every other read the decoded one, as
+    long as `decode_enabled` is set (the runtime switch, effective from the next read). Such a
+    slot also records every read in its `shadow` (clear values and the access map).
 
     Attributes:
-        data: The 16,384 bytes of the image.
+        data: The 16,384 bytes of the image (scrambled for a scrambled ROM).
         name: Where it came from (file name), for status reports.
+        decoder: `decode(offset, raw) -> clear` for data reads, or None for a plain ROM.
+        decode_enabled: The decode switch (config default, runtime toggle).
+        shadow: Recorded reads; created automatically for slots with a decoder.
     """
 
     data: bytes
     name: str = ""
+    decoder: Callable[[int, int], int] | None = None
+    decode_enabled: bool = True
+    shadow: ShadowRom | None = None
 
     def __post_init__(self) -> None:
-        """Check the image size."""
+        """Check the image size; give scrambled ROMs a shadow (D-17)."""
         if len(self.data) != ROM_SIZE:
             raise ValueError(f"ROM image {self.name!r} has {len(self.data)} bytes, expected 16384")
+        if self.decoder is not None and self.shadow is None:
+            self.shadow = ShadowRom(self.data)
+
+    @property
+    def scrambled(self) -> bool:
+        """True if the slot has a decoder."""
+        return self.decoder is not None
 
     def read(self, offset: int, is_m1: bool) -> int:
-        """Return the byte at `offset` (0-&3FFF); `is_m1` is for decoders (phase 7)."""
-        del is_m1  # no decoders before phase 7
-        return self.data[offset]
+        """Return the byte the CPU sees at `offset` (0-&3FFF) and record the read."""
+        raw = self.data[offset]
+        decoder = self.decoder
+        if decoder is None:
+            return raw
+        decoding = self.decode_enabled
+        value = decoder(offset, raw) if decoding and not is_m1 else raw
+        if self.shadow is not None:
+            self.shadow.record(offset, value, is_m1, decoding)
+        return value
+
+    def peek(self, offset: int, as_m1: bool = False) -> int:
+        """Return what a read would give, without recording it (debugger, disassembler)."""
+        raw = self.data[offset]
+        if self.decoder is None or as_m1 or not self.decode_enabled:
+            return raw
+        return self.decoder(offset, raw)
 
 
 class MemoryMap:  # pylint: disable=too-many-instance-attributes  # the paging state
@@ -135,6 +170,19 @@ class MemoryMap:  # pylint: disable=too-many-instance-attributes  # the paging s
     def write(self, address: int, value: int) -> None:
         """Write a byte: always to RAM, also under a paged-in ROM (FR-MCH-06)."""
         self.ram[address] = value
+
+    def peek(self, address: int, as_m1: bool = False) -> int:
+        """Read a byte as the CPU would (M1 or data read), without recording anything."""
+        rom = self._read_banks[address >> 14]
+        if rom is None:
+            return self.ram[address]
+        return rom.peek(address & 0x3FFF, as_m1)
+
+    def shadows(self) -> list[tuple[str, ShadowRom]]:
+        """Return (slot name, shadow) for every installed scrambled ROM."""
+        slots: list[tuple[str, RomSlot | None]] = [("lower", self.lower_rom)]
+        slots += [(f"rom{number}", rom) for number, rom in sorted(self.upper_roms.items())]
+        return [(name, rom.shadow) for name, rom in slots if rom is not None and rom.shadow]
 
     def visible_rom(self, address: int) -> str | None:
         """Return which ROM answers reads at `address` now: "lower", "romN", or None for RAM."""

@@ -13,8 +13,8 @@ Scheduler (D-04, D-05): `step()` executes one instruction, advances the clock by
 µs and lets the Gate Array latch the 300 Hz interrupt; the INT line follows the Gate Array's
 request before every instruction. `run(budget_us)` repeats that for a time slice.
 
-ROM slots with a decoder (the scrambled VDOS) are not installed before phase 7 (owner
-decision): they are listed in `skipped_roms` and in the machine status.
+ROM slots with a decoder (the scrambled VDOS) get the decode rule and a shadow ROM (phase 7,
+D-11, D-17). Configured ROMs whose file is missing are listed in `skipped_roms`.
 """
 
 from __future__ import annotations
@@ -26,7 +26,10 @@ from cpcxray.analysis.cpc_profile import CpcProfile
 from cpcxray.cpu.disasm import DisassemblyProfile
 from cpcxray.cpu.z80 import Z80
 from cpcxray.debugger.symbols import GLOBAL
+from cpcxray.decoding.shadow_rom import ShadowRom
+from cpcxray.decoding.vortex import DECODERS
 from cpcxray.devices.crtc import Crtc
+from cpcxray.devices.fdc765 import FdcStub
 from cpcxray.devices.gate_array import GateArray
 from cpcxray.devices.key_map import KeyMap, KeyMapError
 from cpcxray.devices.keyboard import Keyboard
@@ -51,6 +54,7 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
         crtc: The CRTC register file.
         rom_select: The upper ROM select latch.
         system_io: PPI/PSG replacement (keyboard port, VSYNC).
+        fdc: µPD765 stub with no drive ready (full controller in phase 10).
         bus: Connects CPU, memory and devices.
         cpu: The Z80.
         skipped_roms: Configured ROMs that were not installed, with the reason.
@@ -74,13 +78,16 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
         self.crtc = Crtc()
         self.rom_select = RomSelect(self.memory.select_upper)
         self.system_io = SystemIO(self.keyboard, self._clock, port_b_constant)
+        self.fdc = FdcStub()
         self.bus = CpcBus(
-            self.memory, [self.gate_array, self.crtc, self.rom_select, self.system_io],
+            self.memory, [self.gate_array, self.crtc, self.rom_select, self.system_io, self.fdc],
             self.gate_array,
         )  # fmt: skip
         self.cpu = Z80(self.bus)
         self.skipped_roms: list[str] = []
+        self.config = config
         self._profile = CpcProfile()
+        self._shadows: list[ShadowRom] = []  # of installed scrambled ROMs, updated on changes
         self._key_map: KeyMap | None = None
         self._key_map_source: RomSlot | None = None
         if config is not None:
@@ -101,29 +108,40 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
             self._install_configured(rom)
 
     def _install_configured(self, rom: RomConfig) -> None:
-        """Install one configured ROM, or record why it is skipped."""
-        if rom.decoder is not None:
-            self.skipped_roms.append(
-                f"{rom.label}: decoder {rom.decoder!r} not available before phase 7 ({rom.file})"
-            )
-            return
+        """Install one configured ROM (with its decoder), or record why it is skipped."""
         if not rom.exists:
             self.skipped_roms.append(f"{rom.label}: file missing ({rom.file})")
             return
-        self.load_rom(rom.slot, rom.file)
+        self.load_rom(rom.slot, rom.file, rom.decoder, rom.decode)
 
-    def load_rom(self, slot: SlotName, path: str | Path) -> RomSlot:
+    def load_rom(
+        self,
+        slot: SlotName,
+        path: str | Path,
+        decoder: str | None = None,
+        decode: bool = True,
+    ) -> RomSlot:
         """Load a 16 KB ROM image into "lower" or an upper slot 0-15 (no reset).
+
+        Args:
+            slot: "lower" or 0-15.
+            path: The image file.
+            decoder: Decoder name for a scrambled ROM (e.g. "vortex"), or None.
+            decode: Initial state of the decode switch (D-11).
 
         Raises:
             ConfigError: If the file cannot be read or is not 16 KB.
-            ValueError: For an invalid slot.
+            ValueError: For an invalid slot or an unknown decoder.
         """
-        rom = RomSlot(read_rom_image(path), Path(path).name)
+        if decoder is not None and decoder not in DECODERS:
+            raise ValueError(f"unknown decoder {decoder!r}")
+        decode_function = DECODERS[decoder] if decoder else None
+        rom = RomSlot(read_rom_image(path), Path(path).name, decode_function, decode)
         if slot == "lower":
             self.memory.set_lower_rom(rom)
         else:
             self.memory.set_upper_rom(int(slot), rom)
+        self._shadows = [shadow for _, shadow in self.memory.shadows()]
         return rom
 
     def unload_rom(self, slot: SlotName) -> None:
@@ -132,6 +150,7 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
             self.memory.set_lower_rom(None)
         else:
             self.memory.set_upper_rom(int(slot), None)
+        self._shadows = [shadow for _, shadow in self.memory.shadows()]
 
     def rom_list(self) -> list[dict[str, Any]]:
         """Return the installed ROMs: slot, file name and ROM header type/version."""
@@ -152,6 +171,7 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
         self.rom_select.reset()
         self.crtc.reset()
         self.system_io.reset()
+        self.fdc.reset()
         self.keyboard.reset()
         self.cpu.reset()
         self.cpu.int_line = False
@@ -162,6 +182,8 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
         cpu.int_line = self.gate_array.interrupt_pending
         if self.bus.observed:
             self.bus.instruction_pc = cpu.pc
+        for shadow in self._shadows:
+            shadow.instruction_pc = cpu.pc
         cost = cpu.step()
         self.clock_us += cost
         self.gate_array.tick(self.clock_us)
@@ -179,8 +201,12 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
     # -- Machine protocol (for Session) ----------------------------------------------------------
 
     def peek(self, address: int) -> int:
-        """Read a byte as the CPU's data reads see it, without observers."""
-        return self.memory.read(address & 0xFFFF, False)
+        """Read a byte as the CPU's data reads see it, without recording or observers."""
+        return self.memory.peek(address & 0xFFFF, as_m1=False)
+
+    def peek_opcode(self, address: int) -> int:
+        """Read a byte as an M1 fetch would see it (raw in a scrambled ROM), no side effects."""
+        return self.memory.peek(address & 0xFFFF, as_m1=True)
 
     def poke(self, address: int, value: int) -> None:
         """Write a byte to RAM."""
@@ -236,6 +262,7 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
             "crtc": self.crtc.state(),
             "rom_select": self.rom_select.state(),
             "system_io": self.system_io.state(),
+            "fdc": self.fdc.state(),
             "keyboard_rows": self.keyboard.rows.hex(" ").upper(),
             "keys_held": self.keyboard.held_keys(),
             "typing": self.keyboard.typing,

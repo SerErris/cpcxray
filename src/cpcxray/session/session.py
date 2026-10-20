@@ -37,6 +37,8 @@ from cpcxray.machine.config import ConfigError
 from cpcxray.machine.cpc464 import CPC464, build_cpc464
 from cpcxray.machine.flat import FlatMachine, Machine
 from cpcxray.machine.screen import FONT_ADDRESS, screen_text
+from cpcxray.session.analysis import AnalysisMixin
+from cpcxray.session.errors import SessionError
 from cpcxray.ui.png import encode_png
 from cpcxray.ui.renderer import double_lines, render
 
@@ -50,10 +52,6 @@ ANNOTATIONS_FILE = Path("project") / "annotations.txt"
 DEFAULT_CONFIG = Path("config") / "machine.toml"
 CHECK_INTERVAL = 4096  # instructions between checks of pause and wall clock
 _REPEATING_BLOCK = ("ldir", "lddr", "cpir", "cpdr", "inir", "indr", "otir", "otdr")
-
-
-class SessionError(ValueError):
-    """A request the session cannot carry out (bad argument, missing file, ...)."""
 
 
 def hex4(value: int) -> str:
@@ -70,7 +68,8 @@ class _RunLimits:
     timeout_s: float
 
 
-class Session:  # pylint: disable=too-many-public-methods  # one method per MCP tool (D-27)
+# The façade owns all debugger state and offers one public method per MCP tool (D-27).
+class Session(AnalysisMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
     """Owns a machine and offers every debugger operation (D-27).
 
     Attributes:
@@ -99,6 +98,11 @@ class Session:  # pylint: disable=too-many-public-methods  # one method per MCP 
         annotations = self.project_dir / ANNOTATIONS_FILE
         if annotations.exists():
             self.symbols.load(annotations)
+        self.analysis_targets = {}
+        self.manual_relocations = []
+        self._analysis_observer = None
+        if isinstance(self.machine, CPC464):
+            self._setup_analysis()  # targets from the config, saved access maps (phase 7)
 
     # == helpers ===============================================================================
 
@@ -130,8 +134,9 @@ class Session:  # pylint: disable=too-many-public-methods  # one method per MCP 
     def _disassemble(self, address: int) -> Instruction:
         """Decode the instruction at `address` from the CPU's view of memory."""
         return disassemble(
-            self.machine.peek, address, self.machine.disassembly_profile(), self._label
-        )
+            self.machine.peek, address, self.machine.disassembly_profile(), self._label,
+            read_opcode=self.machine.peek_opcode,
+        )  # fmt: skip
 
     def _register_summary(self) -> str:
         """Return the main registers as one line."""
@@ -202,15 +207,58 @@ class Session:  # pylint: disable=too-many-public-methods  # one method per MCP 
             if reason is not None:
                 break
             if trace.enabled and trace.wants(pc):
-                instruction = self._disassemble(pc)
-                trace.record(
-                    pc, instruction.raw, instruction.text(self._label), self._register_summary()
-                )
+                self._trace_instruction(pc)
             emulated_us += machine.step()
             instructions += 1
             if finished is not None:
                 reason = finished()
         return self._stop_result(reason, instructions, emulated_us)
+
+    def _scrambled_bytes(self, address: int, length: int) -> bytes | None:
+        """Return the raw image bytes if `address` lies in a paged-in scrambled ROM, else None."""
+        if not isinstance(self.machine, CPC464):
+            return None
+        scope = self.machine.symbol_scope(address)
+        if not scope:
+            return None
+        rom = self._rom_slot(scope)
+        if not rom.scrambled:
+            return None
+        first = address & 0x3FFF
+        return rom.data[first : first + length]
+
+    def save_analysis(self) -> dict[str, Any]:
+        """Save the analysis state: the access map of every scrambled ROM (project/<rom>.m1map).
+
+        Called automatically when the GUI closes; the analysis database follows in phase 8.
+        """
+        if not isinstance(self.machine, CPC464):
+            return {"saved": []}
+        saved = [self.m1map_save(name)["path"] for name, _ in self.machine.memory.shadows()]
+        return {"saved": saved}
+
+    def _trace_instruction(self, pc: int) -> None:
+        """Record the instruction at `pc` in the trace (applying the targets-only filter)."""
+        scope = self.machine.symbol_scope(pc)
+        where = scope or "RAM"
+        observer = self._analysis_observer
+        origin = observer.origin_text(pc) if observer is not None and not scope else None
+        if self.trace.targets_only and not self._in_analysis_target(pc, where, origin):
+            return
+        instruction = self._disassemble(pc)
+        rom_raw = self._scrambled_bytes(pc, instruction.length)
+        self.trace.record(
+            pc, instruction.raw, instruction.text(self._label), self._register_summary(),
+            where=where, origin=origin, rom_raw=rom_raw,
+        )  # fmt: skip
+
+    def _in_analysis_target(self, pc: int, where: str, origin: str | None) -> bool:
+        """True if code at `pc` belongs to an analysis target (ROM, its RAM copy, RAM range)."""
+        if where in self.analysis_targets:
+            return True
+        if origin is not None and origin.split(":", 1)[0] in self.analysis_targets:
+            return True
+        return any(t.kind == "ram" and t.contains(pc) for t in self.analysis_targets.values())
 
     def _limit_reached(
         self, limits: _RunLimits, instructions: int, emulated_us: int, deadline: float
@@ -306,6 +354,7 @@ class Session:  # pylint: disable=too-many-public-methods  # one method per MCP 
             self.machine = build_cpc464(self._path(path))
         except ConfigError as error:
             raise SessionError(str(error)) from None
+        self._setup_analysis()
         return self.machine_status()
 
     def rom_list(self) -> dict[str, Any]:
@@ -649,6 +698,9 @@ class Session:  # pylint: disable=too-many-public-methods  # one method per MCP 
                 raw = " ".join(f"{byte:02X}" for byte in instruction.raw)
                 prefix = f"{hex4(instruction.address)}  {raw:<11}"
                 comments = [c for c in (comment, user_comment) if c]
+                scrambled_raw = self._scrambled_bytes(instruction.address, instruction.length)
+                if scrambled_raw is not None and scrambled_raw != instruction.raw:
+                    comments.append(f"raw {scrambled_raw.hex(' ').upper()}")
                 if instruction.non_canonical:
                     comments.append("[nc]")
             else:
@@ -687,21 +739,35 @@ class Session:  # pylint: disable=too-many-public-methods  # one method per MCP 
 
     # == trace =================================================================================
 
-    def trace_start(
-        self, path: str | None = None, start: int | str = 0, end: int | str = 0xFFFF
+    def trace_start(  # pylint: disable=too-many-arguments  # one argument per trace option
+        self,
+        path: str | None = None,
+        start: int | str = 0,
+        end: int | str = 0xFFFF,
+        file_format: str = "text",
+        targets_only: bool = False,
     ) -> dict[str, Any]:
-        """Start the instruction trace (ring buffer, plus a text file if `path` is given).
+        """Start the instruction trace (ring buffer, plus a file if `path` is given, D-24).
+
+        Records show where code runs (ROM slot or RAM, with the ROM origin of copied code)
+        and, for scrambled ROMs, the raw bytes next to the clear ones.
 
         Args:
-            path: Text file, relative to the project directory (e.g. "output/trace.txt").
+            path: File, relative to the project directory (e.g. "output/trace.txt").
             start: First PC to record.
             end: Last PC to record.
+            file_format: "text", "csv" or "jsonl" (JSON Lines).
+            targets_only: Record only analysis-target code (incl. its RAM copies).
         """
         file = self._path(path) if path else None
-        self.trace.start(file, (self._address(start), self._address(end)))
+        try:
+            self.trace.start(file, (self._address(start), self._address(end)), file_format,
+                             targets_only)  # fmt: skip
+        except ValueError as error:
+            raise SessionError(str(error)) from None
         first, last = self.trace.address_range
-        return {"tracing": True, "path": str(file) if file else None,
-                "range": [hex4(first), hex4(last)]}  # fmt: skip
+        return {"tracing": True, "path": str(file) if file else None, "format": file_format,
+                "range": [hex4(first), hex4(last)], "targets_only": targets_only}  # fmt: skip
 
     def trace_stop(self) -> dict[str, Any]:
         """Stop the trace; the ring buffer keeps the records for trace_read."""

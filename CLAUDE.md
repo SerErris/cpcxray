@@ -96,14 +96,33 @@ Implement strictly one phase of design.md §9 at a time. A phase is finished onl
 milestone tests pass together with the full suite, `ruff check` and `ruff format --check`.
 Do not start the next phase without the owner's go-ahead.
 
-**Status:** Phases 0-6 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
+**Status:** Phases 0-7 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
 pass); CPU validation (ZEXDOC/ZEXALL, z80test); disassembler, CPC RST profile, symbols, Session,
-MCP server; CPC 464 booting to "BASIC 1.0 / Ready"; renderer and Dear PyGui window (real time,
-MCP over HTTP); keyboard (key map from the ROM, type_text, PC keyboard). Next: Phase 7
-(decoding and analysis: VDOS decoder, shadow ROM, access map, targets, provenance, dump, ROM map).
+MCP server; CPC 464 booting to BASIC; renderer and GUI (real time, MCP over HTTP); keyboard;
+decoding and analysis (VDOS decoded and initialised, shadow ROM, access map, dump, ROM map,
+provenance, relocated blocks, trace sinks). Next: Phase 8 (analysis database, RST-operand and
+far-address observers, sjasmplus source generator, round-trip check).
 
 Validation runtimes on CPython (8 cores): z80test ~1 min for all variants; ZEXDOC+ZEXALL ~30 min,
 dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on one core).
+
+## Decoding and analysis notes (phase 7)
+
+- decoding/vortex.py: the XOR rule; machine/memory.py `RomSlot` applies it to non-M1 reads when
+  `decode_enabled` (D-11) and records every read in its `ShadowRom` (access map, clear values,
+  first PC, hits). `peek(as_m1=...)` reads without recording: use it in debug views.
+- The disassembler takes `read_opcode` for M1 bytes (raw in a scrambled ROM) and `read_byte`
+  for operands (decoded); Session passes machine.peek_opcode / machine.peek.
+- Access map: project/<rom>.m1map (16 KB, D-19), merged at session start, saved on GUI exit and
+  with `m1map_save`. Dumps/maps go to output/<rom>_clear.rom, _rom_map.html/.txt, _coverage.csv.
+  Fill policy "static" needs the phase 8 classifier.
+- devices/fdc765.py is a µPD765 *stub* (all drives not ready): without it VDOS's result loop
+  reads &FF forever and overwrites RAM. The full FDC with disk images is phase 10.
+- analysis/provenance.py `AnalysisObserver` (bus observer, only while targets exist): RAM tags
+  (exact via LDIR/LDDR, probable via value), EXEC_VIA_RAM/INSN_START on the origin bytes,
+  relocated blocks, RAM-target capture. It slows emulation to ~1.2x real time.
+- Session analysis tools live in session/analysis.py (`AnalysisMixin`); errors in
+  session/errors.py (shared, avoids an import cycle).
 
 ## Keyboard notes (phase 6)
 

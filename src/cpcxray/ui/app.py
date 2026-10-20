@@ -167,4 +167,5 @@ class App:
                 if remaining > 0 and not self.loop.max_speed:
                     time.sleep(remaining)
         finally:
+            self.session.save_analysis()  # access maps survive the session (D-19)
             dpg.destroy_context()

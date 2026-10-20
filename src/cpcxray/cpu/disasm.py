@@ -207,16 +207,27 @@ class _Decoded:  # pylint: disable=too-many-instance-attributes  # mirrors Instr
 
 
 class _Reader:
-    """Reads instruction bytes relative to the instruction address."""
+    """Reads instruction bytes relative to the instruction address.
 
-    def __init__(self, read_byte: ByteReader, address: int) -> None:
-        """Read from `read_byte`, instruction starting at `address`."""
+    Opcode and prefix bytes (the CPU's M1 fetches) are read with `read_opcode`, all other
+    bytes with `read_byte`; for a scrambled ROM the two differ (§5.5).
+    """
+
+    def __init__(
+        self, read_byte: ByteReader, address: int, read_opcode: ByteReader | None = None
+    ) -> None:
+        """Read from `read_byte` (and `read_opcode` for M1 bytes), starting at `address`."""
         self.read_byte = read_byte
+        self.read_opcode = read_opcode or read_byte
         self.address = address
 
     def byte(self, offset: int) -> int:
-        """Return the byte at address + offset."""
+        """Return the byte at address + offset, as a data read (operands)."""
         return self.read_byte((self.address + offset) & 0xFFFF)
+
+    def opcode(self, offset: int) -> int:
+        """Return the byte at address + offset, as an M1 fetch (opcode or prefix)."""
+        return self.read_opcode((self.address + offset) & 0xFFFF)
 
     def word(self, offset: int) -> int:
         """Return the little-endian word at address + offset."""
@@ -233,20 +244,25 @@ def disassemble(
     address: int,
     profile: DisassemblyProfile | None = None,
     symbols: SymbolLookup | None = None,
+    read_opcode: ByteReader | None = None,
 ) -> Instruction:
     """Decode the instruction at `address`.
 
     Args:
-        read_byte: Byte source (e.g. the CPU view of memory, a ROM image, the shadow ROM).
+        read_byte: Byte source for operands and data (e.g. the CPU view of memory).
         address: Address of the first byte.
         profile: RST decoding (e.g. the CPC profile); None decodes RSTs as plain calls.
         symbols: Label lookup used by profiles for their comments.
+        read_opcode: Byte source for the M1 bytes (opcode, prefixes and the opcode after a
+            prefix); for a scrambled ROM it returns the raw byte while `read_byte` decodes.
+            None reads everything with `read_byte`.
 
     Returns:
-        The instruction, including the inline data of profile RSTs.
+        The instruction, including the inline data of profile RSTs. `raw` holds the bytes
+        as the CPU sees them (clear bytes for a scrambled ROM).
     """
-    reader = _Reader(read_byte, address)
-    opcode = reader.byte(0)
+    reader = _Reader(read_byte, address, read_opcode)
+    opcode = reader.opcode(0)
     if opcode in (0xDD, 0xFD):
         decoded = _decode_indexed(reader, "ix" if opcode == 0xDD else "iy")
     elif opcode == 0xED:
@@ -257,7 +273,11 @@ def disassemble(
         decoded = _decode_unprefixed(reader, opcode, 0)
         if opcode & 0xC7 == 0xC7 and profile is not None:  # RST
             _apply_profile(decoded, profile, opcode >> 3 & 7, reader, symbols)
-    raw = bytes(reader.byte(offset) for offset in range(decoded.length))
+    m1_bytes = 2 if opcode in (0xCB, 0xDD, 0xED, 0xFD) and decoded.length > 1 else 1
+    raw = bytes(
+        reader.opcode(offset) if offset < m1_bytes else reader.byte(offset)
+        for offset in range(decoded.length)
+    )
     return Instruction(
         address=address,
         raw=raw,
@@ -272,17 +292,19 @@ def disassemble(
     )
 
 
-def disassemble_range(
+def disassemble_range(  # pylint: disable=too-many-arguments  # same options as disassemble
     read_byte: ByteReader,
     address: int,
     count: int,
+    *,
     profile: DisassemblyProfile | None = None,
     symbols: SymbolLookup | None = None,
+    read_opcode: ByteReader | None = None,
 ) -> list[Instruction]:
     """Decode `count` consecutive instructions starting at `address`."""
     instructions = []
     for _ in range(count):
-        instruction = disassemble(read_byte, address, profile, symbols)
+        instruction = disassemble(read_byte, address, profile, symbols, read_opcode)
         instructions.append(instruction)
         address = instruction.next_address
     return instructions
@@ -428,7 +450,7 @@ def _decode_group3(  # pylint: disable=too-many-return-statements  # one case pe
 
 def _decode_cb(reader: _Reader) -> _Decoded:
     """Decode CB xx: rotate/shift, BIT, RES, SET on registers and (HL)."""
-    opcode = reader.byte(1)
+    opcode = reader.opcode(1)
     group, bits_5_3, bits_2_0 = opcode >> 6, opcode >> 3 & 7, opcode & 7
     operand = _REGISTERS[bits_2_0]
     if group == 0:
@@ -441,7 +463,7 @@ def _decode_cb(reader: _Reader) -> _Decoded:
 
 def _decode_ed(reader: _Reader) -> _Decoded:  # pylint: disable=too-many-return-statements,too-many-branches
     """Decode ED xx, including the undocumented duplicates (flagged non-canonical)."""
-    opcode = reader.byte(1)
+    opcode = reader.opcode(1)
     group, bits_5_3, bits_2_0 = opcode >> 6, opcode >> 3 & 7, opcode & 7
     pair_index, bit_3 = bits_5_3 >> 1, bits_5_3 & 1
     if group == 2 and bits_2_0 <= 3 and bits_5_3 >= 4:
@@ -500,9 +522,9 @@ def _decode_indexed(reader: _Reader, index_name: str) -> _Decoded:
     one-byte `defb`. A prefix in front of an instruction that does not involve HL makes the
     instruction behave as unprefixed: decoded with its normal mnemonic, flagged non-canonical.
     """
-    opcode = reader.byte(1)
+    opcode = reader.opcode(1)
     if opcode in (0xDD, 0xED, 0xFD):
-        return _Decoded(f"defb {hex_byte(reader.byte(0))}", 1, non_canonical=False)
+        return _Decoded(f"defb {hex_byte(reader.opcode(0))}", 1, non_canonical=False)
     if opcode == 0xCB:
         return _decode_indexed_cb(reader, index_name)
     decoded = _decode_index_specific(reader, opcode, index_name)

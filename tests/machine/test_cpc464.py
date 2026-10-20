@@ -81,8 +81,8 @@ def test_bus_observers_swap_methods() -> None:
     assert machine.bus.read == fast_read
 
 
-def test_decoder_slots_are_skipped(tmp_path: Path) -> None:
-    """Slots with a decoder are not installed before phase 7 (owner decision)."""
+def test_decoder_slots_get_decoder_and_shadow(tmp_path: Path) -> None:
+    """A slot with a decoder is installed scrambled, with a shadow ROM (phase 7, D-17)."""
     rom = tmp_path / "vdos.rom"
     rom.write_bytes(bytes(0x4000))
     config = MachineConfig(
@@ -90,8 +90,9 @@ def test_decoder_slots_are_skipped(tmp_path: Path) -> None:
         upper_roms={5: RomConfig(5, rom, decoder="vortex", analyse=True)},
     )
     machine = CPC464(config)
-    assert 5 not in machine.memory.upper_roms
-    assert "decoder 'vortex'" in machine.skipped_roms[0]
+    slot = machine.memory.upper_roms[5]
+    assert slot.scrambled and slot.decode_enabled and slot.shadow is not None
+    assert not machine.skipped_roms
 
 
 @pytest.mark.parametrize("mode", [0, 1, 2])

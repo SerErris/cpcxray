@@ -40,6 +40,10 @@ class Machine(Protocol):
         """Read a byte as the CPU would see it, without side effects (no observers)."""
         ...
 
+    def peek_opcode(self, address: int) -> int:
+        """Read a byte as an M1 fetch would (differs from `peek` in scrambled ROMs)."""
+        ...
+
     def poke(self, address: int, value: int) -> None:
         """Write a byte to RAM, without side effects (debugger memory editing)."""
         ...
@@ -90,6 +94,10 @@ class FlatMachine:
     def peek(self, address: int) -> int:
         """Return the RAM byte at `address`."""
         return self.bus.mem[address & 0xFFFF]
+
+    def peek_opcode(self, address: int) -> int:
+        """Return the RAM byte at `address` (no scrambled ROMs here)."""
+        return self.peek(address)
 
     def poke(self, address: int, value: int) -> None:
         """Store a byte in RAM."""
