@@ -4,7 +4,8 @@ Subcommands:
 
 * `config`: load and check a machine configuration.
 * `mcp`: the headless MCP server on stdin/stdout (design.md §6.16, D-28); Claude Code starts it
-  from the project's .mcp.json. Needs the optional dependency `mcp`.
+  from the project's .mcp.json. By default it drives a CPC 464 with the ROMs of
+  config/machine.toml (`--machine flat` for the bare Z80). Needs the optional dependency `mcp`.
 
 The `gui` subcommand (Dear PyGui frontend) follows in phase 5.
 """
@@ -15,9 +16,11 @@ import argparse
 import shutil
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from cpcxray import __version__
 from cpcxray.machine.config import ConfigError, MachineConfig, load_config
+from cpcxray.machine.cpc464 import build_cpc464
 
 DEFAULT_CONFIG = "config/machine.toml"
 
@@ -38,28 +41,46 @@ def main(argv: Sequence[str] | None = None) -> int:
     p_config.add_argument("--config", default=DEFAULT_CONFIG, help="path to machine.toml")
     p_mcp = sub.add_parser("mcp", help="run the headless MCP server on stdio")
     p_mcp.add_argument("--project-dir", default=".", help="base directory for relative paths")
+    p_mcp.add_argument(
+        "--machine", choices=("cpc464", "flat"), default="cpc464",
+        help="cpc464 (ROMs from --config) or flat (bare Z80, 64 KB RAM)",
+    )  # fmt: skip
+    p_mcp.add_argument("--config", default=DEFAULT_CONFIG, help="machine.toml for cpc464")
 
     args = parser.parse_args(argv)
     if args.command == "config":
         return _cmd_config(args.config)
     if args.command == "mcp":
-        return _cmd_mcp(args.project_dir)
+        return _cmd_mcp(args.project_dir, args.machine, args.config)
     parser.print_help()
     return 0
 
 
-def _cmd_mcp(project_dir: str) -> int:
+def _cmd_mcp(project_dir: str, machine_kind: str, config: str) -> int:
     """Run `cpcxray mcp`: serve MCP on stdio until the client disconnects.
 
+    Args:
+        project_dir: Base directory for relative paths (also for --config).
+        machine_kind: "cpc464" (powered on with the configured ROMs) or "flat".
+        config: The machine.toml for the CPC 464.
+
     Returns:
-        0 when the client disconnects, 1 if the `mcp` package is not installed.
+        0 when the client disconnects, 1 if `mcp` is missing or the config is invalid.
     """
     try:
         from cpcxray.mcp_server.server import run_stdio  # pylint: disable=import-outside-toplevel  # optional dependency
     except ImportError as error:
         print(f"error: {error}; install with: pip install -e '.[mcp]'", file=sys.stderr)
         return 1
-    run_stdio(project_dir)
+    machine = None
+    if machine_kind == "cpc464":
+        config_path = Path(config) if Path(config).is_absolute() else Path(project_dir) / config
+        try:
+            machine = build_cpc464(config_path)
+        except ConfigError as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 1
+    run_stdio(project_dir, machine)
     return 0
 
 

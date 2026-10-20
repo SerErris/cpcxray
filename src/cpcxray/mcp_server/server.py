@@ -26,17 +26,19 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from cpcxray import __version__
+from cpcxray.machine.flat import Machine
 from cpcxray.session.commands import SessionWorker
 from cpcxray.session.session import Session, SessionError
 
 SERVER_NAME = "cpcxray"
 INSTRUCTIONS = """\
-CPC X-Ray: an Amstrad CPC 464 emulator for reverse engineering (phase 3: a bare Z80 with 64 KB
-RAM). Load a binary with memory_load, set the PC with registers_set, then step / step_over /
-run / run_until and inspect with disassemble, memory_read and registers_get. Addresses can be
-ints, hex strings ("BB5A", "&BB5A", "#BB5A") or labels; results use 4-digit hex strings. Run
-tools are bounded (instruction/time limits, wall-clock timeout) and report why they stopped.
-File paths are relative to the project directory."""
+CPC X-Ray: an Amstrad CPC 464 emulator for reverse engineering. The server starts with the CPC
+464 of config/machine.toml (or a bare Z80 test machine). Typical use: run (e.g. max_us=3000000
+to boot), screen_text to read the screen, step / step_over / run_until and inspect with
+disassemble, memory_read, registers_get and devices_get. load_config / rom_load change ROMs.
+Addresses can be ints, hex strings ("BB5A", "&BB5A", "#BB5A") or labels; results use 4-digit
+hex strings. Run tools are bounded (instruction/time limits, wall-clock timeout) and report
+why they stopped. File paths are relative to the project directory."""
 
 
 def session_methods() -> list[str]:
@@ -93,9 +95,14 @@ def build_server(worker: SessionWorker) -> MCPServer:
     return server
 
 
-def run_stdio(project_dir: str | Path = ".") -> None:
-    """Run the headless MCP server on stdin/stdout until the client disconnects."""
-    worker = SessionWorker(Session(project_dir=project_dir))
+def run_stdio(project_dir: str | Path = ".", machine: Machine | None = None) -> None:
+    """Run the headless MCP server on stdin/stdout until the client disconnects.
+
+    Args:
+        project_dir: Base directory for relative paths.
+        machine: The machine to drive (default: the flat Z80 test machine).
+    """
+    worker = SessionWorker(Session(machine, project_dir=project_dir))
     try:
         build_server(worker).run("stdio")
     finally:

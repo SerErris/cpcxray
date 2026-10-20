@@ -32,7 +32,10 @@ from cpcxray.cpu.disasm import Flow, Instruction, disassemble
 from cpcxray.debugger.breakpoints import Breakpoints
 from cpcxray.debugger.symbols import GLOBAL, SymbolError, SymbolTable, parse_address
 from cpcxray.debugger.trace import Trace
+from cpcxray.machine.config import ConfigError
+from cpcxray.machine.cpc464 import CPC464, build_cpc464
 from cpcxray.machine.flat import FlatMachine, Machine
+from cpcxray.machine.screen import FONT_ADDRESS, screen_text
 
 DEFAULT_TIMEOUT_S = 10.0
 MAX_TIMEOUT_S = 600.0
@@ -41,6 +44,7 @@ MAX_DISASSEMBLE = 256
 MAX_TRACE_READ = 1000
 MAX_SEARCH_RESULTS = 1000
 ANNOTATIONS_FILE = Path("project") / "annotations.txt"
+DEFAULT_CONFIG = Path("config") / "machine.toml"
 CHECK_INTERVAL = 4096  # instructions between checks of pause and wall clock
 _REPEATING_BLOCK = ("ldir", "lddr", "cpir", "cpdr", "inir", "indr", "otir", "otdr")
 
@@ -279,6 +283,81 @@ class Session:  # pylint: disable=too-many-public-methods  # one method per MCP 
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_bytes(bytes(self.machine.peek(start + offset) for offset in range(length)))
         return {"address": hex4(start), "length": length, "path": str(file)}
+
+    # == CPC 464: configuration, ROMs, devices, screen ==========================================
+
+    def _cpc(self) -> CPC464:
+        """Return the machine as a CPC 464, or raise if it is the flat test machine."""
+        if not isinstance(self.machine, CPC464):
+            raise SessionError("not available on the flat Z80 machine; use load_config first")
+        return self.machine
+
+    def load_config(self, path: str = str(DEFAULT_CONFIG)) -> dict[str, Any]:
+        """Power on a CPC 464 with the ROMs of a machine.toml (default config/machine.toml).
+
+        Replaces the current machine (memory is cleared); symbols, breakpoints and the trace
+        are kept. ROM slots with a decoder (VDOS) are skipped until phase 7.
+        """
+        try:
+            self.machine = build_cpc464(self._path(path))
+        except ConfigError as error:
+            raise SessionError(str(error)) from None
+        return self.machine_status()
+
+    def rom_list(self) -> dict[str, Any]:
+        """List the installed ROMs (slot, file, header type/version) and the skipped ones."""
+        machine = self._cpc()
+        return {"roms": machine.rom_list(), "skipped": list(machine.skipped_roms)}
+
+    def rom_load(self, slot: str | int, path: str) -> dict[str, Any]:
+        """Load a 16 KB ROM image into "lower" or upper slot 0-15, then reset (D-09)."""
+        machine = self._cpc()
+        try:
+            machine.load_rom(self._slot(slot), self._path(path))
+        except (ConfigError, ValueError) as error:
+            raise SessionError(str(error)) from None
+        machine.reset()
+        return self.rom_list()
+
+    def rom_unload(self, slot: str | int) -> dict[str, Any]:
+        """Empty "lower" or upper slot 0-15, then reset (D-09)."""
+        machine = self._cpc()
+        machine.unload_rom(self._slot(slot))
+        machine.reset()
+        return self.rom_list()
+
+    @staticmethod
+    def _slot(slot: str | int) -> str | int:
+        """Validate a slot: "lower" or 0-15 (int or decimal string)."""
+        if slot == "lower":
+            return "lower"
+        try:
+            number = int(slot)
+        except ValueError:
+            raise SessionError(f"slot must be 'lower' or 0-15, got {slot!r}") from None
+        if not 0 <= number <= 15:
+            raise SessionError(f"slot must be 'lower' or 0-15, got {slot!r}")
+        return number
+
+    def devices_get(self) -> dict[str, Any]:
+        """Return the state of Gate Array, CRTC, ROM select, SystemIO and keyboard."""
+        return self._cpc().devices()
+
+    def screen_text(self) -> dict[str, Any]:
+        """Return the text on the CPC screen, recognised from screen RAM with the ROM font.
+
+        One string per character row; unknown cells show "?".
+        """
+        machine = self._cpc()
+        lower = machine.memory.lower_rom
+        if lower is None:
+            raise SessionError("no lower ROM installed: the font is needed to read the screen")
+        font = lower.data[FONT_ADDRESS : FONT_ADDRESS + 0x0800]  # the lower ROM starts at &0000
+        lines = screen_text(
+            lambda address: machine.memory.ram[address], font,
+            machine.crtc.registers, machine.gate_array.mode,
+        )  # fmt: skip
+        return {"mode": machine.gate_array.mode, "lines": lines}
 
     # == execution =============================================================================
 

@@ -174,7 +174,7 @@ def test_milestone_cpcxray_mcp_over_stdio(tmp_path: Path) -> None:
     (tmp_path / "prog.bin").write_bytes(PROGRAM)
     parameters = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "cpcxray.cli", "mcp", "--project-dir", str(tmp_path)],
+        args=["-m", "cpcxray.cli", "mcp", "--project-dir", str(tmp_path), "--machine", "flat"],
     )
 
     async def main() -> None:

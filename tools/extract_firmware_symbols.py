@@ -11,6 +11,7 @@ Corrections of transcription errors in the source (checked against the Firmware 
 * "SCR FLOOD BOX" is listed at &BC17 (the address of SCR CHAR LIMITS) → &BC47.
 * A leading "*" (CAS entries redirected by AMSDOS) is dropped.
 * The undocumented "INTERNAL SUBROUTINE" maths entries get the label maths_internal_xxxx.
+* KM SCAN KEYS (&BDF4) is dropped: it is 664/6128-only (verified on a booted 464, phase 4).
 
 Usage (from the project root): python -m tools.extract_firmware_symbols
 """
@@ -49,8 +50,9 @@ ENTRY = re.compile(
 NAME_FIXES = {"GRA LlNE ABSOLUTE": "GRA LINE ABSOLUTE"}
 LINE_FIXES = {"&BCS0 SCR SW ROLL": "&BC50 SCR SW ROLL"}
 ADDRESS_FIXES = {"SCR FLOOD BOX": 0xBC47}
-# Present in the source without a 664/6128 note, but not yet confirmed on a booted 464.
-TO_VERIFY = {"KM SCAN KEYS": "not yet confirmed on the 464; check RAM at &BDF4 after boot"}
+# Listed in the source without a 664/6128 note, but absent on the 464: after a 464 boot the
+# RAM at &BDF4 is empty while &BDCD-&BDF1 hold JP instructions (checked in phase 4).
+NOT_ON_464 = frozenset({"KM SCAN KEYS"})
 
 
 def page_lines(page: str) -> list[str]:
@@ -80,6 +82,8 @@ def extract() -> list[tuple[int, str, str, str]]:
             name = NAME_FIXES.get(match["name"].strip(), match["name"].strip())
             address = int(match["address_464"] or match["address"], 16)
             address = ADDRESS_FIXES.get(name, address)
+            if name in NOT_ON_464:
+                continue
             entries[address] = (address, label_for(name, address), section, name)
     return sorted(entries.values())
 
@@ -122,11 +126,7 @@ def render(entries: list[tuple[int, str, str, str]]) -> str:
         "FIRMWARE_464: tuple[FirmwareEntry, ...] = (",
     ]
     for address, label, section, name in entries:
-        note = TO_VERIFY.get(name, "")
-        note_part = f", {note!r}" if note else ""
-        lines.append(
-            f"    FirmwareEntry(0x{address:04X}, {label!r}, {section!r}, {name!r}{note_part}),"
-        )
+        lines.append(f"    FirmwareEntry(0x{address:04X}, {label!r}, {section!r}, {name!r}),")
     lines.append(")")
     return "\n".join(lines) + "\n"
 

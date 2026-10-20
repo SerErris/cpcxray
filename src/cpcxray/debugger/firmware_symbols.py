@@ -295,11 +295,4 @@ FIRMWARE_464: tuple[FirmwareEntry, ...] = (
     FirmwareEntry(0xBDEB, "scr_mode_clear", "indirections", "SCR MODE CLEAR"),
     FirmwareEntry(0xBDEE, "km_test_break", "indirections", "KM TEST BREAK"),
     FirmwareEntry(0xBDF1, "mc_wait_printer", "indirections", "MC WAIT PRINTER"),
-    FirmwareEntry(
-        0xBDF4,
-        "km_scan_keys",
-        "indirections",
-        "KM SCAN KEYS",
-        "not yet confirmed on the 464; check RAM at &BDF4 after boot",
-    ),
 )

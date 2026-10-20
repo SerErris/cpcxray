@@ -94,13 +94,24 @@ Implement strictly one phase of design.md §9 at a time. A phase is finished onl
 milestone tests pass together with the full suite, `ruff check` and `ruff format --check`.
 Do not start the next phase without the owner's go-ahead.
 
-**Status:** Phases 0-3 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
-pass); CPU validation (ZEXDOC/ZEXALL, z80test); disassembler, CPC RST profile, symbols,
-Session with minimal debugger, headless MCP server. Next: Phase 4 (CPC 464 machine: memory map,
-ROM slots, Gate Array, ROM select, CRTC registers, SystemIO, interrupt timer; boot to BASIC).
+**Status:** Phases 0-4 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
+pass); CPU validation (ZEXDOC/ZEXALL, z80test); disassembler, CPC RST profile, symbols, Session,
+MCP server; CPC 464 machine booting to "BASIC 1.0 / Ready" (OS, BASIC, AMSDOS). Next: Phase 5
+(renderer and Dear PyGui shell). VDOS (decoder slot) is skipped until phase 7 (owner decision).
 
 Validation runtimes on CPython (8 cores): z80test ~1 min for all variants; ZEXDOC+ZEXALL ~30 min,
 dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on one core).
+
+## CPC 464 notes (phase 4)
+
+- machine/cpc464.py wires memory map, devices and bus. Power-on clears RAM and installs ROMs;
+  `reset()` resets the devices first (Gate Array: mode 1, lower ROM on, upper ROM off -
+  researched: MAME and the OS ROM's first instruction `ld bc,#7F89 / out (c),c`), the Z80 last.
+- Devices decode their own port bits; the bus broadcasts OUT and ANDs IN values (D-08).
+  Write-only devices return `NOT_DRIVEN` from `io_in`. Bus observers swap in observed methods.
+- 300 Hz interrupt and VSYNC per D-05; port B constant &1E confirmed by the boot.
+- `cpcxray mcp` drives a CPC 464 from config/machine.toml by default (`--machine flat` for the
+  bare Z80). `screen_text` reads text from screen RAM using the ROM font (§5.4).
 
 ## Session, debugger and MCP notes (phase 3)
 
