@@ -1,0 +1,2298 @@
+00           nop                      sequential
+01 34 12     ld bc,#1234              sequential
+02           ld (bc),a                sequential
+03           inc bc                   sequential
+04           inc b                    sequential
+05           dec b                    sequential
+06 34        ld b,#34                 sequential
+07           rlca                     sequential
+08           ex af,af'                sequential
+09           add hl,bc                sequential
+0A           ld a,(bc)                sequential
+0B           dec bc                   sequential
+0C           inc c                    sequential
+0D           dec c                    sequential
+0E 34        ld c,#34                 sequential
+0F           rrca                     sequential
+10 34        djnz #80B6               conditional_jump
+11 34 12     ld de,#1234              sequential
+12           ld (de),a                sequential
+13           inc de                   sequential
+14           inc d                    sequential
+15           dec d                    sequential
+16 34        ld d,#34                 sequential
+17           rla                      sequential
+18 34        jr #80F6                 jump
+19           add hl,de                sequential
+1A           ld a,(de)                sequential
+1B           dec de                   sequential
+1C           inc e                    sequential
+1D           dec e                    sequential
+1E 34        ld e,#34                 sequential
+1F           rra                      sequential
+20 34        jr nz,#8136              conditional_jump
+21 34 12     ld hl,#1234              sequential
+22 34 12     ld (#1234),hl            sequential
+23           inc hl                   sequential
+24           inc h                    sequential
+25           dec h                    sequential
+26 34        ld h,#34                 sequential
+27           daa                      sequential
+28 34        jr z,#8176               conditional_jump
+29           add hl,hl                sequential
+2A 34 12     ld hl,(#1234)            sequential
+2B           dec hl                   sequential
+2C           inc l                    sequential
+2D           dec l                    sequential
+2E 34        ld l,#34                 sequential
+2F           cpl                      sequential
+30 34        jr nc,#81B6              conditional_jump
+31 34 12     ld sp,#1234              sequential
+32 34 12     ld (#1234),a             sequential
+33           inc sp                   sequential
+34           inc (hl)                 sequential
+35           dec (hl)                 sequential
+36 34        ld (hl),#34              sequential
+37           scf                      sequential
+38 34        jr c,#81F6               conditional_jump
+39           add hl,sp                sequential
+3A 34 12     ld a,(#1234)             sequential
+3B           dec sp                   sequential
+3C           inc a                    sequential
+3D           dec a                    sequential
+3E 34        ld a,#34                 sequential
+3F           ccf                      sequential
+40           ld b,b                   sequential
+41           ld b,c                   sequential
+42           ld b,d                   sequential
+43           ld b,e                   sequential
+44           ld b,h                   sequential
+45           ld b,l                   sequential
+46           ld b,(hl)                sequential
+47           ld b,a                   sequential
+48           ld c,b                   sequential
+49           ld c,c                   sequential
+4A           ld c,d                   sequential
+4B           ld c,e                   sequential
+4C           ld c,h                   sequential
+4D           ld c,l                   sequential
+4E           ld c,(hl)                sequential
+4F           ld c,a                   sequential
+50           ld d,b                   sequential
+51           ld d,c                   sequential
+52           ld d,d                   sequential
+53           ld d,e                   sequential
+54           ld d,h                   sequential
+55           ld d,l                   sequential
+56           ld d,(hl)                sequential
+57           ld d,a                   sequential
+58           ld e,b                   sequential
+59           ld e,c                   sequential
+5A           ld e,d                   sequential
+5B           ld e,e                   sequential
+5C           ld e,h                   sequential
+5D           ld e,l                   sequential
+5E           ld e,(hl)                sequential
+5F           ld e,a                   sequential
+60           ld h,b                   sequential
+61           ld h,c                   sequential
+62           ld h,d                   sequential
+63           ld h,e                   sequential
+64           ld h,h                   sequential
+65           ld h,l                   sequential
+66           ld h,(hl)                sequential
+67           ld h,a                   sequential
+68           ld l,b                   sequential
+69           ld l,c                   sequential
+6A           ld l,d                   sequential
+6B           ld l,e                   sequential
+6C           ld l,h                   sequential
+6D           ld l,l                   sequential
+6E           ld l,(hl)                sequential
+6F           ld l,a                   sequential
+70           ld (hl),b                sequential
+71           ld (hl),c                sequential
+72           ld (hl),d                sequential
+73           ld (hl),e                sequential
+74           ld (hl),h                sequential
+75           ld (hl),l                sequential
+76           halt                     halt
+77           ld (hl),a                sequential
+78           ld a,b                   sequential
+79           ld a,c                   sequential
+7A           ld a,d                   sequential
+7B           ld a,e                   sequential
+7C           ld a,h                   sequential
+7D           ld a,l                   sequential
+7E           ld a,(hl)                sequential
+7F           ld a,a                   sequential
+80           add a,b                  sequential
+81           add a,c                  sequential
+82           add a,d                  sequential
+83           add a,e                  sequential
+84           add a,h                  sequential
+85           add a,l                  sequential
+86           add a,(hl)               sequential
+87           add a,a                  sequential
+88           adc a,b                  sequential
+89           adc a,c                  sequential
+8A           adc a,d                  sequential
+8B           adc a,e                  sequential
+8C           adc a,h                  sequential
+8D           adc a,l                  sequential
+8E           adc a,(hl)               sequential
+8F           adc a,a                  sequential
+90           sub b                    sequential
+91           sub c                    sequential
+92           sub d                    sequential
+93           sub e                    sequential
+94           sub h                    sequential
+95           sub l                    sequential
+96           sub (hl)                 sequential
+97           sub a                    sequential
+98           sbc a,b                  sequential
+99           sbc a,c                  sequential
+9A           sbc a,d                  sequential
+9B           sbc a,e                  sequential
+9C           sbc a,h                  sequential
+9D           sbc a,l                  sequential
+9E           sbc a,(hl)               sequential
+9F           sbc a,a                  sequential
+A0           and b                    sequential
+A1           and c                    sequential
+A2           and d                    sequential
+A3           and e                    sequential
+A4           and h                    sequential
+A5           and l                    sequential
+A6           and (hl)                 sequential
+A7           and a                    sequential
+A8           xor b                    sequential
+A9           xor c                    sequential
+AA           xor d                    sequential
+AB           xor e                    sequential
+AC           xor h                    sequential
+AD           xor l                    sequential
+AE           xor (hl)                 sequential
+AF           xor a                    sequential
+B0           or b                     sequential
+B1           or c                     sequential
+B2           or d                     sequential
+B3           or e                     sequential
+B4           or h                     sequential
+B5           or l                     sequential
+B6           or (hl)                  sequential
+B7           or a                     sequential
+B8           cp b                     sequential
+B9           cp c                     sequential
+BA           cp d                     sequential
+BB           cp e                     sequential
+BC           cp h                     sequential
+BD           cp l                     sequential
+BE           cp (hl)                  sequential
+BF           cp a                     sequential
+C0           ret nz                   conditional_return
+C1           pop bc                   sequential
+C2 34 12     jp nz,#1234              conditional_jump
+C3 34 12     jp #1234                 jump
+C4 34 12     call nz,#1234            conditional_call
+C5           push bc                  sequential
+C6 34        add a,#34                sequential
+C7           rst #00                  call
+C8           ret z                    conditional_return
+C9           ret                      return
+CA 34 12     jp z,#1234               conditional_jump
+CC 34 12     call z,#1234             conditional_call
+CD 34 12     call #1234               call
+CE 34        adc a,#34                sequential
+CF           rst #08                  call
+D0           ret nc                   conditional_return
+D1           pop de                   sequential
+D2 34 12     jp nc,#1234              conditional_jump
+D3 34        out (#34),a              sequential
+D4 34 12     call nc,#1234            conditional_call
+D5           push de                  sequential
+D6 34        sub #34                  sequential
+D7           rst #10                  call
+D8           ret c                    conditional_return
+D9           exx                      sequential
+DA 34 12     jp c,#1234               conditional_jump
+DB 34        in a,(#34)               sequential
+DC 34 12     call c,#1234             conditional_call
+DE 34        sbc a,#34                sequential
+DF           rst #18                  call
+E0           ret po                   conditional_return
+E1           pop hl                   sequential
+E2 34 12     jp po,#1234              conditional_jump
+E3           ex (sp),hl               sequential
+E4 34 12     call po,#1234            conditional_call
+E5           push hl                  sequential
+E6 34        and #34                  sequential
+E7           rst #20                  call
+E8           ret pe                   conditional_return
+E9           jp (hl)                  indirect_jump
+EA 34 12     jp pe,#1234              conditional_jump
+EB           ex de,hl                 sequential
+EC 34 12     call pe,#1234            conditional_call
+EE 34        xor #34                  sequential
+EF           rst #28                  call
+F0           ret p                    conditional_return
+F1           pop af                   sequential
+F2 34 12     jp p,#1234               conditional_jump
+F3           di                       sequential
+F4 34 12     call p,#1234             conditional_call
+F5           push af                  sequential
+F6 34        or #34                   sequential
+F7           rst #30                  call
+F8           ret m                    conditional_return
+F9           ld sp,hl                 sequential
+FA 34 12     jp m,#1234               conditional_jump
+FB           ei                       sequential
+FC 34 12     call m,#1234             conditional_call
+FE 34        cp #34                   sequential
+FF           rst #38                  call
+CB 00        rlc b                    sequential
+CB 01        rlc c                    sequential
+CB 02        rlc d                    sequential
+CB 03        rlc e                    sequential
+CB 04        rlc h                    sequential
+CB 05        rlc l                    sequential
+CB 06        rlc (hl)                 sequential
+CB 07        rlc a                    sequential
+CB 08        rrc b                    sequential
+CB 09        rrc c                    sequential
+CB 0A        rrc d                    sequential
+CB 0B        rrc e                    sequential
+CB 0C        rrc h                    sequential
+CB 0D        rrc l                    sequential
+CB 0E        rrc (hl)                 sequential
+CB 0F        rrc a                    sequential
+CB 10        rl b                     sequential
+CB 11        rl c                     sequential
+CB 12        rl d                     sequential
+CB 13        rl e                     sequential
+CB 14        rl h                     sequential
+CB 15        rl l                     sequential
+CB 16        rl (hl)                  sequential
+CB 17        rl a                     sequential
+CB 18        rr b                     sequential
+CB 19        rr c                     sequential
+CB 1A        rr d                     sequential
+CB 1B        rr e                     sequential
+CB 1C        rr h                     sequential
+CB 1D        rr l                     sequential
+CB 1E        rr (hl)                  sequential
+CB 1F        rr a                     sequential
+CB 20        sla b                    sequential
+CB 21        sla c                    sequential
+CB 22        sla d                    sequential
+CB 23        sla e                    sequential
+CB 24        sla h                    sequential
+CB 25        sla l                    sequential
+CB 26        sla (hl)                 sequential
+CB 27        sla a                    sequential
+CB 28        sra b                    sequential
+CB 29        sra c                    sequential
+CB 2A        sra d                    sequential
+CB 2B        sra e                    sequential
+CB 2C        sra h                    sequential
+CB 2D        sra l                    sequential
+CB 2E        sra (hl)                 sequential
+CB 2F        sra a                    sequential
+CB 30        sll b                    sequential         ud
+CB 31        sll c                    sequential         ud
+CB 32        sll d                    sequential         ud
+CB 33        sll e                    sequential         ud
+CB 34        sll h                    sequential         ud
+CB 35        sll l                    sequential         ud
+CB 36        sll (hl)                 sequential         ud
+CB 37        sll a                    sequential         ud
+CB 38        srl b                    sequential
+CB 39        srl c                    sequential
+CB 3A        srl d                    sequential
+CB 3B        srl e                    sequential
+CB 3C        srl h                    sequential
+CB 3D        srl l                    sequential
+CB 3E        srl (hl)                 sequential
+CB 3F        srl a                    sequential
+CB 40        bit 0,b                  sequential
+CB 41        bit 0,c                  sequential
+CB 42        bit 0,d                  sequential
+CB 43        bit 0,e                  sequential
+CB 44        bit 0,h                  sequential
+CB 45        bit 0,l                  sequential
+CB 46        bit 0,(hl)               sequential
+CB 47        bit 0,a                  sequential
+CB 48        bit 1,b                  sequential
+CB 49        bit 1,c                  sequential
+CB 4A        bit 1,d                  sequential
+CB 4B        bit 1,e                  sequential
+CB 4C        bit 1,h                  sequential
+CB 4D        bit 1,l                  sequential
+CB 4E        bit 1,(hl)               sequential
+CB 4F        bit 1,a                  sequential
+CB 50        bit 2,b                  sequential
+CB 51        bit 2,c                  sequential
+CB 52        bit 2,d                  sequential
+CB 53        bit 2,e                  sequential
+CB 54        bit 2,h                  sequential
+CB 55        bit 2,l                  sequential
+CB 56        bit 2,(hl)               sequential
+CB 57        bit 2,a                  sequential
+CB 58        bit 3,b                  sequential
+CB 59        bit 3,c                  sequential
+CB 5A        bit 3,d                  sequential
+CB 5B        bit 3,e                  sequential
+CB 5C        bit 3,h                  sequential
+CB 5D        bit 3,l                  sequential
+CB 5E        bit 3,(hl)               sequential
+CB 5F        bit 3,a                  sequential
+CB 60        bit 4,b                  sequential
+CB 61        bit 4,c                  sequential
+CB 62        bit 4,d                  sequential
+CB 63        bit 4,e                  sequential
+CB 64        bit 4,h                  sequential
+CB 65        bit 4,l                  sequential
+CB 66        bit 4,(hl)               sequential
+CB 67        bit 4,a                  sequential
+CB 68        bit 5,b                  sequential
+CB 69        bit 5,c                  sequential
+CB 6A        bit 5,d                  sequential
+CB 6B        bit 5,e                  sequential
+CB 6C        bit 5,h                  sequential
+CB 6D        bit 5,l                  sequential
+CB 6E        bit 5,(hl)               sequential
+CB 6F        bit 5,a                  sequential
+CB 70        bit 6,b                  sequential
+CB 71        bit 6,c                  sequential
+CB 72        bit 6,d                  sequential
+CB 73        bit 6,e                  sequential
+CB 74        bit 6,h                  sequential
+CB 75        bit 6,l                  sequential
+CB 76        bit 6,(hl)               sequential
+CB 77        bit 6,a                  sequential
+CB 78        bit 7,b                  sequential
+CB 79        bit 7,c                  sequential
+CB 7A        bit 7,d                  sequential
+CB 7B        bit 7,e                  sequential
+CB 7C        bit 7,h                  sequential
+CB 7D        bit 7,l                  sequential
+CB 7E        bit 7,(hl)               sequential
+CB 7F        bit 7,a                  sequential
+CB 80        res 0,b                  sequential
+CB 81        res 0,c                  sequential
+CB 82        res 0,d                  sequential
+CB 83        res 0,e                  sequential
+CB 84        res 0,h                  sequential
+CB 85        res 0,l                  sequential
+CB 86        res 0,(hl)               sequential
+CB 87        res 0,a                  sequential
+CB 88        res 1,b                  sequential
+CB 89        res 1,c                  sequential
+CB 8A        res 1,d                  sequential
+CB 8B        res 1,e                  sequential
+CB 8C        res 1,h                  sequential
+CB 8D        res 1,l                  sequential
+CB 8E        res 1,(hl)               sequential
+CB 8F        res 1,a                  sequential
+CB 90        res 2,b                  sequential
+CB 91        res 2,c                  sequential
+CB 92        res 2,d                  sequential
+CB 93        res 2,e                  sequential
+CB 94        res 2,h                  sequential
+CB 95        res 2,l                  sequential
+CB 96        res 2,(hl)               sequential
+CB 97        res 2,a                  sequential
+CB 98        res 3,b                  sequential
+CB 99        res 3,c                  sequential
+CB 9A        res 3,d                  sequential
+CB 9B        res 3,e                  sequential
+CB 9C        res 3,h                  sequential
+CB 9D        res 3,l                  sequential
+CB 9E        res 3,(hl)               sequential
+CB 9F        res 3,a                  sequential
+CB A0        res 4,b                  sequential
+CB A1        res 4,c                  sequential
+CB A2        res 4,d                  sequential
+CB A3        res 4,e                  sequential
+CB A4        res 4,h                  sequential
+CB A5        res 4,l                  sequential
+CB A6        res 4,(hl)               sequential
+CB A7        res 4,a                  sequential
+CB A8        res 5,b                  sequential
+CB A9        res 5,c                  sequential
+CB AA        res 5,d                  sequential
+CB AB        res 5,e                  sequential
+CB AC        res 5,h                  sequential
+CB AD        res 5,l                  sequential
+CB AE        res 5,(hl)               sequential
+CB AF        res 5,a                  sequential
+CB B0        res 6,b                  sequential
+CB B1        res 6,c                  sequential
+CB B2        res 6,d                  sequential
+CB B3        res 6,e                  sequential
+CB B4        res 6,h                  sequential
+CB B5        res 6,l                  sequential
+CB B6        res 6,(hl)               sequential
+CB B7        res 6,a                  sequential
+CB B8        res 7,b                  sequential
+CB B9        res 7,c                  sequential
+CB BA        res 7,d                  sequential
+CB BB        res 7,e                  sequential
+CB BC        res 7,h                  sequential
+CB BD        res 7,l                  sequential
+CB BE        res 7,(hl)               sequential
+CB BF        res 7,a                  sequential
+CB C0        set 0,b                  sequential
+CB C1        set 0,c                  sequential
+CB C2        set 0,d                  sequential
+CB C3        set 0,e                  sequential
+CB C4        set 0,h                  sequential
+CB C5        set 0,l                  sequential
+CB C6        set 0,(hl)               sequential
+CB C7        set 0,a                  sequential
+CB C8        set 1,b                  sequential
+CB C9        set 1,c                  sequential
+CB CA        set 1,d                  sequential
+CB CB        set 1,e                  sequential
+CB CC        set 1,h                  sequential
+CB CD        set 1,l                  sequential
+CB CE        set 1,(hl)               sequential
+CB CF        set 1,a                  sequential
+CB D0        set 2,b                  sequential
+CB D1        set 2,c                  sequential
+CB D2        set 2,d                  sequential
+CB D3        set 2,e                  sequential
+CB D4        set 2,h                  sequential
+CB D5        set 2,l                  sequential
+CB D6        set 2,(hl)               sequential
+CB D7        set 2,a                  sequential
+CB D8        set 3,b                  sequential
+CB D9        set 3,c                  sequential
+CB DA        set 3,d                  sequential
+CB DB        set 3,e                  sequential
+CB DC        set 3,h                  sequential
+CB DD        set 3,l                  sequential
+CB DE        set 3,(hl)               sequential
+CB DF        set 3,a                  sequential
+CB E0        set 4,b                  sequential
+CB E1        set 4,c                  sequential
+CB E2        set 4,d                  sequential
+CB E3        set 4,e                  sequential
+CB E4        set 4,h                  sequential
+CB E5        set 4,l                  sequential
+CB E6        set 4,(hl)               sequential
+CB E7        set 4,a                  sequential
+CB E8        set 5,b                  sequential
+CB E9        set 5,c                  sequential
+CB EA        set 5,d                  sequential
+CB EB        set 5,e                  sequential
+CB EC        set 5,h                  sequential
+CB ED        set 5,l                  sequential
+CB EE        set 5,(hl)               sequential
+CB EF        set 5,a                  sequential
+CB F0        set 6,b                  sequential
+CB F1        set 6,c                  sequential
+CB F2        set 6,d                  sequential
+CB F3        set 6,e                  sequential
+CB F4        set 6,h                  sequential
+CB F5        set 6,l                  sequential
+CB F6        set 6,(hl)               sequential
+CB F7        set 6,a                  sequential
+CB F8        set 7,b                  sequential
+CB F9        set 7,c                  sequential
+CB FA        set 7,d                  sequential
+CB FB        set 7,e                  sequential
+CB FC        set 7,h                  sequential
+CB FD        set 7,l                  sequential
+CB FE        set 7,(hl)               sequential
+CB FF        set 7,a                  sequential
+ED 00        nop                      sequential         nc ud
+ED 01        nop                      sequential         nc ud
+ED 02        nop                      sequential         nc ud
+ED 03        nop                      sequential         nc ud
+ED 04        nop                      sequential         nc ud
+ED 05        nop                      sequential         nc ud
+ED 06        nop                      sequential         nc ud
+ED 07        nop                      sequential         nc ud
+ED 08        nop                      sequential         nc ud
+ED 09        nop                      sequential         nc ud
+ED 0A        nop                      sequential         nc ud
+ED 0B        nop                      sequential         nc ud
+ED 0C        nop                      sequential         nc ud
+ED 0D        nop                      sequential         nc ud
+ED 0E        nop                      sequential         nc ud
+ED 0F        nop                      sequential         nc ud
+ED 10        nop                      sequential         nc ud
+ED 11        nop                      sequential         nc ud
+ED 12        nop                      sequential         nc ud
+ED 13        nop                      sequential         nc ud
+ED 14        nop                      sequential         nc ud
+ED 15        nop                      sequential         nc ud
+ED 16        nop                      sequential         nc ud
+ED 17        nop                      sequential         nc ud
+ED 18        nop                      sequential         nc ud
+ED 19        nop                      sequential         nc ud
+ED 1A        nop                      sequential         nc ud
+ED 1B        nop                      sequential         nc ud
+ED 1C        nop                      sequential         nc ud
+ED 1D        nop                      sequential         nc ud
+ED 1E        nop                      sequential         nc ud
+ED 1F        nop                      sequential         nc ud
+ED 20        nop                      sequential         nc ud
+ED 21        nop                      sequential         nc ud
+ED 22        nop                      sequential         nc ud
+ED 23        nop                      sequential         nc ud
+ED 24        nop                      sequential         nc ud
+ED 25        nop                      sequential         nc ud
+ED 26        nop                      sequential         nc ud
+ED 27        nop                      sequential         nc ud
+ED 28        nop                      sequential         nc ud
+ED 29        nop                      sequential         nc ud
+ED 2A        nop                      sequential         nc ud
+ED 2B        nop                      sequential         nc ud
+ED 2C        nop                      sequential         nc ud
+ED 2D        nop                      sequential         nc ud
+ED 2E        nop                      sequential         nc ud
+ED 2F        nop                      sequential         nc ud
+ED 30        nop                      sequential         nc ud
+ED 31        nop                      sequential         nc ud
+ED 32        nop                      sequential         nc ud
+ED 33        nop                      sequential         nc ud
+ED 34        nop                      sequential         nc ud
+ED 35        nop                      sequential         nc ud
+ED 36        nop                      sequential         nc ud
+ED 37        nop                      sequential         nc ud
+ED 38        nop                      sequential         nc ud
+ED 39        nop                      sequential         nc ud
+ED 3A        nop                      sequential         nc ud
+ED 3B        nop                      sequential         nc ud
+ED 3C        nop                      sequential         nc ud
+ED 3D        nop                      sequential         nc ud
+ED 3E        nop                      sequential         nc ud
+ED 3F        nop                      sequential         nc ud
+ED 40        in b,(c)                 sequential
+ED 41        out (c),b                sequential
+ED 42        sbc hl,bc                sequential
+ED 43 34 12  ld (#1234),bc            sequential
+ED 44        neg                      sequential
+ED 45        retn                     return
+ED 46        im 0                     sequential
+ED 47        ld i,a                   sequential
+ED 48        in c,(c)                 sequential
+ED 49        out (c),c                sequential
+ED 4A        adc hl,bc                sequential
+ED 4B 34 12  ld bc,(#1234)            sequential
+ED 4C        neg                      sequential         nc ud
+ED 4D        reti                     return
+ED 4E        im 0                     sequential         nc ud
+ED 4F        ld r,a                   sequential
+ED 50        in d,(c)                 sequential
+ED 51        out (c),d                sequential
+ED 52        sbc hl,de                sequential
+ED 53 34 12  ld (#1234),de            sequential
+ED 54        neg                      sequential         nc ud
+ED 55        retn                     return             nc ud
+ED 56        im 1                     sequential
+ED 57        ld a,i                   sequential
+ED 58        in e,(c)                 sequential
+ED 59        out (c),e                sequential
+ED 5A        adc hl,de                sequential
+ED 5B 34 12  ld de,(#1234)            sequential
+ED 5C        neg                      sequential         nc ud
+ED 5D        retn                     return             nc ud
+ED 5E        im 2                     sequential
+ED 5F        ld a,r                   sequential
+ED 60        in h,(c)                 sequential
+ED 61        out (c),h                sequential
+ED 62        sbc hl,hl                sequential
+ED 63 34 12  ld (#1234),hl            sequential         nc ud
+ED 64        neg                      sequential         nc ud
+ED 65        retn                     return             nc ud
+ED 66        im 0                     sequential         nc ud
+ED 67        rrd                      sequential
+ED 68        in l,(c)                 sequential
+ED 69        out (c),l                sequential
+ED 6A        adc hl,hl                sequential
+ED 6B 34 12  ld hl,(#1234)            sequential         nc ud
+ED 6C        neg                      sequential         nc ud
+ED 6D        retn                     return             nc ud
+ED 6E        im 0                     sequential         nc ud
+ED 6F        rld                      sequential
+ED 70        in f,(c)                 sequential         ud
+ED 71        out (c),0                sequential         ud
+ED 72        sbc hl,sp                sequential
+ED 73 34 12  ld (#1234),sp            sequential
+ED 74        neg                      sequential         nc ud
+ED 75        retn                     return             nc ud
+ED 76        im 1                     sequential         nc ud
+ED 77        nop                      sequential         nc ud
+ED 78        in a,(c)                 sequential
+ED 79        out (c),a                sequential
+ED 7A        adc hl,sp                sequential
+ED 7B 34 12  ld sp,(#1234)            sequential
+ED 7C        neg                      sequential         nc ud
+ED 7D        retn                     return             nc ud
+ED 7E        im 2                     sequential         nc ud
+ED 7F        nop                      sequential         nc ud
+ED 80        nop                      sequential         nc ud
+ED 81        nop                      sequential         nc ud
+ED 82        nop                      sequential         nc ud
+ED 83        nop                      sequential         nc ud
+ED 84        nop                      sequential         nc ud
+ED 85        nop                      sequential         nc ud
+ED 86        nop                      sequential         nc ud
+ED 87        nop                      sequential         nc ud
+ED 88        nop                      sequential         nc ud
+ED 89        nop                      sequential         nc ud
+ED 8A        nop                      sequential         nc ud
+ED 8B        nop                      sequential         nc ud
+ED 8C        nop                      sequential         nc ud
+ED 8D        nop                      sequential         nc ud
+ED 8E        nop                      sequential         nc ud
+ED 8F        nop                      sequential         nc ud
+ED 90        nop                      sequential         nc ud
+ED 91        nop                      sequential         nc ud
+ED 92        nop                      sequential         nc ud
+ED 93        nop                      sequential         nc ud
+ED 94        nop                      sequential         nc ud
+ED 95        nop                      sequential         nc ud
+ED 96        nop                      sequential         nc ud
+ED 97        nop                      sequential         nc ud
+ED 98        nop                      sequential         nc ud
+ED 99        nop                      sequential         nc ud
+ED 9A        nop                      sequential         nc ud
+ED 9B        nop                      sequential         nc ud
+ED 9C        nop                      sequential         nc ud
+ED 9D        nop                      sequential         nc ud
+ED 9E        nop                      sequential         nc ud
+ED 9F        nop                      sequential         nc ud
+ED A0        ldi                      sequential
+ED A1        cpi                      sequential
+ED A2        ini                      sequential
+ED A3        outi                     sequential
+ED A4        nop                      sequential         nc ud
+ED A5        nop                      sequential         nc ud
+ED A6        nop                      sequential         nc ud
+ED A7        nop                      sequential         nc ud
+ED A8        ldd                      sequential
+ED A9        cpd                      sequential
+ED AA        ind                      sequential
+ED AB        outd                     sequential
+ED AC        nop                      sequential         nc ud
+ED AD        nop                      sequential         nc ud
+ED AE        nop                      sequential         nc ud
+ED AF        nop                      sequential         nc ud
+ED B0        ldir                     sequential
+ED B1        cpir                     sequential
+ED B2        inir                     sequential
+ED B3        otir                     sequential
+ED B4        nop                      sequential         nc ud
+ED B5        nop                      sequential         nc ud
+ED B6        nop                      sequential         nc ud
+ED B7        nop                      sequential         nc ud
+ED B8        lddr                     sequential
+ED B9        cpdr                     sequential
+ED BA        indr                     sequential
+ED BB        otdr                     sequential
+ED BC        nop                      sequential         nc ud
+ED BD        nop                      sequential         nc ud
+ED BE        nop                      sequential         nc ud
+ED BF        nop                      sequential         nc ud
+ED C0        nop                      sequential         nc ud
+ED C1        nop                      sequential         nc ud
+ED C2        nop                      sequential         nc ud
+ED C3        nop                      sequential         nc ud
+ED C4        nop                      sequential         nc ud
+ED C5        nop                      sequential         nc ud
+ED C6        nop                      sequential         nc ud
+ED C7        nop                      sequential         nc ud
+ED C8        nop                      sequential         nc ud
+ED C9        nop                      sequential         nc ud
+ED CA        nop                      sequential         nc ud
+ED CB        nop                      sequential         nc ud
+ED CC        nop                      sequential         nc ud
+ED CD        nop                      sequential         nc ud
+ED CE        nop                      sequential         nc ud
+ED CF        nop                      sequential         nc ud
+ED D0        nop                      sequential         nc ud
+ED D1        nop                      sequential         nc ud
+ED D2        nop                      sequential         nc ud
+ED D3        nop                      sequential         nc ud
+ED D4        nop                      sequential         nc ud
+ED D5        nop                      sequential         nc ud
+ED D6        nop                      sequential         nc ud
+ED D7        nop                      sequential         nc ud
+ED D8        nop                      sequential         nc ud
+ED D9        nop                      sequential         nc ud
+ED DA        nop                      sequential         nc ud
+ED DB        nop                      sequential         nc ud
+ED DC        nop                      sequential         nc ud
+ED DD        nop                      sequential         nc ud
+ED DE        nop                      sequential         nc ud
+ED DF        nop                      sequential         nc ud
+ED E0        nop                      sequential         nc ud
+ED E1        nop                      sequential         nc ud
+ED E2        nop                      sequential         nc ud
+ED E3        nop                      sequential         nc ud
+ED E4        nop                      sequential         nc ud
+ED E5        nop                      sequential         nc ud
+ED E6        nop                      sequential         nc ud
+ED E7        nop                      sequential         nc ud
+ED E8        nop                      sequential         nc ud
+ED E9        nop                      sequential         nc ud
+ED EA        nop                      sequential         nc ud
+ED EB        nop                      sequential         nc ud
+ED EC        nop                      sequential         nc ud
+ED ED        nop                      sequential         nc ud
+ED EE        nop                      sequential         nc ud
+ED EF        nop                      sequential         nc ud
+ED F0        nop                      sequential         nc ud
+ED F1        nop                      sequential         nc ud
+ED F2        nop                      sequential         nc ud
+ED F3        nop                      sequential         nc ud
+ED F4        nop                      sequential         nc ud
+ED F5        nop                      sequential         nc ud
+ED F6        nop                      sequential         nc ud
+ED F7        nop                      sequential         nc ud
+ED F8        nop                      sequential         nc ud
+ED F9        nop                      sequential         nc ud
+ED FA        nop                      sequential         nc ud
+ED FB        nop                      sequential         nc ud
+ED FC        nop                      sequential         nc ud
+ED FD        nop                      sequential         nc ud
+ED FE        nop                      sequential         nc ud
+ED FF        nop                      sequential         nc ud
+DD 00        nop                      sequential         nc ud
+DD 01 34 12  ld bc,#1234              sequential         nc ud
+DD 02        ld (bc),a                sequential         nc ud
+DD 03        inc bc                   sequential         nc ud
+DD 04        inc b                    sequential         nc ud
+DD 05        dec b                    sequential         nc ud
+DD 06 34     ld b,#34                 sequential         nc ud
+DD 07        rlca                     sequential         nc ud
+DD 08        ex af,af'                sequential         nc ud
+DD 09        add ix,bc                sequential
+DD 0A        ld a,(bc)                sequential         nc ud
+DD 0B        dec bc                   sequential         nc ud
+DD 0C        inc c                    sequential         nc ud
+DD 0D        dec c                    sequential         nc ud
+DD 0E 34     ld c,#34                 sequential         nc ud
+DD 0F        rrca                     sequential         nc ud
+DD 10 34     djnz #9897               conditional_jump   nc ud
+DD 11 34 12  ld de,#1234              sequential         nc ud
+DD 12        ld (de),a                sequential         nc ud
+DD 13        inc de                   sequential         nc ud
+DD 14        inc d                    sequential         nc ud
+DD 15        dec d                    sequential         nc ud
+DD 16 34     ld d,#34                 sequential         nc ud
+DD 17        rla                      sequential         nc ud
+DD 18 34     jr #98D7                 jump               nc ud
+DD 19        add ix,de                sequential
+DD 1A        ld a,(de)                sequential         nc ud
+DD 1B        dec de                   sequential         nc ud
+DD 1C        inc e                    sequential         nc ud
+DD 1D        dec e                    sequential         nc ud
+DD 1E 34     ld e,#34                 sequential         nc ud
+DD 1F        rra                      sequential         nc ud
+DD 20 34     jr nz,#9917              conditional_jump   nc ud
+DD 21 34 12  ld ix,#1234              sequential
+DD 22 34 12  ld (#1234),ix            sequential
+DD 23        inc ix                   sequential
+DD 24        inc ixh                  sequential         ud
+DD 25        dec ixh                  sequential         ud
+DD 26 34     ld ixh,#34               sequential         ud
+DD 27        daa                      sequential         nc ud
+DD 28 34     jr z,#9957               conditional_jump   nc ud
+DD 29        add ix,ix                sequential
+DD 2A 34 12  ld ix,(#1234)            sequential
+DD 2B        dec ix                   sequential
+DD 2C        inc ixl                  sequential         ud
+DD 2D        dec ixl                  sequential         ud
+DD 2E 34     ld ixl,#34               sequential         ud
+DD 2F        cpl                      sequential         nc ud
+DD 30 34     jr nc,#9997              conditional_jump   nc ud
+DD 31 34 12  ld sp,#1234              sequential         nc ud
+DD 32 34 12  ld (#1234),a             sequential         nc ud
+DD 33        inc sp                   sequential         nc ud
+DD 34 34     inc (ix+#34)             sequential
+DD 35 34     dec (ix+#34)             sequential
+DD 36 34 12  ld (ix+#34),#12          sequential
+DD 37        scf                      sequential         nc ud
+DD 38 34     jr c,#99D7               conditional_jump   nc ud
+DD 39        add ix,sp                sequential
+DD 3A 34 12  ld a,(#1234)             sequential         nc ud
+DD 3B        dec sp                   sequential         nc ud
+DD 3C        inc a                    sequential         nc ud
+DD 3D        dec a                    sequential         nc ud
+DD 3E 34     ld a,#34                 sequential         nc ud
+DD 3F        ccf                      sequential         nc ud
+DD 40        ld b,b                   sequential         nc ud
+DD 41        ld b,c                   sequential         nc ud
+DD 42        ld b,d                   sequential         nc ud
+DD 43        ld b,e                   sequential         nc ud
+DD 44        ld b,ixh                 sequential         ud
+DD 45        ld b,ixl                 sequential         ud
+DD 46 34     ld b,(ix+#34)            sequential
+DD 47        ld b,a                   sequential         nc ud
+DD 48        ld c,b                   sequential         nc ud
+DD 49        ld c,c                   sequential         nc ud
+DD 4A        ld c,d                   sequential         nc ud
+DD 4B        ld c,e                   sequential         nc ud
+DD 4C        ld c,ixh                 sequential         ud
+DD 4D        ld c,ixl                 sequential         ud
+DD 4E 34     ld c,(ix+#34)            sequential
+DD 4F        ld c,a                   sequential         nc ud
+DD 50        ld d,b                   sequential         nc ud
+DD 51        ld d,c                   sequential         nc ud
+DD 52        ld d,d                   sequential         nc ud
+DD 53        ld d,e                   sequential         nc ud
+DD 54        ld d,ixh                 sequential         ud
+DD 55        ld d,ixl                 sequential         ud
+DD 56 34     ld d,(ix+#34)            sequential
+DD 57        ld d,a                   sequential         nc ud
+DD 58        ld e,b                   sequential         nc ud
+DD 59        ld e,c                   sequential         nc ud
+DD 5A        ld e,d                   sequential         nc ud
+DD 5B        ld e,e                   sequential         nc ud
+DD 5C        ld e,ixh                 sequential         ud
+DD 5D        ld e,ixl                 sequential         ud
+DD 5E 34     ld e,(ix+#34)            sequential
+DD 5F        ld e,a                   sequential         nc ud
+DD 60        ld ixh,b                 sequential         ud
+DD 61        ld ixh,c                 sequential         ud
+DD 62        ld ixh,d                 sequential         ud
+DD 63        ld ixh,e                 sequential         ud
+DD 64        ld ixh,ixh               sequential         ud
+DD 65        ld ixh,ixl               sequential         ud
+DD 66 34     ld h,(ix+#34)            sequential
+DD 67        ld ixh,a                 sequential         ud
+DD 68        ld ixl,b                 sequential         ud
+DD 69        ld ixl,c                 sequential         ud
+DD 6A        ld ixl,d                 sequential         ud
+DD 6B        ld ixl,e                 sequential         ud
+DD 6C        ld ixl,ixh               sequential         ud
+DD 6D        ld ixl,ixl               sequential         ud
+DD 6E 34     ld l,(ix+#34)            sequential
+DD 6F        ld ixl,a                 sequential         ud
+DD 70 34     ld (ix+#34),b            sequential
+DD 71 34     ld (ix+#34),c            sequential
+DD 72 34     ld (ix+#34),d            sequential
+DD 73 34     ld (ix+#34),e            sequential
+DD 74 34     ld (ix+#34),h            sequential
+DD 75 34     ld (ix+#34),l            sequential
+DD 76        halt                     halt               nc ud
+DD 77 34     ld (ix+#34),a            sequential
+DD 78        ld a,b                   sequential         nc ud
+DD 79        ld a,c                   sequential         nc ud
+DD 7A        ld a,d                   sequential         nc ud
+DD 7B        ld a,e                   sequential         nc ud
+DD 7C        ld a,ixh                 sequential         ud
+DD 7D        ld a,ixl                 sequential         ud
+DD 7E 34     ld a,(ix+#34)            sequential
+DD 7F        ld a,a                   sequential         nc ud
+DD 80        add a,b                  sequential         nc ud
+DD 81        add a,c                  sequential         nc ud
+DD 82        add a,d                  sequential         nc ud
+DD 83        add a,e                  sequential         nc ud
+DD 84        add a,ixh                sequential         ud
+DD 85        add a,ixl                sequential         ud
+DD 86 34     add a,(ix+#34)           sequential
+DD 87        add a,a                  sequential         nc ud
+DD 88        adc a,b                  sequential         nc ud
+DD 89        adc a,c                  sequential         nc ud
+DD 8A        adc a,d                  sequential         nc ud
+DD 8B        adc a,e                  sequential         nc ud
+DD 8C        adc a,ixh                sequential         ud
+DD 8D        adc a,ixl                sequential         ud
+DD 8E 34     adc a,(ix+#34)           sequential
+DD 8F        adc a,a                  sequential         nc ud
+DD 90        sub b                    sequential         nc ud
+DD 91        sub c                    sequential         nc ud
+DD 92        sub d                    sequential         nc ud
+DD 93        sub e                    sequential         nc ud
+DD 94        sub ixh                  sequential         ud
+DD 95        sub ixl                  sequential         ud
+DD 96 34     sub (ix+#34)             sequential
+DD 97        sub a                    sequential         nc ud
+DD 98        sbc a,b                  sequential         nc ud
+DD 99        sbc a,c                  sequential         nc ud
+DD 9A        sbc a,d                  sequential         nc ud
+DD 9B        sbc a,e                  sequential         nc ud
+DD 9C        sbc a,ixh                sequential         ud
+DD 9D        sbc a,ixl                sequential         ud
+DD 9E 34     sbc a,(ix+#34)           sequential
+DD 9F        sbc a,a                  sequential         nc ud
+DD A0        and b                    sequential         nc ud
+DD A1        and c                    sequential         nc ud
+DD A2        and d                    sequential         nc ud
+DD A3        and e                    sequential         nc ud
+DD A4        and ixh                  sequential         ud
+DD A5        and ixl                  sequential         ud
+DD A6 34     and (ix+#34)             sequential
+DD A7        and a                    sequential         nc ud
+DD A8        xor b                    sequential         nc ud
+DD A9        xor c                    sequential         nc ud
+DD AA        xor d                    sequential         nc ud
+DD AB        xor e                    sequential         nc ud
+DD AC        xor ixh                  sequential         ud
+DD AD        xor ixl                  sequential         ud
+DD AE 34     xor (ix+#34)             sequential
+DD AF        xor a                    sequential         nc ud
+DD B0        or b                     sequential         nc ud
+DD B1        or c                     sequential         nc ud
+DD B2        or d                     sequential         nc ud
+DD B3        or e                     sequential         nc ud
+DD B4        or ixh                   sequential         ud
+DD B5        or ixl                   sequential         ud
+DD B6 34     or (ix+#34)              sequential
+DD B7        or a                     sequential         nc ud
+DD B8        cp b                     sequential         nc ud
+DD B9        cp c                     sequential         nc ud
+DD BA        cp d                     sequential         nc ud
+DD BB        cp e                     sequential         nc ud
+DD BC        cp ixh                   sequential         ud
+DD BD        cp ixl                   sequential         ud
+DD BE 34     cp (ix+#34)              sequential
+DD BF        cp a                     sequential         nc ud
+DD C0        ret nz                   conditional_return nc ud
+DD C1        pop bc                   sequential         nc ud
+DD C2 34 12  jp nz,#1234              conditional_jump   nc ud
+DD C3 34 12  jp #1234                 jump               nc ud
+DD C4 34 12  call nz,#1234            conditional_call   nc ud
+DD C5        push bc                  sequential         nc ud
+DD C6 34     add a,#34                sequential         nc ud
+DD C7        rst #00                  call               nc ud
+DD C8        ret z                    conditional_return nc ud
+DD C9        ret                      return             nc ud
+DD CA 34 12  jp z,#1234               conditional_jump   nc ud
+DD CC 34 12  call z,#1234             conditional_call   nc ud
+DD CD 34 12  call #1234               call               nc ud
+DD CE 34     adc a,#34                sequential         nc ud
+DD CF        rst #08                  call               nc ud
+DD D0        ret nc                   conditional_return nc ud
+DD D1        pop de                   sequential         nc ud
+DD D2 34 12  jp nc,#1234              conditional_jump   nc ud
+DD D3 34     out (#34),a              sequential         nc ud
+DD D4 34 12  call nc,#1234            conditional_call   nc ud
+DD D5        push de                  sequential         nc ud
+DD D6 34     sub #34                  sequential         nc ud
+DD D7        rst #10                  call               nc ud
+DD D8        ret c                    conditional_return nc ud
+DD D9        exx                      sequential         nc ud
+DD DA 34 12  jp c,#1234               conditional_jump   nc ud
+DD DB 34     in a,(#34)               sequential         nc ud
+DD DC 34 12  call c,#1234             conditional_call   nc ud
+DD           defb #DD                 sequential
+DD DE 34     sbc a,#34                sequential         nc ud
+DD DF        rst #18                  call               nc ud
+DD E0        ret po                   conditional_return nc ud
+DD E1        pop ix                   sequential
+DD E2 34 12  jp po,#1234              conditional_jump   nc ud
+DD E3        ex (sp),ix               sequential
+DD E4 34 12  call po,#1234            conditional_call   nc ud
+DD E5        push ix                  sequential
+DD E6 34     and #34                  sequential         nc ud
+DD E7        rst #20                  call               nc ud
+DD E8        ret pe                   conditional_return nc ud
+DD E9        jp (ix)                  indirect_jump
+DD EA 34 12  jp pe,#1234              conditional_jump   nc ud
+DD EB        ex de,hl                 sequential         nc ud
+DD EC 34 12  call pe,#1234            conditional_call   nc ud
+DD           defb #DD                 sequential
+DD EE 34     xor #34                  sequential         nc ud
+DD EF        rst #28                  call               nc ud
+DD F0        ret p                    conditional_return nc ud
+DD F1        pop af                   sequential         nc ud
+DD F2 34 12  jp p,#1234               conditional_jump   nc ud
+DD F3        di                       sequential         nc ud
+DD F4 34 12  call p,#1234             conditional_call   nc ud
+DD F5        push af                  sequential         nc ud
+DD F6 34     or #34                   sequential         nc ud
+DD F7        rst #30                  call               nc ud
+DD F8        ret m                    conditional_return nc ud
+DD F9        ld sp,ix                 sequential
+DD FA 34 12  jp m,#1234               conditional_jump   nc ud
+DD FB        ei                       sequential         nc ud
+DD FC 34 12  call m,#1234             conditional_call   nc ud
+DD           defb #DD                 sequential
+DD FE 34     cp #34                   sequential         nc ud
+DD FF        rst #38                  call               nc ud
+DD CB 05 00  rlc (ix+#05),b           sequential         ud
+DD CB 05 01  rlc (ix+#05),c           sequential         ud
+DD CB 05 02  rlc (ix+#05),d           sequential         ud
+DD CB 05 03  rlc (ix+#05),e           sequential         ud
+DD CB 05 04  rlc (ix+#05),h           sequential         ud
+DD CB 05 05  rlc (ix+#05),l           sequential         ud
+DD CB 05 06  rlc (ix+#05)             sequential
+DD CB 05 07  rlc (ix+#05),a           sequential         ud
+DD CB 05 08  rrc (ix+#05),b           sequential         ud
+DD CB 05 09  rrc (ix+#05),c           sequential         ud
+DD CB 05 0A  rrc (ix+#05),d           sequential         ud
+DD CB 05 0B  rrc (ix+#05),e           sequential         ud
+DD CB 05 0C  rrc (ix+#05),h           sequential         ud
+DD CB 05 0D  rrc (ix+#05),l           sequential         ud
+DD CB 05 0E  rrc (ix+#05)             sequential
+DD CB 05 0F  rrc (ix+#05),a           sequential         ud
+DD CB 05 10  rl (ix+#05),b            sequential         ud
+DD CB 05 11  rl (ix+#05),c            sequential         ud
+DD CB 05 12  rl (ix+#05),d            sequential         ud
+DD CB 05 13  rl (ix+#05),e            sequential         ud
+DD CB 05 14  rl (ix+#05),h            sequential         ud
+DD CB 05 15  rl (ix+#05),l            sequential         ud
+DD CB 05 16  rl (ix+#05)              sequential
+DD CB 05 17  rl (ix+#05),a            sequential         ud
+DD CB 05 18  rr (ix+#05),b            sequential         ud
+DD CB 05 19  rr (ix+#05),c            sequential         ud
+DD CB 05 1A  rr (ix+#05),d            sequential         ud
+DD CB 05 1B  rr (ix+#05),e            sequential         ud
+DD CB 05 1C  rr (ix+#05),h            sequential         ud
+DD CB 05 1D  rr (ix+#05),l            sequential         ud
+DD CB 05 1E  rr (ix+#05)              sequential
+DD CB 05 1F  rr (ix+#05),a            sequential         ud
+DD CB 05 20  sla (ix+#05),b           sequential         ud
+DD CB 05 21  sla (ix+#05),c           sequential         ud
+DD CB 05 22  sla (ix+#05),d           sequential         ud
+DD CB 05 23  sla (ix+#05),e           sequential         ud
+DD CB 05 24  sla (ix+#05),h           sequential         ud
+DD CB 05 25  sla (ix+#05),l           sequential         ud
+DD CB 05 26  sla (ix+#05)             sequential
+DD CB 05 27  sla (ix+#05),a           sequential         ud
+DD CB 05 28  sra (ix+#05),b           sequential         ud
+DD CB 05 29  sra (ix+#05),c           sequential         ud
+DD CB 05 2A  sra (ix+#05),d           sequential         ud
+DD CB 05 2B  sra (ix+#05),e           sequential         ud
+DD CB 05 2C  sra (ix+#05),h           sequential         ud
+DD CB 05 2D  sra (ix+#05),l           sequential         ud
+DD CB 05 2E  sra (ix+#05)             sequential
+DD CB 05 2F  sra (ix+#05),a           sequential         ud
+DD CB 05 30  sll (ix+#05),b           sequential         ud
+DD CB 05 31  sll (ix+#05),c           sequential         ud
+DD CB 05 32  sll (ix+#05),d           sequential         ud
+DD CB 05 33  sll (ix+#05),e           sequential         ud
+DD CB 05 34  sll (ix+#05),h           sequential         ud
+DD CB 05 35  sll (ix+#05),l           sequential         ud
+DD CB 05 36  sll (ix+#05)             sequential         ud
+DD CB 05 37  sll (ix+#05),a           sequential         ud
+DD CB 05 38  srl (ix+#05),b           sequential         ud
+DD CB 05 39  srl (ix+#05),c           sequential         ud
+DD CB 05 3A  srl (ix+#05),d           sequential         ud
+DD CB 05 3B  srl (ix+#05),e           sequential         ud
+DD CB 05 3C  srl (ix+#05),h           sequential         ud
+DD CB 05 3D  srl (ix+#05),l           sequential         ud
+DD CB 05 3E  srl (ix+#05)             sequential
+DD CB 05 3F  srl (ix+#05),a           sequential         ud
+DD CB 05 40  bit 0,(ix+#05)           sequential         nc ud
+DD CB 05 41  bit 0,(ix+#05)           sequential         nc ud
+DD CB 05 42  bit 0,(ix+#05)           sequential         nc ud
+DD CB 05 43  bit 0,(ix+#05)           sequential         nc ud
+DD CB 05 44  bit 0,(ix+#05)           sequential         nc ud
+DD CB 05 45  bit 0,(ix+#05)           sequential         nc ud
+DD CB 05 46  bit 0,(ix+#05)           sequential
+DD CB 05 47  bit 0,(ix+#05)           sequential         nc ud
+DD CB 05 48  bit 1,(ix+#05)           sequential         nc ud
+DD CB 05 49  bit 1,(ix+#05)           sequential         nc ud
+DD CB 05 4A  bit 1,(ix+#05)           sequential         nc ud
+DD CB 05 4B  bit 1,(ix+#05)           sequential         nc ud
+DD CB 05 4C  bit 1,(ix+#05)           sequential         nc ud
+DD CB 05 4D  bit 1,(ix+#05)           sequential         nc ud
+DD CB 05 4E  bit 1,(ix+#05)           sequential
+DD CB 05 4F  bit 1,(ix+#05)           sequential         nc ud
+DD CB 05 50  bit 2,(ix+#05)           sequential         nc ud
+DD CB 05 51  bit 2,(ix+#05)           sequential         nc ud
+DD CB 05 52  bit 2,(ix+#05)           sequential         nc ud
+DD CB 05 53  bit 2,(ix+#05)           sequential         nc ud
+DD CB 05 54  bit 2,(ix+#05)           sequential         nc ud
+DD CB 05 55  bit 2,(ix+#05)           sequential         nc ud
+DD CB 05 56  bit 2,(ix+#05)           sequential
+DD CB 05 57  bit 2,(ix+#05)           sequential         nc ud
+DD CB 05 58  bit 3,(ix+#05)           sequential         nc ud
+DD CB 05 59  bit 3,(ix+#05)           sequential         nc ud
+DD CB 05 5A  bit 3,(ix+#05)           sequential         nc ud
+DD CB 05 5B  bit 3,(ix+#05)           sequential         nc ud
+DD CB 05 5C  bit 3,(ix+#05)           sequential         nc ud
+DD CB 05 5D  bit 3,(ix+#05)           sequential         nc ud
+DD CB 05 5E  bit 3,(ix+#05)           sequential
+DD CB 05 5F  bit 3,(ix+#05)           sequential         nc ud
+DD CB 05 60  bit 4,(ix+#05)           sequential         nc ud
+DD CB 05 61  bit 4,(ix+#05)           sequential         nc ud
+DD CB 05 62  bit 4,(ix+#05)           sequential         nc ud
+DD CB 05 63  bit 4,(ix+#05)           sequential         nc ud
+DD CB 05 64  bit 4,(ix+#05)           sequential         nc ud
+DD CB 05 65  bit 4,(ix+#05)           sequential         nc ud
+DD CB 05 66  bit 4,(ix+#05)           sequential
+DD CB 05 67  bit 4,(ix+#05)           sequential         nc ud
+DD CB 05 68  bit 5,(ix+#05)           sequential         nc ud
+DD CB 05 69  bit 5,(ix+#05)           sequential         nc ud
+DD CB 05 6A  bit 5,(ix+#05)           sequential         nc ud
+DD CB 05 6B  bit 5,(ix+#05)           sequential         nc ud
+DD CB 05 6C  bit 5,(ix+#05)           sequential         nc ud
+DD CB 05 6D  bit 5,(ix+#05)           sequential         nc ud
+DD CB 05 6E  bit 5,(ix+#05)           sequential
+DD CB 05 6F  bit 5,(ix+#05)           sequential         nc ud
+DD CB 05 70  bit 6,(ix+#05)           sequential         nc ud
+DD CB 05 71  bit 6,(ix+#05)           sequential         nc ud
+DD CB 05 72  bit 6,(ix+#05)           sequential         nc ud
+DD CB 05 73  bit 6,(ix+#05)           sequential         nc ud
+DD CB 05 74  bit 6,(ix+#05)           sequential         nc ud
+DD CB 05 75  bit 6,(ix+#05)           sequential         nc ud
+DD CB 05 76  bit 6,(ix+#05)           sequential
+DD CB 05 77  bit 6,(ix+#05)           sequential         nc ud
+DD CB 05 78  bit 7,(ix+#05)           sequential         nc ud
+DD CB 05 79  bit 7,(ix+#05)           sequential         nc ud
+DD CB 05 7A  bit 7,(ix+#05)           sequential         nc ud
+DD CB 05 7B  bit 7,(ix+#05)           sequential         nc ud
+DD CB 05 7C  bit 7,(ix+#05)           sequential         nc ud
+DD CB 05 7D  bit 7,(ix+#05)           sequential         nc ud
+DD CB 05 7E  bit 7,(ix+#05)           sequential
+DD CB 05 7F  bit 7,(ix+#05)           sequential         nc ud
+DD CB 05 80  res 0,(ix+#05),b         sequential         ud
+DD CB 05 81  res 0,(ix+#05),c         sequential         ud
+DD CB 05 82  res 0,(ix+#05),d         sequential         ud
+DD CB 05 83  res 0,(ix+#05),e         sequential         ud
+DD CB 05 84  res 0,(ix+#05),h         sequential         ud
+DD CB 05 85  res 0,(ix+#05),l         sequential         ud
+DD CB 05 86  res 0,(ix+#05)           sequential
+DD CB 05 87  res 0,(ix+#05),a         sequential         ud
+DD CB 05 88  res 1,(ix+#05),b         sequential         ud
+DD CB 05 89  res 1,(ix+#05),c         sequential         ud
+DD CB 05 8A  res 1,(ix+#05),d         sequential         ud
+DD CB 05 8B  res 1,(ix+#05),e         sequential         ud
+DD CB 05 8C  res 1,(ix+#05),h         sequential         ud
+DD CB 05 8D  res 1,(ix+#05),l         sequential         ud
+DD CB 05 8E  res 1,(ix+#05)           sequential
+DD CB 05 8F  res 1,(ix+#05),a         sequential         ud
+DD CB 05 90  res 2,(ix+#05),b         sequential         ud
+DD CB 05 91  res 2,(ix+#05),c         sequential         ud
+DD CB 05 92  res 2,(ix+#05),d         sequential         ud
+DD CB 05 93  res 2,(ix+#05),e         sequential         ud
+DD CB 05 94  res 2,(ix+#05),h         sequential         ud
+DD CB 05 95  res 2,(ix+#05),l         sequential         ud
+DD CB 05 96  res 2,(ix+#05)           sequential
+DD CB 05 97  res 2,(ix+#05),a         sequential         ud
+DD CB 05 98  res 3,(ix+#05),b         sequential         ud
+DD CB 05 99  res 3,(ix+#05),c         sequential         ud
+DD CB 05 9A  res 3,(ix+#05),d         sequential         ud
+DD CB 05 9B  res 3,(ix+#05),e         sequential         ud
+DD CB 05 9C  res 3,(ix+#05),h         sequential         ud
+DD CB 05 9D  res 3,(ix+#05),l         sequential         ud
+DD CB 05 9E  res 3,(ix+#05)           sequential
+DD CB 05 9F  res 3,(ix+#05),a         sequential         ud
+DD CB 05 A0  res 4,(ix+#05),b         sequential         ud
+DD CB 05 A1  res 4,(ix+#05),c         sequential         ud
+DD CB 05 A2  res 4,(ix+#05),d         sequential         ud
+DD CB 05 A3  res 4,(ix+#05),e         sequential         ud
+DD CB 05 A4  res 4,(ix+#05),h         sequential         ud
+DD CB 05 A5  res 4,(ix+#05),l         sequential         ud
+DD CB 05 A6  res 4,(ix+#05)           sequential
+DD CB 05 A7  res 4,(ix+#05),a         sequential         ud
+DD CB 05 A8  res 5,(ix+#05),b         sequential         ud
+DD CB 05 A9  res 5,(ix+#05),c         sequential         ud
+DD CB 05 AA  res 5,(ix+#05),d         sequential         ud
+DD CB 05 AB  res 5,(ix+#05),e         sequential         ud
+DD CB 05 AC  res 5,(ix+#05),h         sequential         ud
+DD CB 05 AD  res 5,(ix+#05),l         sequential         ud
+DD CB 05 AE  res 5,(ix+#05)           sequential
+DD CB 05 AF  res 5,(ix+#05),a         sequential         ud
+DD CB 05 B0  res 6,(ix+#05),b         sequential         ud
+DD CB 05 B1  res 6,(ix+#05),c         sequential         ud
+DD CB 05 B2  res 6,(ix+#05),d         sequential         ud
+DD CB 05 B3  res 6,(ix+#05),e         sequential         ud
+DD CB 05 B4  res 6,(ix+#05),h         sequential         ud
+DD CB 05 B5  res 6,(ix+#05),l         sequential         ud
+DD CB 05 B6  res 6,(ix+#05)           sequential
+DD CB 05 B7  res 6,(ix+#05),a         sequential         ud
+DD CB 05 B8  res 7,(ix+#05),b         sequential         ud
+DD CB 05 B9  res 7,(ix+#05),c         sequential         ud
+DD CB 05 BA  res 7,(ix+#05),d         sequential         ud
+DD CB 05 BB  res 7,(ix+#05),e         sequential         ud
+DD CB 05 BC  res 7,(ix+#05),h         sequential         ud
+DD CB 05 BD  res 7,(ix+#05),l         sequential         ud
+DD CB 05 BE  res 7,(ix+#05)           sequential
+DD CB 05 BF  res 7,(ix+#05),a         sequential         ud
+DD CB 05 C0  set 0,(ix+#05),b         sequential         ud
+DD CB 05 C1  set 0,(ix+#05),c         sequential         ud
+DD CB 05 C2  set 0,(ix+#05),d         sequential         ud
+DD CB 05 C3  set 0,(ix+#05),e         sequential         ud
+DD CB 05 C4  set 0,(ix+#05),h         sequential         ud
+DD CB 05 C5  set 0,(ix+#05),l         sequential         ud
+DD CB 05 C6  set 0,(ix+#05)           sequential
+DD CB 05 C7  set 0,(ix+#05),a         sequential         ud
+DD CB 05 C8  set 1,(ix+#05),b         sequential         ud
+DD CB 05 C9  set 1,(ix+#05),c         sequential         ud
+DD CB 05 CA  set 1,(ix+#05),d         sequential         ud
+DD CB 05 CB  set 1,(ix+#05),e         sequential         ud
+DD CB 05 CC  set 1,(ix+#05),h         sequential         ud
+DD CB 05 CD  set 1,(ix+#05),l         sequential         ud
+DD CB 05 CE  set 1,(ix+#05)           sequential
+DD CB 05 CF  set 1,(ix+#05),a         sequential         ud
+DD CB 05 D0  set 2,(ix+#05),b         sequential         ud
+DD CB 05 D1  set 2,(ix+#05),c         sequential         ud
+DD CB 05 D2  set 2,(ix+#05),d         sequential         ud
+DD CB 05 D3  set 2,(ix+#05),e         sequential         ud
+DD CB 05 D4  set 2,(ix+#05),h         sequential         ud
+DD CB 05 D5  set 2,(ix+#05),l         sequential         ud
+DD CB 05 D6  set 2,(ix+#05)           sequential
+DD CB 05 D7  set 2,(ix+#05),a         sequential         ud
+DD CB 05 D8  set 3,(ix+#05),b         sequential         ud
+DD CB 05 D9  set 3,(ix+#05),c         sequential         ud
+DD CB 05 DA  set 3,(ix+#05),d         sequential         ud
+DD CB 05 DB  set 3,(ix+#05),e         sequential         ud
+DD CB 05 DC  set 3,(ix+#05),h         sequential         ud
+DD CB 05 DD  set 3,(ix+#05),l         sequential         ud
+DD CB 05 DE  set 3,(ix+#05)           sequential
+DD CB 05 DF  set 3,(ix+#05),a         sequential         ud
+DD CB 05 E0  set 4,(ix+#05),b         sequential         ud
+DD CB 05 E1  set 4,(ix+#05),c         sequential         ud
+DD CB 05 E2  set 4,(ix+#05),d         sequential         ud
+DD CB 05 E3  set 4,(ix+#05),e         sequential         ud
+DD CB 05 E4  set 4,(ix+#05),h         sequential         ud
+DD CB 05 E5  set 4,(ix+#05),l         sequential         ud
+DD CB 05 E6  set 4,(ix+#05)           sequential
+DD CB 05 E7  set 4,(ix+#05),a         sequential         ud
+DD CB 05 E8  set 5,(ix+#05),b         sequential         ud
+DD CB 05 E9  set 5,(ix+#05),c         sequential         ud
+DD CB 05 EA  set 5,(ix+#05),d         sequential         ud
+DD CB 05 EB  set 5,(ix+#05),e         sequential         ud
+DD CB 05 EC  set 5,(ix+#05),h         sequential         ud
+DD CB 05 ED  set 5,(ix+#05),l         sequential         ud
+DD CB 05 EE  set 5,(ix+#05)           sequential
+DD CB 05 EF  set 5,(ix+#05),a         sequential         ud
+DD CB 05 F0  set 6,(ix+#05),b         sequential         ud
+DD CB 05 F1  set 6,(ix+#05),c         sequential         ud
+DD CB 05 F2  set 6,(ix+#05),d         sequential         ud
+DD CB 05 F3  set 6,(ix+#05),e         sequential         ud
+DD CB 05 F4  set 6,(ix+#05),h         sequential         ud
+DD CB 05 F5  set 6,(ix+#05),l         sequential         ud
+DD CB 05 F6  set 6,(ix+#05)           sequential
+DD CB 05 F7  set 6,(ix+#05),a         sequential         ud
+DD CB 05 F8  set 7,(ix+#05),b         sequential         ud
+DD CB 05 F9  set 7,(ix+#05),c         sequential         ud
+DD CB 05 FA  set 7,(ix+#05),d         sequential         ud
+DD CB 05 FB  set 7,(ix+#05),e         sequential         ud
+DD CB 05 FC  set 7,(ix+#05),h         sequential         ud
+DD CB 05 FD  set 7,(ix+#05),l         sequential         ud
+DD CB 05 FE  set 7,(ix+#05)           sequential
+DD CB 05 FF  set 7,(ix+#05),a         sequential         ud
+DD CB FB 00  rlc (ix-#05),b           sequential         ud
+DD CB FB 01  rlc (ix-#05),c           sequential         ud
+DD CB FB 02  rlc (ix-#05),d           sequential         ud
+DD CB FB 03  rlc (ix-#05),e           sequential         ud
+DD CB FB 04  rlc (ix-#05),h           sequential         ud
+DD CB FB 05  rlc (ix-#05),l           sequential         ud
+DD CB FB 06  rlc (ix-#05)             sequential
+DD CB FB 07  rlc (ix-#05),a           sequential         ud
+DD CB FB 08  rrc (ix-#05),b           sequential         ud
+DD CB FB 09  rrc (ix-#05),c           sequential         ud
+DD CB FB 0A  rrc (ix-#05),d           sequential         ud
+DD CB FB 0B  rrc (ix-#05),e           sequential         ud
+DD CB FB 0C  rrc (ix-#05),h           sequential         ud
+DD CB FB 0D  rrc (ix-#05),l           sequential         ud
+DD CB FB 0E  rrc (ix-#05)             sequential
+DD CB FB 0F  rrc (ix-#05),a           sequential         ud
+DD CB FB 10  rl (ix-#05),b            sequential         ud
+DD CB FB 11  rl (ix-#05),c            sequential         ud
+DD CB FB 12  rl (ix-#05),d            sequential         ud
+DD CB FB 13  rl (ix-#05),e            sequential         ud
+DD CB FB 14  rl (ix-#05),h            sequential         ud
+DD CB FB 15  rl (ix-#05),l            sequential         ud
+DD CB FB 16  rl (ix-#05)              sequential
+DD CB FB 17  rl (ix-#05),a            sequential         ud
+DD CB FB 18  rr (ix-#05),b            sequential         ud
+DD CB FB 19  rr (ix-#05),c            sequential         ud
+DD CB FB 1A  rr (ix-#05),d            sequential         ud
+DD CB FB 1B  rr (ix-#05),e            sequential         ud
+DD CB FB 1C  rr (ix-#05),h            sequential         ud
+DD CB FB 1D  rr (ix-#05),l            sequential         ud
+DD CB FB 1E  rr (ix-#05)              sequential
+DD CB FB 1F  rr (ix-#05),a            sequential         ud
+DD CB FB 20  sla (ix-#05),b           sequential         ud
+DD CB FB 21  sla (ix-#05),c           sequential         ud
+DD CB FB 22  sla (ix-#05),d           sequential         ud
+DD CB FB 23  sla (ix-#05),e           sequential         ud
+DD CB FB 24  sla (ix-#05),h           sequential         ud
+DD CB FB 25  sla (ix-#05),l           sequential         ud
+DD CB FB 26  sla (ix-#05)             sequential
+DD CB FB 27  sla (ix-#05),a           sequential         ud
+DD CB FB 28  sra (ix-#05),b           sequential         ud
+DD CB FB 29  sra (ix-#05),c           sequential         ud
+DD CB FB 2A  sra (ix-#05),d           sequential         ud
+DD CB FB 2B  sra (ix-#05),e           sequential         ud
+DD CB FB 2C  sra (ix-#05),h           sequential         ud
+DD CB FB 2D  sra (ix-#05),l           sequential         ud
+DD CB FB 2E  sra (ix-#05)             sequential
+DD CB FB 2F  sra (ix-#05),a           sequential         ud
+DD CB FB 30  sll (ix-#05),b           sequential         ud
+DD CB FB 31  sll (ix-#05),c           sequential         ud
+DD CB FB 32  sll (ix-#05),d           sequential         ud
+DD CB FB 33  sll (ix-#05),e           sequential         ud
+DD CB FB 34  sll (ix-#05),h           sequential         ud
+DD CB FB 35  sll (ix-#05),l           sequential         ud
+DD CB FB 36  sll (ix-#05)             sequential         ud
+DD CB FB 37  sll (ix-#05),a           sequential         ud
+DD CB FB 38  srl (ix-#05),b           sequential         ud
+DD CB FB 39  srl (ix-#05),c           sequential         ud
+DD CB FB 3A  srl (ix-#05),d           sequential         ud
+DD CB FB 3B  srl (ix-#05),e           sequential         ud
+DD CB FB 3C  srl (ix-#05),h           sequential         ud
+DD CB FB 3D  srl (ix-#05),l           sequential         ud
+DD CB FB 3E  srl (ix-#05)             sequential
+DD CB FB 3F  srl (ix-#05),a           sequential         ud
+DD CB FB 40  bit 0,(ix-#05)           sequential         nc ud
+DD CB FB 41  bit 0,(ix-#05)           sequential         nc ud
+DD CB FB 42  bit 0,(ix-#05)           sequential         nc ud
+DD CB FB 43  bit 0,(ix-#05)           sequential         nc ud
+DD CB FB 44  bit 0,(ix-#05)           sequential         nc ud
+DD CB FB 45  bit 0,(ix-#05)           sequential         nc ud
+DD CB FB 46  bit 0,(ix-#05)           sequential
+DD CB FB 47  bit 0,(ix-#05)           sequential         nc ud
+DD CB FB 48  bit 1,(ix-#05)           sequential         nc ud
+DD CB FB 49  bit 1,(ix-#05)           sequential         nc ud
+DD CB FB 4A  bit 1,(ix-#05)           sequential         nc ud
+DD CB FB 4B  bit 1,(ix-#05)           sequential         nc ud
+DD CB FB 4C  bit 1,(ix-#05)           sequential         nc ud
+DD CB FB 4D  bit 1,(ix-#05)           sequential         nc ud
+DD CB FB 4E  bit 1,(ix-#05)           sequential
+DD CB FB 4F  bit 1,(ix-#05)           sequential         nc ud
+DD CB FB 50  bit 2,(ix-#05)           sequential         nc ud
+DD CB FB 51  bit 2,(ix-#05)           sequential         nc ud
+DD CB FB 52  bit 2,(ix-#05)           sequential         nc ud
+DD CB FB 53  bit 2,(ix-#05)           sequential         nc ud
+DD CB FB 54  bit 2,(ix-#05)           sequential         nc ud
+DD CB FB 55  bit 2,(ix-#05)           sequential         nc ud
+DD CB FB 56  bit 2,(ix-#05)           sequential
+DD CB FB 57  bit 2,(ix-#05)           sequential         nc ud
+DD CB FB 58  bit 3,(ix-#05)           sequential         nc ud
+DD CB FB 59  bit 3,(ix-#05)           sequential         nc ud
+DD CB FB 5A  bit 3,(ix-#05)           sequential         nc ud
+DD CB FB 5B  bit 3,(ix-#05)           sequential         nc ud
+DD CB FB 5C  bit 3,(ix-#05)           sequential         nc ud
+DD CB FB 5D  bit 3,(ix-#05)           sequential         nc ud
+DD CB FB 5E  bit 3,(ix-#05)           sequential
+DD CB FB 5F  bit 3,(ix-#05)           sequential         nc ud
+DD CB FB 60  bit 4,(ix-#05)           sequential         nc ud
+DD CB FB 61  bit 4,(ix-#05)           sequential         nc ud
+DD CB FB 62  bit 4,(ix-#05)           sequential         nc ud
+DD CB FB 63  bit 4,(ix-#05)           sequential         nc ud
+DD CB FB 64  bit 4,(ix-#05)           sequential         nc ud
+DD CB FB 65  bit 4,(ix-#05)           sequential         nc ud
+DD CB FB 66  bit 4,(ix-#05)           sequential
+DD CB FB 67  bit 4,(ix-#05)           sequential         nc ud
+DD CB FB 68  bit 5,(ix-#05)           sequential         nc ud
+DD CB FB 69  bit 5,(ix-#05)           sequential         nc ud
+DD CB FB 6A  bit 5,(ix-#05)           sequential         nc ud
+DD CB FB 6B  bit 5,(ix-#05)           sequential         nc ud
+DD CB FB 6C  bit 5,(ix-#05)           sequential         nc ud
+DD CB FB 6D  bit 5,(ix-#05)           sequential         nc ud
+DD CB FB 6E  bit 5,(ix-#05)           sequential
+DD CB FB 6F  bit 5,(ix-#05)           sequential         nc ud
+DD CB FB 70  bit 6,(ix-#05)           sequential         nc ud
+DD CB FB 71  bit 6,(ix-#05)           sequential         nc ud
+DD CB FB 72  bit 6,(ix-#05)           sequential         nc ud
+DD CB FB 73  bit 6,(ix-#05)           sequential         nc ud
+DD CB FB 74  bit 6,(ix-#05)           sequential         nc ud
+DD CB FB 75  bit 6,(ix-#05)           sequential         nc ud
+DD CB FB 76  bit 6,(ix-#05)           sequential
+DD CB FB 77  bit 6,(ix-#05)           sequential         nc ud
+DD CB FB 78  bit 7,(ix-#05)           sequential         nc ud
+DD CB FB 79  bit 7,(ix-#05)           sequential         nc ud
+DD CB FB 7A  bit 7,(ix-#05)           sequential         nc ud
+DD CB FB 7B  bit 7,(ix-#05)           sequential         nc ud
+DD CB FB 7C  bit 7,(ix-#05)           sequential         nc ud
+DD CB FB 7D  bit 7,(ix-#05)           sequential         nc ud
+DD CB FB 7E  bit 7,(ix-#05)           sequential
+DD CB FB 7F  bit 7,(ix-#05)           sequential         nc ud
+DD CB FB 80  res 0,(ix-#05),b         sequential         ud
+DD CB FB 81  res 0,(ix-#05),c         sequential         ud
+DD CB FB 82  res 0,(ix-#05),d         sequential         ud
+DD CB FB 83  res 0,(ix-#05),e         sequential         ud
+DD CB FB 84  res 0,(ix-#05),h         sequential         ud
+DD CB FB 85  res 0,(ix-#05),l         sequential         ud
+DD CB FB 86  res 0,(ix-#05)           sequential
+DD CB FB 87  res 0,(ix-#05),a         sequential         ud
+DD CB FB 88  res 1,(ix-#05),b         sequential         ud
+DD CB FB 89  res 1,(ix-#05),c         sequential         ud
+DD CB FB 8A  res 1,(ix-#05),d         sequential         ud
+DD CB FB 8B  res 1,(ix-#05),e         sequential         ud
+DD CB FB 8C  res 1,(ix-#05),h         sequential         ud
+DD CB FB 8D  res 1,(ix-#05),l         sequential         ud
+DD CB FB 8E  res 1,(ix-#05)           sequential
+DD CB FB 8F  res 1,(ix-#05),a         sequential         ud
+DD CB FB 90  res 2,(ix-#05),b         sequential         ud
+DD CB FB 91  res 2,(ix-#05),c         sequential         ud
+DD CB FB 92  res 2,(ix-#05),d         sequential         ud
+DD CB FB 93  res 2,(ix-#05),e         sequential         ud
+DD CB FB 94  res 2,(ix-#05),h         sequential         ud
+DD CB FB 95  res 2,(ix-#05),l         sequential         ud
+DD CB FB 96  res 2,(ix-#05)           sequential
+DD CB FB 97  res 2,(ix-#05),a         sequential         ud
+DD CB FB 98  res 3,(ix-#05),b         sequential         ud
+DD CB FB 99  res 3,(ix-#05),c         sequential         ud
+DD CB FB 9A  res 3,(ix-#05),d         sequential         ud
+DD CB FB 9B  res 3,(ix-#05),e         sequential         ud
+DD CB FB 9C  res 3,(ix-#05),h         sequential         ud
+DD CB FB 9D  res 3,(ix-#05),l         sequential         ud
+DD CB FB 9E  res 3,(ix-#05)           sequential
+DD CB FB 9F  res 3,(ix-#05),a         sequential         ud
+DD CB FB A0  res 4,(ix-#05),b         sequential         ud
+DD CB FB A1  res 4,(ix-#05),c         sequential         ud
+DD CB FB A2  res 4,(ix-#05),d         sequential         ud
+DD CB FB A3  res 4,(ix-#05),e         sequential         ud
+DD CB FB A4  res 4,(ix-#05),h         sequential         ud
+DD CB FB A5  res 4,(ix-#05),l         sequential         ud
+DD CB FB A6  res 4,(ix-#05)           sequential
+DD CB FB A7  res 4,(ix-#05),a         sequential         ud
+DD CB FB A8  res 5,(ix-#05),b         sequential         ud
+DD CB FB A9  res 5,(ix-#05),c         sequential         ud
+DD CB FB AA  res 5,(ix-#05),d         sequential         ud
+DD CB FB AB  res 5,(ix-#05),e         sequential         ud
+DD CB FB AC  res 5,(ix-#05),h         sequential         ud
+DD CB FB AD  res 5,(ix-#05),l         sequential         ud
+DD CB FB AE  res 5,(ix-#05)           sequential
+DD CB FB AF  res 5,(ix-#05),a         sequential         ud
+DD CB FB B0  res 6,(ix-#05),b         sequential         ud
+DD CB FB B1  res 6,(ix-#05),c         sequential         ud
+DD CB FB B2  res 6,(ix-#05),d         sequential         ud
+DD CB FB B3  res 6,(ix-#05),e         sequential         ud
+DD CB FB B4  res 6,(ix-#05),h         sequential         ud
+DD CB FB B5  res 6,(ix-#05),l         sequential         ud
+DD CB FB B6  res 6,(ix-#05)           sequential
+DD CB FB B7  res 6,(ix-#05),a         sequential         ud
+DD CB FB B8  res 7,(ix-#05),b         sequential         ud
+DD CB FB B9  res 7,(ix-#05),c         sequential         ud
+DD CB FB BA  res 7,(ix-#05),d         sequential         ud
+DD CB FB BB  res 7,(ix-#05),e         sequential         ud
+DD CB FB BC  res 7,(ix-#05),h         sequential         ud
+DD CB FB BD  res 7,(ix-#05),l         sequential         ud
+DD CB FB BE  res 7,(ix-#05)           sequential
+DD CB FB BF  res 7,(ix-#05),a         sequential         ud
+DD CB FB C0  set 0,(ix-#05),b         sequential         ud
+DD CB FB C1  set 0,(ix-#05),c         sequential         ud
+DD CB FB C2  set 0,(ix-#05),d         sequential         ud
+DD CB FB C3  set 0,(ix-#05),e         sequential         ud
+DD CB FB C4  set 0,(ix-#05),h         sequential         ud
+DD CB FB C5  set 0,(ix-#05),l         sequential         ud
+DD CB FB C6  set 0,(ix-#05)           sequential
+DD CB FB C7  set 0,(ix-#05),a         sequential         ud
+DD CB FB C8  set 1,(ix-#05),b         sequential         ud
+DD CB FB C9  set 1,(ix-#05),c         sequential         ud
+DD CB FB CA  set 1,(ix-#05),d         sequential         ud
+DD CB FB CB  set 1,(ix-#05),e         sequential         ud
+DD CB FB CC  set 1,(ix-#05),h         sequential         ud
+DD CB FB CD  set 1,(ix-#05),l         sequential         ud
+DD CB FB CE  set 1,(ix-#05)           sequential
+DD CB FB CF  set 1,(ix-#05),a         sequential         ud
+DD CB FB D0  set 2,(ix-#05),b         sequential         ud
+DD CB FB D1  set 2,(ix-#05),c         sequential         ud
+DD CB FB D2  set 2,(ix-#05),d         sequential         ud
+DD CB FB D3  set 2,(ix-#05),e         sequential         ud
+DD CB FB D4  set 2,(ix-#05),h         sequential         ud
+DD CB FB D5  set 2,(ix-#05),l         sequential         ud
+DD CB FB D6  set 2,(ix-#05)           sequential
+DD CB FB D7  set 2,(ix-#05),a         sequential         ud
+DD CB FB D8  set 3,(ix-#05),b         sequential         ud
+DD CB FB D9  set 3,(ix-#05),c         sequential         ud
+DD CB FB DA  set 3,(ix-#05),d         sequential         ud
+DD CB FB DB  set 3,(ix-#05),e         sequential         ud
+DD CB FB DC  set 3,(ix-#05),h         sequential         ud
+DD CB FB DD  set 3,(ix-#05),l         sequential         ud
+DD CB FB DE  set 3,(ix-#05)           sequential
+DD CB FB DF  set 3,(ix-#05),a         sequential         ud
+DD CB FB E0  set 4,(ix-#05),b         sequential         ud
+DD CB FB E1  set 4,(ix-#05),c         sequential         ud
+DD CB FB E2  set 4,(ix-#05),d         sequential         ud
+DD CB FB E3  set 4,(ix-#05),e         sequential         ud
+DD CB FB E4  set 4,(ix-#05),h         sequential         ud
+DD CB FB E5  set 4,(ix-#05),l         sequential         ud
+DD CB FB E6  set 4,(ix-#05)           sequential
+DD CB FB E7  set 4,(ix-#05),a         sequential         ud
+DD CB FB E8  set 5,(ix-#05),b         sequential         ud
+DD CB FB E9  set 5,(ix-#05),c         sequential         ud
+DD CB FB EA  set 5,(ix-#05),d         sequential         ud
+DD CB FB EB  set 5,(ix-#05),e         sequential         ud
+DD CB FB EC  set 5,(ix-#05),h         sequential         ud
+DD CB FB ED  set 5,(ix-#05),l         sequential         ud
+DD CB FB EE  set 5,(ix-#05)           sequential
+DD CB FB EF  set 5,(ix-#05),a         sequential         ud
+DD CB FB F0  set 6,(ix-#05),b         sequential         ud
+DD CB FB F1  set 6,(ix-#05),c         sequential         ud
+DD CB FB F2  set 6,(ix-#05),d         sequential         ud
+DD CB FB F3  set 6,(ix-#05),e         sequential         ud
+DD CB FB F4  set 6,(ix-#05),h         sequential         ud
+DD CB FB F5  set 6,(ix-#05),l         sequential         ud
+DD CB FB F6  set 6,(ix-#05)           sequential
+DD CB FB F7  set 6,(ix-#05),a         sequential         ud
+DD CB FB F8  set 7,(ix-#05),b         sequential         ud
+DD CB FB F9  set 7,(ix-#05),c         sequential         ud
+DD CB FB FA  set 7,(ix-#05),d         sequential         ud
+DD CB FB FB  set 7,(ix-#05),e         sequential         ud
+DD CB FB FC  set 7,(ix-#05),h         sequential         ud
+DD CB FB FD  set 7,(ix-#05),l         sequential         ud
+DD CB FB FE  set 7,(ix-#05)           sequential
+DD CB FB FF  set 7,(ix-#05),a         sequential         ud
+FD 00        nop                      sequential         nc ud
+FD 01 34 12  ld bc,#1234              sequential         nc ud
+FD 02        ld (bc),a                sequential         nc ud
+FD 03        inc bc                   sequential         nc ud
+FD 04        inc b                    sequential         nc ud
+FD 05        dec b                    sequential         nc ud
+FD 06 34     ld b,#34                 sequential         nc ud
+FD 07        rlca                     sequential         nc ud
+FD 08        ex af,af'                sequential         nc ud
+FD 09        add iy,bc                sequential
+FD 0A        ld a,(bc)                sequential         nc ud
+FD 0B        dec bc                   sequential         nc ud
+FD 0C        inc c                    sequential         nc ud
+FD 0D        dec c                    sequential         nc ud
+FD 0E 34     ld c,#34                 sequential         nc ud
+FD 0F        rrca                     sequential         nc ud
+FD 10 34     djnz #B08F               conditional_jump   nc ud
+FD 11 34 12  ld de,#1234              sequential         nc ud
+FD 12        ld (de),a                sequential         nc ud
+FD 13        inc de                   sequential         nc ud
+FD 14        inc d                    sequential         nc ud
+FD 15        dec d                    sequential         nc ud
+FD 16 34     ld d,#34                 sequential         nc ud
+FD 17        rla                      sequential         nc ud
+FD 18 34     jr #B0CF                 jump               nc ud
+FD 19        add iy,de                sequential
+FD 1A        ld a,(de)                sequential         nc ud
+FD 1B        dec de                   sequential         nc ud
+FD 1C        inc e                    sequential         nc ud
+FD 1D        dec e                    sequential         nc ud
+FD 1E 34     ld e,#34                 sequential         nc ud
+FD 1F        rra                      sequential         nc ud
+FD 20 34     jr nz,#B10F              conditional_jump   nc ud
+FD 21 34 12  ld iy,#1234              sequential
+FD 22 34 12  ld (#1234),iy            sequential
+FD 23        inc iy                   sequential
+FD 24        inc iyh                  sequential         ud
+FD 25        dec iyh                  sequential         ud
+FD 26 34     ld iyh,#34               sequential         ud
+FD 27        daa                      sequential         nc ud
+FD 28 34     jr z,#B14F               conditional_jump   nc ud
+FD 29        add iy,iy                sequential
+FD 2A 34 12  ld iy,(#1234)            sequential
+FD 2B        dec iy                   sequential
+FD 2C        inc iyl                  sequential         ud
+FD 2D        dec iyl                  sequential         ud
+FD 2E 34     ld iyl,#34               sequential         ud
+FD 2F        cpl                      sequential         nc ud
+FD 30 34     jr nc,#B18F              conditional_jump   nc ud
+FD 31 34 12  ld sp,#1234              sequential         nc ud
+FD 32 34 12  ld (#1234),a             sequential         nc ud
+FD 33        inc sp                   sequential         nc ud
+FD 34 34     inc (iy+#34)             sequential
+FD 35 34     dec (iy+#34)             sequential
+FD 36 34 12  ld (iy+#34),#12          sequential
+FD 37        scf                      sequential         nc ud
+FD 38 34     jr c,#B1CF               conditional_jump   nc ud
+FD 39        add iy,sp                sequential
+FD 3A 34 12  ld a,(#1234)             sequential         nc ud
+FD 3B        dec sp                   sequential         nc ud
+FD 3C        inc a                    sequential         nc ud
+FD 3D        dec a                    sequential         nc ud
+FD 3E 34     ld a,#34                 sequential         nc ud
+FD 3F        ccf                      sequential         nc ud
+FD 40        ld b,b                   sequential         nc ud
+FD 41        ld b,c                   sequential         nc ud
+FD 42        ld b,d                   sequential         nc ud
+FD 43        ld b,e                   sequential         nc ud
+FD 44        ld b,iyh                 sequential         ud
+FD 45        ld b,iyl                 sequential         ud
+FD 46 34     ld b,(iy+#34)            sequential
+FD 47        ld b,a                   sequential         nc ud
+FD 48        ld c,b                   sequential         nc ud
+FD 49        ld c,c                   sequential         nc ud
+FD 4A        ld c,d                   sequential         nc ud
+FD 4B        ld c,e                   sequential         nc ud
+FD 4C        ld c,iyh                 sequential         ud
+FD 4D        ld c,iyl                 sequential         ud
+FD 4E 34     ld c,(iy+#34)            sequential
+FD 4F        ld c,a                   sequential         nc ud
+FD 50        ld d,b                   sequential         nc ud
+FD 51        ld d,c                   sequential         nc ud
+FD 52        ld d,d                   sequential         nc ud
+FD 53        ld d,e                   sequential         nc ud
+FD 54        ld d,iyh                 sequential         ud
+FD 55        ld d,iyl                 sequential         ud
+FD 56 34     ld d,(iy+#34)            sequential
+FD 57        ld d,a                   sequential         nc ud
+FD 58        ld e,b                   sequential         nc ud
+FD 59        ld e,c                   sequential         nc ud
+FD 5A        ld e,d                   sequential         nc ud
+FD 5B        ld e,e                   sequential         nc ud
+FD 5C        ld e,iyh                 sequential         ud
+FD 5D        ld e,iyl                 sequential         ud
+FD 5E 34     ld e,(iy+#34)            sequential
+FD 5F        ld e,a                   sequential         nc ud
+FD 60        ld iyh,b                 sequential         ud
+FD 61        ld iyh,c                 sequential         ud
+FD 62        ld iyh,d                 sequential         ud
+FD 63        ld iyh,e                 sequential         ud
+FD 64        ld iyh,iyh               sequential         ud
+FD 65        ld iyh,iyl               sequential         ud
+FD 66 34     ld h,(iy+#34)            sequential
+FD 67        ld iyh,a                 sequential         ud
+FD 68        ld iyl,b                 sequential         ud
+FD 69        ld iyl,c                 sequential         ud
+FD 6A        ld iyl,d                 sequential         ud
+FD 6B        ld iyl,e                 sequential         ud
+FD 6C        ld iyl,iyh               sequential         ud
+FD 6D        ld iyl,iyl               sequential         ud
+FD 6E 34     ld l,(iy+#34)            sequential
+FD 6F        ld iyl,a                 sequential         ud
+FD 70 34     ld (iy+#34),b            sequential
+FD 71 34     ld (iy+#34),c            sequential
+FD 72 34     ld (iy+#34),d            sequential
+FD 73 34     ld (iy+#34),e            sequential
+FD 74 34     ld (iy+#34),h            sequential
+FD 75 34     ld (iy+#34),l            sequential
+FD 76        halt                     halt               nc ud
+FD 77 34     ld (iy+#34),a            sequential
+FD 78        ld a,b                   sequential         nc ud
+FD 79        ld a,c                   sequential         nc ud
+FD 7A        ld a,d                   sequential         nc ud
+FD 7B        ld a,e                   sequential         nc ud
+FD 7C        ld a,iyh                 sequential         ud
+FD 7D        ld a,iyl                 sequential         ud
+FD 7E 34     ld a,(iy+#34)            sequential
+FD 7F        ld a,a                   sequential         nc ud
+FD 80        add a,b                  sequential         nc ud
+FD 81        add a,c                  sequential         nc ud
+FD 82        add a,d                  sequential         nc ud
+FD 83        add a,e                  sequential         nc ud
+FD 84        add a,iyh                sequential         ud
+FD 85        add a,iyl                sequential         ud
+FD 86 34     add a,(iy+#34)           sequential
+FD 87        add a,a                  sequential         nc ud
+FD 88        adc a,b                  sequential         nc ud
+FD 89        adc a,c                  sequential         nc ud
+FD 8A        adc a,d                  sequential         nc ud
+FD 8B        adc a,e                  sequential         nc ud
+FD 8C        adc a,iyh                sequential         ud
+FD 8D        adc a,iyl                sequential         ud
+FD 8E 34     adc a,(iy+#34)           sequential
+FD 8F        adc a,a                  sequential         nc ud
+FD 90        sub b                    sequential         nc ud
+FD 91        sub c                    sequential         nc ud
+FD 92        sub d                    sequential         nc ud
+FD 93        sub e                    sequential         nc ud
+FD 94        sub iyh                  sequential         ud
+FD 95        sub iyl                  sequential         ud
+FD 96 34     sub (iy+#34)             sequential
+FD 97        sub a                    sequential         nc ud
+FD 98        sbc a,b                  sequential         nc ud
+FD 99        sbc a,c                  sequential         nc ud
+FD 9A        sbc a,d                  sequential         nc ud
+FD 9B        sbc a,e                  sequential         nc ud
+FD 9C        sbc a,iyh                sequential         ud
+FD 9D        sbc a,iyl                sequential         ud
+FD 9E 34     sbc a,(iy+#34)           sequential
+FD 9F        sbc a,a                  sequential         nc ud
+FD A0        and b                    sequential         nc ud
+FD A1        and c                    sequential         nc ud
+FD A2        and d                    sequential         nc ud
+FD A3        and e                    sequential         nc ud
+FD A4        and iyh                  sequential         ud
+FD A5        and iyl                  sequential         ud
+FD A6 34     and (iy+#34)             sequential
+FD A7        and a                    sequential         nc ud
+FD A8        xor b                    sequential         nc ud
+FD A9        xor c                    sequential         nc ud
+FD AA        xor d                    sequential         nc ud
+FD AB        xor e                    sequential         nc ud
+FD AC        xor iyh                  sequential         ud
+FD AD        xor iyl                  sequential         ud
+FD AE 34     xor (iy+#34)             sequential
+FD AF        xor a                    sequential         nc ud
+FD B0        or b                     sequential         nc ud
+FD B1        or c                     sequential         nc ud
+FD B2        or d                     sequential         nc ud
+FD B3        or e                     sequential         nc ud
+FD B4        or iyh                   sequential         ud
+FD B5        or iyl                   sequential         ud
+FD B6 34     or (iy+#34)              sequential
+FD B7        or a                     sequential         nc ud
+FD B8        cp b                     sequential         nc ud
+FD B9        cp c                     sequential         nc ud
+FD BA        cp d                     sequential         nc ud
+FD BB        cp e                     sequential         nc ud
+FD BC        cp iyh                   sequential         ud
+FD BD        cp iyl                   sequential         ud
+FD BE 34     cp (iy+#34)              sequential
+FD BF        cp a                     sequential         nc ud
+FD C0        ret nz                   conditional_return nc ud
+FD C1        pop bc                   sequential         nc ud
+FD C2 34 12  jp nz,#1234              conditional_jump   nc ud
+FD C3 34 12  jp #1234                 jump               nc ud
+FD C4 34 12  call nz,#1234            conditional_call   nc ud
+FD C5        push bc                  sequential         nc ud
+FD C6 34     add a,#34                sequential         nc ud
+FD C7        rst #00                  call               nc ud
+FD C8        ret z                    conditional_return nc ud
+FD C9        ret                      return             nc ud
+FD CA 34 12  jp z,#1234               conditional_jump   nc ud
+FD CC 34 12  call z,#1234             conditional_call   nc ud
+FD CD 34 12  call #1234               call               nc ud
+FD CE 34     adc a,#34                sequential         nc ud
+FD CF        rst #08                  call               nc ud
+FD D0        ret nc                   conditional_return nc ud
+FD D1        pop de                   sequential         nc ud
+FD D2 34 12  jp nc,#1234              conditional_jump   nc ud
+FD D3 34     out (#34),a              sequential         nc ud
+FD D4 34 12  call nc,#1234            conditional_call   nc ud
+FD D5        push de                  sequential         nc ud
+FD D6 34     sub #34                  sequential         nc ud
+FD D7        rst #10                  call               nc ud
+FD D8        ret c                    conditional_return nc ud
+FD D9        exx                      sequential         nc ud
+FD DA 34 12  jp c,#1234               conditional_jump   nc ud
+FD DB 34     in a,(#34)               sequential         nc ud
+FD DC 34 12  call c,#1234             conditional_call   nc ud
+FD           defb #FD                 sequential
+FD DE 34     sbc a,#34                sequential         nc ud
+FD DF        rst #18                  call               nc ud
+FD E0        ret po                   conditional_return nc ud
+FD E1        pop iy                   sequential
+FD E2 34 12  jp po,#1234              conditional_jump   nc ud
+FD E3        ex (sp),iy               sequential
+FD E4 34 12  call po,#1234            conditional_call   nc ud
+FD E5        push iy                  sequential
+FD E6 34     and #34                  sequential         nc ud
+FD E7        rst #20                  call               nc ud
+FD E8        ret pe                   conditional_return nc ud
+FD E9        jp (iy)                  indirect_jump
+FD EA 34 12  jp pe,#1234              conditional_jump   nc ud
+FD EB        ex de,hl                 sequential         nc ud
+FD EC 34 12  call pe,#1234            conditional_call   nc ud
+FD           defb #FD                 sequential
+FD EE 34     xor #34                  sequential         nc ud
+FD EF        rst #28                  call               nc ud
+FD F0        ret p                    conditional_return nc ud
+FD F1        pop af                   sequential         nc ud
+FD F2 34 12  jp p,#1234               conditional_jump   nc ud
+FD F3        di                       sequential         nc ud
+FD F4 34 12  call p,#1234             conditional_call   nc ud
+FD F5        push af                  sequential         nc ud
+FD F6 34     or #34                   sequential         nc ud
+FD F7        rst #30                  call               nc ud
+FD F8        ret m                    conditional_return nc ud
+FD F9        ld sp,iy                 sequential
+FD FA 34 12  jp m,#1234               conditional_jump   nc ud
+FD FB        ei                       sequential         nc ud
+FD FC 34 12  call m,#1234             conditional_call   nc ud
+FD           defb #FD                 sequential
+FD FE 34     cp #34                   sequential         nc ud
+FD FF        rst #38                  call               nc ud
+FD CB 05 00  rlc (iy+#05),b           sequential         ud
+FD CB 05 01  rlc (iy+#05),c           sequential         ud
+FD CB 05 02  rlc (iy+#05),d           sequential         ud
+FD CB 05 03  rlc (iy+#05),e           sequential         ud
+FD CB 05 04  rlc (iy+#05),h           sequential         ud
+FD CB 05 05  rlc (iy+#05),l           sequential         ud
+FD CB 05 06  rlc (iy+#05)             sequential
+FD CB 05 07  rlc (iy+#05),a           sequential         ud
+FD CB 05 08  rrc (iy+#05),b           sequential         ud
+FD CB 05 09  rrc (iy+#05),c           sequential         ud
+FD CB 05 0A  rrc (iy+#05),d           sequential         ud
+FD CB 05 0B  rrc (iy+#05),e           sequential         ud
+FD CB 05 0C  rrc (iy+#05),h           sequential         ud
+FD CB 05 0D  rrc (iy+#05),l           sequential         ud
+FD CB 05 0E  rrc (iy+#05)             sequential
+FD CB 05 0F  rrc (iy+#05),a           sequential         ud
+FD CB 05 10  rl (iy+#05),b            sequential         ud
+FD CB 05 11  rl (iy+#05),c            sequential         ud
+FD CB 05 12  rl (iy+#05),d            sequential         ud
+FD CB 05 13  rl (iy+#05),e            sequential         ud
+FD CB 05 14  rl (iy+#05),h            sequential         ud
+FD CB 05 15  rl (iy+#05),l            sequential         ud
+FD CB 05 16  rl (iy+#05)              sequential
+FD CB 05 17  rl (iy+#05),a            sequential         ud
+FD CB 05 18  rr (iy+#05),b            sequential         ud
+FD CB 05 19  rr (iy+#05),c            sequential         ud
+FD CB 05 1A  rr (iy+#05),d            sequential         ud
+FD CB 05 1B  rr (iy+#05),e            sequential         ud
+FD CB 05 1C  rr (iy+#05),h            sequential         ud
+FD CB 05 1D  rr (iy+#05),l            sequential         ud
+FD CB 05 1E  rr (iy+#05)              sequential
+FD CB 05 1F  rr (iy+#05),a            sequential         ud
+FD CB 05 20  sla (iy+#05),b           sequential         ud
+FD CB 05 21  sla (iy+#05),c           sequential         ud
+FD CB 05 22  sla (iy+#05),d           sequential         ud
+FD CB 05 23  sla (iy+#05),e           sequential         ud
+FD CB 05 24  sla (iy+#05),h           sequential         ud
+FD CB 05 25  sla (iy+#05),l           sequential         ud
+FD CB 05 26  sla (iy+#05)             sequential
+FD CB 05 27  sla (iy+#05),a           sequential         ud
+FD CB 05 28  sra (iy+#05),b           sequential         ud
+FD CB 05 29  sra (iy+#05),c           sequential         ud
+FD CB 05 2A  sra (iy+#05),d           sequential         ud
+FD CB 05 2B  sra (iy+#05),e           sequential         ud
+FD CB 05 2C  sra (iy+#05),h           sequential         ud
+FD CB 05 2D  sra (iy+#05),l           sequential         ud
+FD CB 05 2E  sra (iy+#05)             sequential
+FD CB 05 2F  sra (iy+#05),a           sequential         ud
+FD CB 05 30  sll (iy+#05),b           sequential         ud
+FD CB 05 31  sll (iy+#05),c           sequential         ud
+FD CB 05 32  sll (iy+#05),d           sequential         ud
+FD CB 05 33  sll (iy+#05),e           sequential         ud
+FD CB 05 34  sll (iy+#05),h           sequential         ud
+FD CB 05 35  sll (iy+#05),l           sequential         ud
+FD CB 05 36  sll (iy+#05)             sequential         ud
+FD CB 05 37  sll (iy+#05),a           sequential         ud
+FD CB 05 38  srl (iy+#05),b           sequential         ud
+FD CB 05 39  srl (iy+#05),c           sequential         ud
+FD CB 05 3A  srl (iy+#05),d           sequential         ud
+FD CB 05 3B  srl (iy+#05),e           sequential         ud
+FD CB 05 3C  srl (iy+#05),h           sequential         ud
+FD CB 05 3D  srl (iy+#05),l           sequential         ud
+FD CB 05 3E  srl (iy+#05)             sequential
+FD CB 05 3F  srl (iy+#05),a           sequential         ud
+FD CB 05 40  bit 0,(iy+#05)           sequential         nc ud
+FD CB 05 41  bit 0,(iy+#05)           sequential         nc ud
+FD CB 05 42  bit 0,(iy+#05)           sequential         nc ud
+FD CB 05 43  bit 0,(iy+#05)           sequential         nc ud
+FD CB 05 44  bit 0,(iy+#05)           sequential         nc ud
+FD CB 05 45  bit 0,(iy+#05)           sequential         nc ud
+FD CB 05 46  bit 0,(iy+#05)           sequential
+FD CB 05 47  bit 0,(iy+#05)           sequential         nc ud
+FD CB 05 48  bit 1,(iy+#05)           sequential         nc ud
+FD CB 05 49  bit 1,(iy+#05)           sequential         nc ud
+FD CB 05 4A  bit 1,(iy+#05)           sequential         nc ud
+FD CB 05 4B  bit 1,(iy+#05)           sequential         nc ud
+FD CB 05 4C  bit 1,(iy+#05)           sequential         nc ud
+FD CB 05 4D  bit 1,(iy+#05)           sequential         nc ud
+FD CB 05 4E  bit 1,(iy+#05)           sequential
+FD CB 05 4F  bit 1,(iy+#05)           sequential         nc ud
+FD CB 05 50  bit 2,(iy+#05)           sequential         nc ud
+FD CB 05 51  bit 2,(iy+#05)           sequential         nc ud
+FD CB 05 52  bit 2,(iy+#05)           sequential         nc ud
+FD CB 05 53  bit 2,(iy+#05)           sequential         nc ud
+FD CB 05 54  bit 2,(iy+#05)           sequential         nc ud
+FD CB 05 55  bit 2,(iy+#05)           sequential         nc ud
+FD CB 05 56  bit 2,(iy+#05)           sequential
+FD CB 05 57  bit 2,(iy+#05)           sequential         nc ud
+FD CB 05 58  bit 3,(iy+#05)           sequential         nc ud
+FD CB 05 59  bit 3,(iy+#05)           sequential         nc ud
+FD CB 05 5A  bit 3,(iy+#05)           sequential         nc ud
+FD CB 05 5B  bit 3,(iy+#05)           sequential         nc ud
+FD CB 05 5C  bit 3,(iy+#05)           sequential         nc ud
+FD CB 05 5D  bit 3,(iy+#05)           sequential         nc ud
+FD CB 05 5E  bit 3,(iy+#05)           sequential
+FD CB 05 5F  bit 3,(iy+#05)           sequential         nc ud
+FD CB 05 60  bit 4,(iy+#05)           sequential         nc ud
+FD CB 05 61  bit 4,(iy+#05)           sequential         nc ud
+FD CB 05 62  bit 4,(iy+#05)           sequential         nc ud
+FD CB 05 63  bit 4,(iy+#05)           sequential         nc ud
+FD CB 05 64  bit 4,(iy+#05)           sequential         nc ud
+FD CB 05 65  bit 4,(iy+#05)           sequential         nc ud
+FD CB 05 66  bit 4,(iy+#05)           sequential
+FD CB 05 67  bit 4,(iy+#05)           sequential         nc ud
+FD CB 05 68  bit 5,(iy+#05)           sequential         nc ud
+FD CB 05 69  bit 5,(iy+#05)           sequential         nc ud
+FD CB 05 6A  bit 5,(iy+#05)           sequential         nc ud
+FD CB 05 6B  bit 5,(iy+#05)           sequential         nc ud
+FD CB 05 6C  bit 5,(iy+#05)           sequential         nc ud
+FD CB 05 6D  bit 5,(iy+#05)           sequential         nc ud
+FD CB 05 6E  bit 5,(iy+#05)           sequential
+FD CB 05 6F  bit 5,(iy+#05)           sequential         nc ud
+FD CB 05 70  bit 6,(iy+#05)           sequential         nc ud
+FD CB 05 71  bit 6,(iy+#05)           sequential         nc ud
+FD CB 05 72  bit 6,(iy+#05)           sequential         nc ud
+FD CB 05 73  bit 6,(iy+#05)           sequential         nc ud
+FD CB 05 74  bit 6,(iy+#05)           sequential         nc ud
+FD CB 05 75  bit 6,(iy+#05)           sequential         nc ud
+FD CB 05 76  bit 6,(iy+#05)           sequential
+FD CB 05 77  bit 6,(iy+#05)           sequential         nc ud
+FD CB 05 78  bit 7,(iy+#05)           sequential         nc ud
+FD CB 05 79  bit 7,(iy+#05)           sequential         nc ud
+FD CB 05 7A  bit 7,(iy+#05)           sequential         nc ud
+FD CB 05 7B  bit 7,(iy+#05)           sequential         nc ud
+FD CB 05 7C  bit 7,(iy+#05)           sequential         nc ud
+FD CB 05 7D  bit 7,(iy+#05)           sequential         nc ud
+FD CB 05 7E  bit 7,(iy+#05)           sequential
+FD CB 05 7F  bit 7,(iy+#05)           sequential         nc ud
+FD CB 05 80  res 0,(iy+#05),b         sequential         ud
+FD CB 05 81  res 0,(iy+#05),c         sequential         ud
+FD CB 05 82  res 0,(iy+#05),d         sequential         ud
+FD CB 05 83  res 0,(iy+#05),e         sequential         ud
+FD CB 05 84  res 0,(iy+#05),h         sequential         ud
+FD CB 05 85  res 0,(iy+#05),l         sequential         ud
+FD CB 05 86  res 0,(iy+#05)           sequential
+FD CB 05 87  res 0,(iy+#05),a         sequential         ud
+FD CB 05 88  res 1,(iy+#05),b         sequential         ud
+FD CB 05 89  res 1,(iy+#05),c         sequential         ud
+FD CB 05 8A  res 1,(iy+#05),d         sequential         ud
+FD CB 05 8B  res 1,(iy+#05),e         sequential         ud
+FD CB 05 8C  res 1,(iy+#05),h         sequential         ud
+FD CB 05 8D  res 1,(iy+#05),l         sequential         ud
+FD CB 05 8E  res 1,(iy+#05)           sequential
+FD CB 05 8F  res 1,(iy+#05),a         sequential         ud
+FD CB 05 90  res 2,(iy+#05),b         sequential         ud
+FD CB 05 91  res 2,(iy+#05),c         sequential         ud
+FD CB 05 92  res 2,(iy+#05),d         sequential         ud
+FD CB 05 93  res 2,(iy+#05),e         sequential         ud
+FD CB 05 94  res 2,(iy+#05),h         sequential         ud
+FD CB 05 95  res 2,(iy+#05),l         sequential         ud
+FD CB 05 96  res 2,(iy+#05)           sequential
+FD CB 05 97  res 2,(iy+#05),a         sequential         ud
+FD CB 05 98  res 3,(iy+#05),b         sequential         ud
+FD CB 05 99  res 3,(iy+#05),c         sequential         ud
+FD CB 05 9A  res 3,(iy+#05),d         sequential         ud
+FD CB 05 9B  res 3,(iy+#05),e         sequential         ud
+FD CB 05 9C  res 3,(iy+#05),h         sequential         ud
+FD CB 05 9D  res 3,(iy+#05),l         sequential         ud
+FD CB 05 9E  res 3,(iy+#05)           sequential
+FD CB 05 9F  res 3,(iy+#05),a         sequential         ud
+FD CB 05 A0  res 4,(iy+#05),b         sequential         ud
+FD CB 05 A1  res 4,(iy+#05),c         sequential         ud
+FD CB 05 A2  res 4,(iy+#05),d         sequential         ud
+FD CB 05 A3  res 4,(iy+#05),e         sequential         ud
+FD CB 05 A4  res 4,(iy+#05),h         sequential         ud
+FD CB 05 A5  res 4,(iy+#05),l         sequential         ud
+FD CB 05 A6  res 4,(iy+#05)           sequential
+FD CB 05 A7  res 4,(iy+#05),a         sequential         ud
+FD CB 05 A8  res 5,(iy+#05),b         sequential         ud
+FD CB 05 A9  res 5,(iy+#05),c         sequential         ud
+FD CB 05 AA  res 5,(iy+#05),d         sequential         ud
+FD CB 05 AB  res 5,(iy+#05),e         sequential         ud
+FD CB 05 AC  res 5,(iy+#05),h         sequential         ud
+FD CB 05 AD  res 5,(iy+#05),l         sequential         ud
+FD CB 05 AE  res 5,(iy+#05)           sequential
+FD CB 05 AF  res 5,(iy+#05),a         sequential         ud
+FD CB 05 B0  res 6,(iy+#05),b         sequential         ud
+FD CB 05 B1  res 6,(iy+#05),c         sequential         ud
+FD CB 05 B2  res 6,(iy+#05),d         sequential         ud
+FD CB 05 B3  res 6,(iy+#05),e         sequential         ud
+FD CB 05 B4  res 6,(iy+#05),h         sequential         ud
+FD CB 05 B5  res 6,(iy+#05),l         sequential         ud
+FD CB 05 B6  res 6,(iy+#05)           sequential
+FD CB 05 B7  res 6,(iy+#05),a         sequential         ud
+FD CB 05 B8  res 7,(iy+#05),b         sequential         ud
+FD CB 05 B9  res 7,(iy+#05),c         sequential         ud
+FD CB 05 BA  res 7,(iy+#05),d         sequential         ud
+FD CB 05 BB  res 7,(iy+#05),e         sequential         ud
+FD CB 05 BC  res 7,(iy+#05),h         sequential         ud
+FD CB 05 BD  res 7,(iy+#05),l         sequential         ud
+FD CB 05 BE  res 7,(iy+#05)           sequential
+FD CB 05 BF  res 7,(iy+#05),a         sequential         ud
+FD CB 05 C0  set 0,(iy+#05),b         sequential         ud
+FD CB 05 C1  set 0,(iy+#05),c         sequential         ud
+FD CB 05 C2  set 0,(iy+#05),d         sequential         ud
+FD CB 05 C3  set 0,(iy+#05),e         sequential         ud
+FD CB 05 C4  set 0,(iy+#05),h         sequential         ud
+FD CB 05 C5  set 0,(iy+#05),l         sequential         ud
+FD CB 05 C6  set 0,(iy+#05)           sequential
+FD CB 05 C7  set 0,(iy+#05),a         sequential         ud
+FD CB 05 C8  set 1,(iy+#05),b         sequential         ud
+FD CB 05 C9  set 1,(iy+#05),c         sequential         ud
+FD CB 05 CA  set 1,(iy+#05),d         sequential         ud
+FD CB 05 CB  set 1,(iy+#05),e         sequential         ud
+FD CB 05 CC  set 1,(iy+#05),h         sequential         ud
+FD CB 05 CD  set 1,(iy+#05),l         sequential         ud
+FD CB 05 CE  set 1,(iy+#05)           sequential
+FD CB 05 CF  set 1,(iy+#05),a         sequential         ud
+FD CB 05 D0  set 2,(iy+#05),b         sequential         ud
+FD CB 05 D1  set 2,(iy+#05),c         sequential         ud
+FD CB 05 D2  set 2,(iy+#05),d         sequential         ud
+FD CB 05 D3  set 2,(iy+#05),e         sequential         ud
+FD CB 05 D4  set 2,(iy+#05),h         sequential         ud
+FD CB 05 D5  set 2,(iy+#05),l         sequential         ud
+FD CB 05 D6  set 2,(iy+#05)           sequential
+FD CB 05 D7  set 2,(iy+#05),a         sequential         ud
+FD CB 05 D8  set 3,(iy+#05),b         sequential         ud
+FD CB 05 D9  set 3,(iy+#05),c         sequential         ud
+FD CB 05 DA  set 3,(iy+#05),d         sequential         ud
+FD CB 05 DB  set 3,(iy+#05),e         sequential         ud
+FD CB 05 DC  set 3,(iy+#05),h         sequential         ud
+FD CB 05 DD  set 3,(iy+#05),l         sequential         ud
+FD CB 05 DE  set 3,(iy+#05)           sequential
+FD CB 05 DF  set 3,(iy+#05),a         sequential         ud
+FD CB 05 E0  set 4,(iy+#05),b         sequential         ud
+FD CB 05 E1  set 4,(iy+#05),c         sequential         ud
+FD CB 05 E2  set 4,(iy+#05),d         sequential         ud
+FD CB 05 E3  set 4,(iy+#05),e         sequential         ud
+FD CB 05 E4  set 4,(iy+#05),h         sequential         ud
+FD CB 05 E5  set 4,(iy+#05),l         sequential         ud
+FD CB 05 E6  set 4,(iy+#05)           sequential
+FD CB 05 E7  set 4,(iy+#05),a         sequential         ud
+FD CB 05 E8  set 5,(iy+#05),b         sequential         ud
+FD CB 05 E9  set 5,(iy+#05),c         sequential         ud
+FD CB 05 EA  set 5,(iy+#05),d         sequential         ud
+FD CB 05 EB  set 5,(iy+#05),e         sequential         ud
+FD CB 05 EC  set 5,(iy+#05),h         sequential         ud
+FD CB 05 ED  set 5,(iy+#05),l         sequential         ud
+FD CB 05 EE  set 5,(iy+#05)           sequential
+FD CB 05 EF  set 5,(iy+#05),a         sequential         ud
+FD CB 05 F0  set 6,(iy+#05),b         sequential         ud
+FD CB 05 F1  set 6,(iy+#05),c         sequential         ud
+FD CB 05 F2  set 6,(iy+#05),d         sequential         ud
+FD CB 05 F3  set 6,(iy+#05),e         sequential         ud
+FD CB 05 F4  set 6,(iy+#05),h         sequential         ud
+FD CB 05 F5  set 6,(iy+#05),l         sequential         ud
+FD CB 05 F6  set 6,(iy+#05)           sequential
+FD CB 05 F7  set 6,(iy+#05),a         sequential         ud
+FD CB 05 F8  set 7,(iy+#05),b         sequential         ud
+FD CB 05 F9  set 7,(iy+#05),c         sequential         ud
+FD CB 05 FA  set 7,(iy+#05),d         sequential         ud
+FD CB 05 FB  set 7,(iy+#05),e         sequential         ud
+FD CB 05 FC  set 7,(iy+#05),h         sequential         ud
+FD CB 05 FD  set 7,(iy+#05),l         sequential         ud
+FD CB 05 FE  set 7,(iy+#05)           sequential
+FD CB 05 FF  set 7,(iy+#05),a         sequential         ud
+FD CB FB 00  rlc (iy-#05),b           sequential         ud
+FD CB FB 01  rlc (iy-#05),c           sequential         ud
+FD CB FB 02  rlc (iy-#05),d           sequential         ud
+FD CB FB 03  rlc (iy-#05),e           sequential         ud
+FD CB FB 04  rlc (iy-#05),h           sequential         ud
+FD CB FB 05  rlc (iy-#05),l           sequential         ud
+FD CB FB 06  rlc (iy-#05)             sequential
+FD CB FB 07  rlc (iy-#05),a           sequential         ud
+FD CB FB 08  rrc (iy-#05),b           sequential         ud
+FD CB FB 09  rrc (iy-#05),c           sequential         ud
+FD CB FB 0A  rrc (iy-#05),d           sequential         ud
+FD CB FB 0B  rrc (iy-#05),e           sequential         ud
+FD CB FB 0C  rrc (iy-#05),h           sequential         ud
+FD CB FB 0D  rrc (iy-#05),l           sequential         ud
+FD CB FB 0E  rrc (iy-#05)             sequential
+FD CB FB 0F  rrc (iy-#05),a           sequential         ud
+FD CB FB 10  rl (iy-#05),b            sequential         ud
+FD CB FB 11  rl (iy-#05),c            sequential         ud
+FD CB FB 12  rl (iy-#05),d            sequential         ud
+FD CB FB 13  rl (iy-#05),e            sequential         ud
+FD CB FB 14  rl (iy-#05),h            sequential         ud
+FD CB FB 15  rl (iy-#05),l            sequential         ud
+FD CB FB 16  rl (iy-#05)              sequential
+FD CB FB 17  rl (iy-#05),a            sequential         ud
+FD CB FB 18  rr (iy-#05),b            sequential         ud
+FD CB FB 19  rr (iy-#05),c            sequential         ud
+FD CB FB 1A  rr (iy-#05),d            sequential         ud
+FD CB FB 1B  rr (iy-#05),e            sequential         ud
+FD CB FB 1C  rr (iy-#05),h            sequential         ud
+FD CB FB 1D  rr (iy-#05),l            sequential         ud
+FD CB FB 1E  rr (iy-#05)              sequential
+FD CB FB 1F  rr (iy-#05),a            sequential         ud
+FD CB FB 20  sla (iy-#05),b           sequential         ud
+FD CB FB 21  sla (iy-#05),c           sequential         ud
+FD CB FB 22  sla (iy-#05),d           sequential         ud
+FD CB FB 23  sla (iy-#05),e           sequential         ud
+FD CB FB 24  sla (iy-#05),h           sequential         ud
+FD CB FB 25  sla (iy-#05),l           sequential         ud
+FD CB FB 26  sla (iy-#05)             sequential
+FD CB FB 27  sla (iy-#05),a           sequential         ud
+FD CB FB 28  sra (iy-#05),b           sequential         ud
+FD CB FB 29  sra (iy-#05),c           sequential         ud
+FD CB FB 2A  sra (iy-#05),d           sequential         ud
+FD CB FB 2B  sra (iy-#05),e           sequential         ud
+FD CB FB 2C  sra (iy-#05),h           sequential         ud
+FD CB FB 2D  sra (iy-#05),l           sequential         ud
+FD CB FB 2E  sra (iy-#05)             sequential
+FD CB FB 2F  sra (iy-#05),a           sequential         ud
+FD CB FB 30  sll (iy-#05),b           sequential         ud
+FD CB FB 31  sll (iy-#05),c           sequential         ud
+FD CB FB 32  sll (iy-#05),d           sequential         ud
+FD CB FB 33  sll (iy-#05),e           sequential         ud
+FD CB FB 34  sll (iy-#05),h           sequential         ud
+FD CB FB 35  sll (iy-#05),l           sequential         ud
+FD CB FB 36  sll (iy-#05)             sequential         ud
+FD CB FB 37  sll (iy-#05),a           sequential         ud
+FD CB FB 38  srl (iy-#05),b           sequential         ud
+FD CB FB 39  srl (iy-#05),c           sequential         ud
+FD CB FB 3A  srl (iy-#05),d           sequential         ud
+FD CB FB 3B  srl (iy-#05),e           sequential         ud
+FD CB FB 3C  srl (iy-#05),h           sequential         ud
+FD CB FB 3D  srl (iy-#05),l           sequential         ud
+FD CB FB 3E  srl (iy-#05)             sequential
+FD CB FB 3F  srl (iy-#05),a           sequential         ud
+FD CB FB 40  bit 0,(iy-#05)           sequential         nc ud
+FD CB FB 41  bit 0,(iy-#05)           sequential         nc ud
+FD CB FB 42  bit 0,(iy-#05)           sequential         nc ud
+FD CB FB 43  bit 0,(iy-#05)           sequential         nc ud
+FD CB FB 44  bit 0,(iy-#05)           sequential         nc ud
+FD CB FB 45  bit 0,(iy-#05)           sequential         nc ud
+FD CB FB 46  bit 0,(iy-#05)           sequential
+FD CB FB 47  bit 0,(iy-#05)           sequential         nc ud
+FD CB FB 48  bit 1,(iy-#05)           sequential         nc ud
+FD CB FB 49  bit 1,(iy-#05)           sequential         nc ud
+FD CB FB 4A  bit 1,(iy-#05)           sequential         nc ud
+FD CB FB 4B  bit 1,(iy-#05)           sequential         nc ud
+FD CB FB 4C  bit 1,(iy-#05)           sequential         nc ud
+FD CB FB 4D  bit 1,(iy-#05)           sequential         nc ud
+FD CB FB 4E  bit 1,(iy-#05)           sequential
+FD CB FB 4F  bit 1,(iy-#05)           sequential         nc ud
+FD CB FB 50  bit 2,(iy-#05)           sequential         nc ud
+FD CB FB 51  bit 2,(iy-#05)           sequential         nc ud
+FD CB FB 52  bit 2,(iy-#05)           sequential         nc ud
+FD CB FB 53  bit 2,(iy-#05)           sequential         nc ud
+FD CB FB 54  bit 2,(iy-#05)           sequential         nc ud
+FD CB FB 55  bit 2,(iy-#05)           sequential         nc ud
+FD CB FB 56  bit 2,(iy-#05)           sequential
+FD CB FB 57  bit 2,(iy-#05)           sequential         nc ud
+FD CB FB 58  bit 3,(iy-#05)           sequential         nc ud
+FD CB FB 59  bit 3,(iy-#05)           sequential         nc ud
+FD CB FB 5A  bit 3,(iy-#05)           sequential         nc ud
+FD CB FB 5B  bit 3,(iy-#05)           sequential         nc ud
+FD CB FB 5C  bit 3,(iy-#05)           sequential         nc ud
+FD CB FB 5D  bit 3,(iy-#05)           sequential         nc ud
+FD CB FB 5E  bit 3,(iy-#05)           sequential
+FD CB FB 5F  bit 3,(iy-#05)           sequential         nc ud
+FD CB FB 60  bit 4,(iy-#05)           sequential         nc ud
+FD CB FB 61  bit 4,(iy-#05)           sequential         nc ud
+FD CB FB 62  bit 4,(iy-#05)           sequential         nc ud
+FD CB FB 63  bit 4,(iy-#05)           sequential         nc ud
+FD CB FB 64  bit 4,(iy-#05)           sequential         nc ud
+FD CB FB 65  bit 4,(iy-#05)           sequential         nc ud
+FD CB FB 66  bit 4,(iy-#05)           sequential
+FD CB FB 67  bit 4,(iy-#05)           sequential         nc ud
+FD CB FB 68  bit 5,(iy-#05)           sequential         nc ud
+FD CB FB 69  bit 5,(iy-#05)           sequential         nc ud
+FD CB FB 6A  bit 5,(iy-#05)           sequential         nc ud
+FD CB FB 6B  bit 5,(iy-#05)           sequential         nc ud
+FD CB FB 6C  bit 5,(iy-#05)           sequential         nc ud
+FD CB FB 6D  bit 5,(iy-#05)           sequential         nc ud
+FD CB FB 6E  bit 5,(iy-#05)           sequential
+FD CB FB 6F  bit 5,(iy-#05)           sequential         nc ud
+FD CB FB 70  bit 6,(iy-#05)           sequential         nc ud
+FD CB FB 71  bit 6,(iy-#05)           sequential         nc ud
+FD CB FB 72  bit 6,(iy-#05)           sequential         nc ud
+FD CB FB 73  bit 6,(iy-#05)           sequential         nc ud
+FD CB FB 74  bit 6,(iy-#05)           sequential         nc ud
+FD CB FB 75  bit 6,(iy-#05)           sequential         nc ud
+FD CB FB 76  bit 6,(iy-#05)           sequential
+FD CB FB 77  bit 6,(iy-#05)           sequential         nc ud
+FD CB FB 78  bit 7,(iy-#05)           sequential         nc ud
+FD CB FB 79  bit 7,(iy-#05)           sequential         nc ud
+FD CB FB 7A  bit 7,(iy-#05)           sequential         nc ud
+FD CB FB 7B  bit 7,(iy-#05)           sequential         nc ud
+FD CB FB 7C  bit 7,(iy-#05)           sequential         nc ud
+FD CB FB 7D  bit 7,(iy-#05)           sequential         nc ud
+FD CB FB 7E  bit 7,(iy-#05)           sequential
+FD CB FB 7F  bit 7,(iy-#05)           sequential         nc ud
+FD CB FB 80  res 0,(iy-#05),b         sequential         ud
+FD CB FB 81  res 0,(iy-#05),c         sequential         ud
+FD CB FB 82  res 0,(iy-#05),d         sequential         ud
+FD CB FB 83  res 0,(iy-#05),e         sequential         ud
+FD CB FB 84  res 0,(iy-#05),h         sequential         ud
+FD CB FB 85  res 0,(iy-#05),l         sequential         ud
+FD CB FB 86  res 0,(iy-#05)           sequential
+FD CB FB 87  res 0,(iy-#05),a         sequential         ud
+FD CB FB 88  res 1,(iy-#05),b         sequential         ud
+FD CB FB 89  res 1,(iy-#05),c         sequential         ud
+FD CB FB 8A  res 1,(iy-#05),d         sequential         ud
+FD CB FB 8B  res 1,(iy-#05),e         sequential         ud
+FD CB FB 8C  res 1,(iy-#05),h         sequential         ud
+FD CB FB 8D  res 1,(iy-#05),l         sequential         ud
+FD CB FB 8E  res 1,(iy-#05)           sequential
+FD CB FB 8F  res 1,(iy-#05),a         sequential         ud
+FD CB FB 90  res 2,(iy-#05),b         sequential         ud
+FD CB FB 91  res 2,(iy-#05),c         sequential         ud
+FD CB FB 92  res 2,(iy-#05),d         sequential         ud
+FD CB FB 93  res 2,(iy-#05),e         sequential         ud
+FD CB FB 94  res 2,(iy-#05),h         sequential         ud
+FD CB FB 95  res 2,(iy-#05),l         sequential         ud
+FD CB FB 96  res 2,(iy-#05)           sequential
+FD CB FB 97  res 2,(iy-#05),a         sequential         ud
+FD CB FB 98  res 3,(iy-#05),b         sequential         ud
+FD CB FB 99  res 3,(iy-#05),c         sequential         ud
+FD CB FB 9A  res 3,(iy-#05),d         sequential         ud
+FD CB FB 9B  res 3,(iy-#05),e         sequential         ud
+FD CB FB 9C  res 3,(iy-#05),h         sequential         ud
+FD CB FB 9D  res 3,(iy-#05),l         sequential         ud
+FD CB FB 9E  res 3,(iy-#05)           sequential
+FD CB FB 9F  res 3,(iy-#05),a         sequential         ud
+FD CB FB A0  res 4,(iy-#05),b         sequential         ud
+FD CB FB A1  res 4,(iy-#05),c         sequential         ud
+FD CB FB A2  res 4,(iy-#05),d         sequential         ud
+FD CB FB A3  res 4,(iy-#05),e         sequential         ud
+FD CB FB A4  res 4,(iy-#05),h         sequential         ud
+FD CB FB A5  res 4,(iy-#05),l         sequential         ud
+FD CB FB A6  res 4,(iy-#05)           sequential
+FD CB FB A7  res 4,(iy-#05),a         sequential         ud
+FD CB FB A8  res 5,(iy-#05),b         sequential         ud
+FD CB FB A9  res 5,(iy-#05),c         sequential         ud
+FD CB FB AA  res 5,(iy-#05),d         sequential         ud
+FD CB FB AB  res 5,(iy-#05),e         sequential         ud
+FD CB FB AC  res 5,(iy-#05),h         sequential         ud
+FD CB FB AD  res 5,(iy-#05),l         sequential         ud
+FD CB FB AE  res 5,(iy-#05)           sequential
+FD CB FB AF  res 5,(iy-#05),a         sequential         ud
+FD CB FB B0  res 6,(iy-#05),b         sequential         ud
+FD CB FB B1  res 6,(iy-#05),c         sequential         ud
+FD CB FB B2  res 6,(iy-#05),d         sequential         ud
+FD CB FB B3  res 6,(iy-#05),e         sequential         ud
+FD CB FB B4  res 6,(iy-#05),h         sequential         ud
+FD CB FB B5  res 6,(iy-#05),l         sequential         ud
+FD CB FB B6  res 6,(iy-#05)           sequential
+FD CB FB B7  res 6,(iy-#05),a         sequential         ud
+FD CB FB B8  res 7,(iy-#05),b         sequential         ud
+FD CB FB B9  res 7,(iy-#05),c         sequential         ud
+FD CB FB BA  res 7,(iy-#05),d         sequential         ud
+FD CB FB BB  res 7,(iy-#05),e         sequential         ud
+FD CB FB BC  res 7,(iy-#05),h         sequential         ud
+FD CB FB BD  res 7,(iy-#05),l         sequential         ud
+FD CB FB BE  res 7,(iy-#05)           sequential
+FD CB FB BF  res 7,(iy-#05),a         sequential         ud
+FD CB FB C0  set 0,(iy-#05),b         sequential         ud
+FD CB FB C1  set 0,(iy-#05),c         sequential         ud
+FD CB FB C2  set 0,(iy-#05),d         sequential         ud
+FD CB FB C3  set 0,(iy-#05),e         sequential         ud
+FD CB FB C4  set 0,(iy-#05),h         sequential         ud
+FD CB FB C5  set 0,(iy-#05),l         sequential         ud
+FD CB FB C6  set 0,(iy-#05)           sequential
+FD CB FB C7  set 0,(iy-#05),a         sequential         ud
+FD CB FB C8  set 1,(iy-#05),b         sequential         ud
+FD CB FB C9  set 1,(iy-#05),c         sequential         ud
+FD CB FB CA  set 1,(iy-#05),d         sequential         ud
+FD CB FB CB  set 1,(iy-#05),e         sequential         ud
+FD CB FB CC  set 1,(iy-#05),h         sequential         ud
+FD CB FB CD  set 1,(iy-#05),l         sequential         ud
+FD CB FB CE  set 1,(iy-#05)           sequential
+FD CB FB CF  set 1,(iy-#05),a         sequential         ud
+FD CB FB D0  set 2,(iy-#05),b         sequential         ud
+FD CB FB D1  set 2,(iy-#05),c         sequential         ud
+FD CB FB D2  set 2,(iy-#05),d         sequential         ud
+FD CB FB D3  set 2,(iy-#05),e         sequential         ud
+FD CB FB D4  set 2,(iy-#05),h         sequential         ud
+FD CB FB D5  set 2,(iy-#05),l         sequential         ud
+FD CB FB D6  set 2,(iy-#05)           sequential
+FD CB FB D7  set 2,(iy-#05),a         sequential         ud
+FD CB FB D8  set 3,(iy-#05),b         sequential         ud
+FD CB FB D9  set 3,(iy-#05),c         sequential         ud
+FD CB FB DA  set 3,(iy-#05),d         sequential         ud
+FD CB FB DB  set 3,(iy-#05),e         sequential         ud
+FD CB FB DC  set 3,(iy-#05),h         sequential         ud
+FD CB FB DD  set 3,(iy-#05),l         sequential         ud
+FD CB FB DE  set 3,(iy-#05)           sequential
+FD CB FB DF  set 3,(iy-#05),a         sequential         ud
+FD CB FB E0  set 4,(iy-#05),b         sequential         ud
+FD CB FB E1  set 4,(iy-#05),c         sequential         ud
+FD CB FB E2  set 4,(iy-#05),d         sequential         ud
+FD CB FB E3  set 4,(iy-#05),e         sequential         ud
+FD CB FB E4  set 4,(iy-#05),h         sequential         ud
+FD CB FB E5  set 4,(iy-#05),l         sequential         ud
+FD CB FB E6  set 4,(iy-#05)           sequential
+FD CB FB E7  set 4,(iy-#05),a         sequential         ud
+FD CB FB E8  set 5,(iy-#05),b         sequential         ud
+FD CB FB E9  set 5,(iy-#05),c         sequential         ud
+FD CB FB EA  set 5,(iy-#05),d         sequential         ud
+FD CB FB EB  set 5,(iy-#05),e         sequential         ud
+FD CB FB EC  set 5,(iy-#05),h         sequential         ud
+FD CB FB ED  set 5,(iy-#05),l         sequential         ud
+FD CB FB EE  set 5,(iy-#05)           sequential
+FD CB FB EF  set 5,(iy-#05),a         sequential         ud
+FD CB FB F0  set 6,(iy-#05),b         sequential         ud
+FD CB FB F1  set 6,(iy-#05),c         sequential         ud
+FD CB FB F2  set 6,(iy-#05),d         sequential         ud
+FD CB FB F3  set 6,(iy-#05),e         sequential         ud
+FD CB FB F4  set 6,(iy-#05),h         sequential         ud
+FD CB FB F5  set 6,(iy-#05),l         sequential         ud
+FD CB FB F6  set 6,(iy-#05)           sequential
+FD CB FB F7  set 6,(iy-#05),a         sequential         ud
+FD CB FB F8  set 7,(iy-#05),b         sequential         ud
+FD CB FB F9  set 7,(iy-#05),c         sequential         ud
+FD CB FB FA  set 7,(iy-#05),d         sequential         ud
+FD CB FB FB  set 7,(iy-#05),e         sequential         ud
+FD CB FB FC  set 7,(iy-#05),h         sequential         ud
+FD CB FB FD  set 7,(iy-#05),l         sequential         ud
+FD CB FB FE  set 7,(iy-#05)           sequential
+FD CB FB FF  set 7,(iy-#05),a         sequential         ud

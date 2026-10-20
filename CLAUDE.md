@@ -34,7 +34,8 @@ src/cpcxray/
   session/              Session façade (the only API to the machine, D-27)
   mcp_server/           MCP server, tools map 1:1 onto Session methods
   ui/                   Dear PyGui app, renderer, panels
-tests/                  mirrors src (cpu/, machine/, devices/, decoding/, analysis/, disasm/, mcp/)
+tests/                  mirrors src (cpu/, machine/, devices/, decoding/, analysis/, disasm/,
+                        session/, mcp_server/ - not mcp/, which would shadow the mcp package)
 tools/                  helper scripts
 ```
 
@@ -50,6 +51,9 @@ ruff check                        # lint
 ruff format                       # format (Markdown is excluded)
 pylint src tests tools            # must rate 10/10; disables only with a stated reason
 cpcxray config                    # show parsed config/machine.toml, missing ROMs, sjasmplus
+cpcxray mcp                       # headless MCP server on stdio (Claude Code: .mcp.json)
+CPCXRAY_UPDATE_GOLDEN=1 pytest tests/disasm   # regenerate the disassembler golden listing
+python -m tools.extract_firmware_symbols      # regenerate the 464 firmware jumpblock names
 ```
 
 `sjasmplus` must be on the PATH (round-trip check, D-33); `tests/test_tools.py` checks it.
@@ -90,12 +94,30 @@ Implement strictly one phase of design.md §9 at a time. A phase is finished onl
 milestone tests pass together with the full suite, `ruff check` and `ruff format --check`.
 Do not start the next phase without the owner's go-ahead.
 
-**Status:** Phases 0-2 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
-pass); CPU validation (ZEXDOC and ZEXALL all 67 groups, z80test all 6 variants pass; z80ccfscr
-is visual only). Next: Phase 3 (disassembler, Session, minimal debugger, headless MCP server).
+**Status:** Phases 0-3 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
+pass); CPU validation (ZEXDOC/ZEXALL, z80test); disassembler, CPC RST profile, symbols,
+Session with minimal debugger, headless MCP server. Next: Phase 4 (CPC 464 machine: memory map,
+ROM slots, Gate Array, ROM select, CRTC registers, SystemIO, interrupt timer; boot to BASIC).
 
 Validation runtimes on CPython (8 cores): z80test ~1 min for all variants; ZEXDOC+ZEXALL ~30 min,
 dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on one core).
+
+## Session, debugger and MCP notes (phase 3)
+
+- `Session` (src/cpcxray/session/session.py) is the only API (D-27). Every public method is an
+  MCP tool with the same name and signature, generated in mcp_server/server.py; adding a public
+  method adds a tool. Methods return dicts (a list would become several MCP content blocks),
+  raise `SessionError` for bad requests (shown to the MCP client), take addresses as int, hex
+  string or label, and are bounded (limits + wall-clock timeout, FR-MCP-04).
+- Threads (D-29): `SessionWorker` runs the session in its own thread and executes commands from
+  a queue; only `pause` bypasses the queue. The GUI (phase 5) will call `run_pending()` instead.
+- The phase 3 machine is `FlatMachine` (Z80 + 64 KB RAM) behind the `Machine` protocol in
+  machine/flat.py; the CPC 464 implements the same protocol (CPC RST profile, symbol scopes).
+- Disassembler (cpu/disasm.py): sjasmplus syntax, golden test reassembles every opcode form
+  with sjasmplus; non-canonical encodings flagged (D-32). RSTs via a profile (D-30,
+  analysis/cpc_profile.py) with inline length and flow (call-like RST 2/3, jump-like 1/5).
+- Symbols (debugger/symbols.py): firmware names preloaded from debugger/firmware_symbols.py
+  (generated); user symbols in project/annotations.txt (`[scope:]address label ; comment`).
 
 ## Z80 core notes (`src/cpcxray/cpu/`)
 

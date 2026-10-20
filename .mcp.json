@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "cpcxray": {
+      "type": "stdio",
+      "command": ".venv/bin/cpcxray",
+      "args": ["mcp", "--project-dir", "."]
+    }
+  }
+}

@@ -1,7 +1,12 @@
 """Command line entry point `cpcxray` (console script, see pyproject.toml).
 
-Subcommands so far: `config` (load and check a machine configuration). Later phases add `mcp`
-(headless MCP server over stdio) and `gui` (Dear PyGui frontend), see design.md §6.16.
+Subcommands:
+
+* `config`: load and check a machine configuration.
+* `mcp`: the headless MCP server on stdin/stdout (design.md §6.16, D-28); Claude Code starts it
+  from the project's .mcp.json. Needs the optional dependency `mcp`.
+
+The `gui` subcommand (Dear PyGui frontend) follows in phase 5.
 """
 
 from __future__ import annotations
@@ -31,11 +36,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command")
     p_config = sub.add_parser("config", help="load and check a machine configuration")
     p_config.add_argument("--config", default=DEFAULT_CONFIG, help="path to machine.toml")
+    p_mcp = sub.add_parser("mcp", help="run the headless MCP server on stdio")
+    p_mcp.add_argument("--project-dir", default=".", help="base directory for relative paths")
 
     args = parser.parse_args(argv)
     if args.command == "config":
         return _cmd_config(args.config)
+    if args.command == "mcp":
+        return _cmd_mcp(args.project_dir)
     parser.print_help()
+    return 0
+
+
+def _cmd_mcp(project_dir: str) -> int:
+    """Run `cpcxray mcp`: serve MCP on stdio until the client disconnects.
+
+    Returns:
+        0 when the client disconnects, 1 if the `mcp` package is not installed.
+    """
+    try:
+        from cpcxray.mcp_server.server import run_stdio  # pylint: disable=import-outside-toplevel  # optional dependency
+    except ImportError as error:
+        print(f"error: {error}; install with: pip install -e '.[mcp]'", file=sys.stderr)
+        return 1
+    run_stdio(project_dir)
     return 0
 
 

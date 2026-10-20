@@ -11,8 +11,8 @@ dependencies = []
 
 [project.optional-dependencies]
 gui = ["dearpygui", "numpy"]
-mcp = ["mcp"]
-dev = ["pytest", "ruff", "pylint"]
+mcp = ["mcp>=2.3,<3"]  # MCP 2.x API (MCPServer)
+dev = ["pytest", "ruff", "pylint", "mcp>=2.3,<3"]  # tests cover the MCP server
 
 [project.scripts]
 cpcxray = "cpcxray.cli:main"

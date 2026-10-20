@@ -194,6 +194,7 @@ software.
 |---|---|
 | Exact port B constant (manufacturer bits, 50 Hz bit) expected by the 464 firmware | Configurable; check during the boot milestone (phase 4). |
 | RST control-flow kinds used by the static classifier (§6.15) | Only relevant for never-executed code; check against observed behaviour. |
+| Firmware indirection KM SCAN KEYS (&BDF4) on the 464 | The Firmware Guide transcription does not mark it 664/6128-only; check RAM at &BDF4 after the boot (phase 4) and drop the symbol if absent. |
 
 ---
 
