@@ -485,6 +485,11 @@ with the runtime value; the owner can recapture.
   add, split or correct blocks (`reloc_list/add/remove`).
 - Same range copied to several RAM addresses: all destinations are listed; the one with the most
   executed instructions is used for disassembly, the others appear as comments.
+- Different ROM ranges copied to the same RAM address at different times (overlays, e.g. VDOS
+  uses &BF00 for several routines): each is its own `DISP` block; their labels name both
+  addresses (`ram_bf00_ff4a`); a reference from outside to an overlaid RAM address stays hex.
+- Only blocks that executed in RAM (or that the owner added) become `DISP` blocks; a copy that
+  never runs is data (e.g. a jump table).
 - Copied code modified in RAM before it runs: the tag is cleared, the bytes are flagged
   `MODIFIED_AFTER_COPY`, the listing shows the ROM version with the runtime value as a comment.
 - Partially copied ranges: only the copied part becomes a block.
@@ -746,10 +751,10 @@ source generator.
 | Machine | `machine_status`, `reset`, `load_config`, `rom_load(slot, path)`, `rom_unload(slot)`, `rom_list`, `rom_set_decode(slot, on)`, `memory_load(addr, path)`, `memory_save(addr, len, path)`, `sna_load`, `sna_save` |
 | Execution | `run(max_us / max_instructions / timeout_s)`, `run_until(addr / condition, limits)`, `step(n)`, `step_over`, `step_out`, `pause` — each returns stop reason, PC and a register summary |
 | CPU | `registers_get`, `registers_set` |
-| Memory | `memory_read(addr, len, view)` (hex + ASCII; view = CPU, RAM, ROM slot n, shadow ROM), `memory_write`, `memory_search(pattern)` |
+| Memory | `memory_read(addr, len)` (CPU view), `memory_view(addr, len, view)` (hex + ASCII; view = cpu, ram, lower/romN, raw:romN, shadow:romN), `memory_write`, `memory_search(pattern)` |
 | Disassembly | `disassemble(addr, count, view)` with raw bytes, clear bytes and symbols |
-| Breakpoints | `breakpoint_add(kind, …)`, `breakpoint_remove`, `breakpoint_list` |
-| Trace | `trace_start(sinks, filters)`, `trace_stop`, `trace_read(last_n / since)` |
+| Breakpoints | `breakpoint_add(address, kind, end, location, port_mask, rom)`, `breakpoint_enable`, `breakpoint_remove`, `breakpoint_list` |
+| Trace | `trace_start(sinks, filters)`, `trace_stop`, `trace_read(last_n / since)`; bus trace: `bus_trace_start(kinds, range)`, `bus_trace_stop`, `bus_trace_read` |
 | Analysis | `analysis_target_add` / `analysis_target_remove` / `analysis_target_list`, `analysis_capture`, `analysis_save` / `analysis_load` (merge), `classify(range, kind)`, `reloc_list` / `reloc_add` / `reloc_remove`, `source_generate(path, fill_policy)`, `source_verify(path)` |
 | Scrambled ROMs | `shadow_status`, `shadow_conflicts`, `m1map_save` / `m1map_load` (merge) / `m1map_ranges`, `rom_decode_from_map(raw, map, fill_policy)`, `rom_map(path)`, `rom_dump(path, fill_policy)` |
 | Input | `type_text(text)`, `key_press(key)`, `key_release(key)` |

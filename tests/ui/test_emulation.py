@@ -74,3 +74,28 @@ def test_step_and_reset() -> None:
     assert loop.step()["pc"] == "0001"
     assert not loop.running
     assert loop.reset()["pc"] == "0000"
+
+
+def test_run_to_address_and_step_out() -> None:
+    """Run to an address stops there; step out returns from a subroutine."""
+    loop = make_loop(bytes.fromhex("CD 08 00 00 00 18 FB 00 00 00 C9"))  # call &0008 ...
+    loop.session.registers_set({"sp": 0x8000})
+    loop.run_to(0x0005)
+    for _ in range(10):
+        loop.frame()
+        if not loop.running:
+            break
+    assert loop.last_stop is not None and loop.last_stop["reason"] == "address_reached"
+    assert loop.session.machine.cpu.pc == 0x0005 and loop.until_address is None
+    loop.session.registers_set({"pc": 0x0000})
+    loop.step()  # into the subroutine at &0008
+    assert loop.step_out()["pc"] == "0003"
+
+
+def test_status_line_reports_access_breakpoint() -> None:
+    """The status line names the access that triggered a memory breakpoint."""
+    loop = make_loop(bytes.fromhex("3E 55 32 00 40 18 FE"))  # ld a,&55 / ld (&4000),a
+    loop.session.breakpoint_add("4000", kind="write")
+    loop.start()
+    loop.frame()
+    assert "(write 4000=55 by 0002, ram:0)" in loop.status_line()

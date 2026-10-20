@@ -1,14 +1,16 @@
-"""Dear PyGui shell: CPC screen, run/pause/step/reset, status (design.md §6.12; D-02, D-13).
+"""Dear PyGui window: CPC screen, controls and debugger panels (design.md §6.12; D-02, D-13).
 
-The window shows the rendered screen (768 x 272 texture, drawn with doubled scan lines at
-768 x 544) and a tool bar: Run/Pause, Step, Step over, Reset and "Max speed". Everything runs
-in the GUI thread: per frame the `EmulationLoop` executes queued MCP commands and emulates a
-time slice, then the screen is rendered from a snapshot and the frame is drawn.
+Left: the rendered screen (768 x 272 texture, drawn with doubled scan lines at 768 x 544), a
+tool bar (Run/Pause, Step, Step over, Step out, Reset, "Max speed"), the status line and the
+"Type text" box. Right: the debugger panels (ui/panels/: CPU, memory, devices, breakpoints,
+traces, symbols, files). Everything runs in the GUI thread: per frame the `EmulationLoop`
+executes queued MCP commands and emulates a time slice, then the screen is rendered from a
+snapshot, the visible panel is refreshed every few frames, and the frame is drawn.
 
 With an MCP port, the same tools as the headless server are offered over streamable HTTP on
 127.0.0.1 (D-28); their commands run between frames (D-29), so Claude sees and drives exactly
 what the owner sees. The PC keyboard drives the CPC key matrix (ui/host_keys.py); the "Type text"
-box types exact characters. The full debugger panels follow in phase 9.
+box types exact characters; while a text input has the focus, PC keys go to it, not to the CPC.
 """
 
 from __future__ import annotations
@@ -23,11 +25,13 @@ from cpcxray.session.commands import CommandQueue, SessionClient
 from cpcxray.session.session import Session, SessionError
 from cpcxray.ui.emulation import EmulationLoop
 from cpcxray.ui.host_keys import build_host_key_map
+from cpcxray.ui.panels.tabs import PANEL_WIDTH, DebuggerPanels
 from cpcxray.ui.renderer import HEIGHT, WIDTH, render
 
 TITLE = "CPC X-Ray"
 DISPLAY_SCALE = 1  # 768 x 544 on screen
 FRAME_SECONDS = 1 / 50
+PANEL_REFRESH_FRAMES = 5  # the visible panel is redrawn every 5th frame (10 per second)
 
 
 @dataclass
@@ -40,7 +44,7 @@ class _Widgets:
     type_box: int = 0
 
 
-class App:
+class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, panels, MCP
     """The GUI application around one session."""
 
     def __init__(
@@ -61,6 +65,8 @@ class App:
         self.mcp_port = mcp_port
         self._widgets = _Widgets()
         self._host_keys: dict[int, str] = {}
+        self.panels = DebuggerPanels(session, self.loop)
+        self._frames = 0
 
     # -- building the window ---------------------------------------------------------------------
 
@@ -72,33 +78,43 @@ class App:
             self._widgets.texture = dpg.add_dynamic_texture(
                 WIDTH, HEIGHT, np.zeros(WIDTH * HEIGHT * 4, dtype=np.float32)
             )
-        with dpg.window(tag="main"):
-            with dpg.group(horizontal=True):
-                self._widgets.run_button = dpg.add_button(
-                    label="Run", width=70, callback=self._toggle_run
-                )
-                dpg.add_button(label="Step", callback=self.loop.step)
-                dpg.add_button(label="Step over", callback=self.loop.step_over)
-                dpg.add_button(label="Reset", callback=self.loop.reset)
-                dpg.add_checkbox(label="Max speed", callback=self._set_max_speed)
-                if self.mcp_port:
-                    dpg.add_text(f"MCP: http://127.0.0.1:{self.mcp_port}/mcp")
-            dpg.add_image(
-                self._widgets.texture,
-                width=WIDTH * DISPLAY_SCALE,
-                height=2 * HEIGHT * DISPLAY_SCALE,
-            )
-            self._widgets.status = dpg.add_text("")
-            with dpg.group(horizontal=True):
-                dpg.add_text("Type text:")
-                self._widgets.type_box = dpg.add_input_text(
-                    width=WIDTH - 160, on_enter=True, callback=self._type_text,
-                    hint="characters are typed exactly; Enter adds RETURN",
-                )  # fmt: skip
-        dpg.create_viewport(title=TITLE, width=WIDTH * DISPLAY_SCALE + 40, height=2 * HEIGHT + 150)
+        with dpg.window(tag="main"), dpg.group(horizontal=True):
+            with dpg.group():
+                self._build_screen_column()
+            with dpg.child_window(width=PANEL_WIDTH + 20, border=False):
+                self.panels.build()
+        dpg.create_viewport(
+            title=TITLE, width=WIDTH * DISPLAY_SCALE + PANEL_WIDTH + 70, height=2 * HEIGHT + 170
+        )
         dpg.setup_dearpygui()
         dpg.set_primary_window("main", True)
         dpg.show_viewport()
+
+    def _build_screen_column(self) -> None:
+        """Tool bar, screen, status line and the "Type text" box."""
+        with dpg.group(horizontal=True):
+            self._widgets.run_button = dpg.add_button(
+                label="Run", width=70, callback=self._toggle_run
+            )
+            dpg.add_button(label="Step", callback=self.loop.step)
+            dpg.add_button(label="Step over", callback=self.loop.step_over)
+            dpg.add_button(label="Step out", callback=self.loop.step_out)
+            dpg.add_button(label="Reset", callback=self.loop.reset)
+            dpg.add_checkbox(label="Max speed", callback=self._set_max_speed)
+            if self.mcp_port:
+                dpg.add_text(f"MCP: http://127.0.0.1:{self.mcp_port}/mcp")
+        dpg.add_image(
+            self._widgets.texture,
+            width=WIDTH * DISPLAY_SCALE,
+            height=2 * HEIGHT * DISPLAY_SCALE,
+        )
+        self._widgets.status = dpg.add_text("", wrap=WIDTH)
+        with dpg.group(horizontal=True):
+            dpg.add_text("Type text:")
+            self._widgets.type_box = dpg.add_input_text(
+                width=WIDTH - 160, on_enter=True, callback=self._type_text,
+                hint="characters are typed exactly; Enter adds RETURN",
+            )  # fmt: skip
 
     def _toggle_run(self) -> None:
         """Run/Pause button."""
@@ -125,7 +141,7 @@ class App:
     def _update_host_keys(self) -> None:
         """Hold the CPC keys for the PC keys that are down (not while typing into the box)."""
         keyboard = self.session.machine.keyboard  # type: ignore[attr-defined]
-        if dpg.is_item_focused(self._widgets.type_box):
+        if dpg.is_item_focused(self._widgets.type_box) or self.panels.typing():
             keyboard.release_all("host")
             return
         held = set()
@@ -144,6 +160,9 @@ class App:
         dpg.set_value(self._widgets.texture, (image.astype(np.float32) / 255.0).ravel())
         dpg.set_item_label(self._widgets.run_button, "Pause" if self.loop.running else "Run")
         dpg.set_value(self._widgets.status, self.loop.status_line())
+        if self._frames % PANEL_REFRESH_FRAMES == 0:
+            self.panels.refresh()
+        self._frames += 1
         dpg.render_dearpygui_frame()
 
     def run(self, max_frames: int | None = None) -> None:

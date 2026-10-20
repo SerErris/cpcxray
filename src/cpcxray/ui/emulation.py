@@ -38,6 +38,7 @@ class EmulationLoop:  # pylint: disable=too-many-instance-attributes  # loop sta
         max_speed: Run as fast as possible instead of in real time.
         last_stop: Result of the last run that stopped on its own (breakpoint, ...).
         speed: Emulated time / wall-clock time over the last frames (1.0 = real time).
+        until_address: Target of "run to address": the free run stops when the PC gets there.
     """
 
     def __init__(self, session: Session, commands: CommandQueue) -> None:
@@ -48,6 +49,7 @@ class EmulationLoop:  # pylint: disable=too-many-instance-attributes  # loop sta
         self.max_speed = False
         self.last_stop: dict[str, Any] | None = None
         self.speed = 0.0
+        self.until_address: int | None = None
         self._seen_pause = session.pause_generation
         self._last_frame = time.perf_counter()
 
@@ -60,18 +62,30 @@ class EmulationLoop:  # pylint: disable=too-many-instance-attributes  # loop sta
         self._last_frame = time.perf_counter()
 
     def stop(self) -> None:
-        """Stop running."""
+        """Stop running (also ends a "run to address")."""
         self.running = False
+        self.until_address = None
+
+    def run_to(self, address: int) -> None:
+        """Run freely until the PC reaches `address` (or a breakpoint stops it)."""
+        self.start()
+        self.until_address = address
+
+    def step_out(self) -> dict[str, Any]:
+        """Stop and run until the current subroutine returns (bounded by the session)."""
+        self.stop()
+        self.last_stop = self.session.step_out()
+        return self.last_stop
 
     def step(self) -> dict[str, Any]:
         """Stop and execute one instruction."""
-        self.running = False
+        self.stop()
         self.last_stop = self.session.step()
         return self.last_stop
 
     def step_over(self) -> dict[str, Any]:
         """Stop and step over one instruction (calls run to completion)."""
-        self.running = False
+        self.stop()
         self.last_stop = self.session.step_over()
         return self.last_stop
 
@@ -115,9 +129,12 @@ class EmulationLoop:  # pylint: disable=too-many-instance-attributes  # loop sta
 
     def _run_slice(self, budget_us: int) -> int:
         """Run one slice; a stop other than the time limit ends the free run."""
-        result = self.session.run(max_us=budget_us, timeout_s=5)
+        if self.until_address is not None:
+            result = self.session.run_until(self.until_address, max_us=budget_us, timeout_s=5)
+        else:
+            result = self.session.run(max_us=budget_us, timeout_s=5)
         if result["reason"] != "time_limit":
-            self.running = False
+            self.stop()
             self.last_stop = result
         return int(result["emulated_us"])
 
@@ -131,4 +148,8 @@ class EmulationLoop:  # pylint: disable=too-many-instance-attributes  # loop sta
             line += f"  speed {self.speed:4.2f}x" + (" (max)" if self.max_speed else "")
         if self.last_stop is not None:
             line += f"  stopped: {self.last_stop['reason']} at {self.last_stop['pc']}"
+            hit = self.last_stop.get("breakpoint")
+            if hit is not None and "access" in hit:
+                line += (f" ({hit['access']} {hit['address']}={hit['value']} by "
+                         f"{hit['pc']}, {hit['location']})")  # fmt: skip
         return line

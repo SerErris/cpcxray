@@ -85,7 +85,9 @@ def test_relocated_block_uses_disp(tmp_path: Path) -> None:
     generated, result = round_trip(tmp_path, view, database)
     assert result.identical, result.differences
     lines = code_lines(generated.text)
-    assert "DISP #8000" in lines and "ENT" in lines
+    assert "DISP #8000" in lines
+    assert "ENT                             ; end of DISP #8000" in lines
+    assert "; ---- end of RAM copy #8000-#8005 (from #C004) ----" in lines
     assert "call ram_8000" in lines and "ram_8000:" in lines and "jp ram_8000" in lines
     assert any("copied to RAM #8000-#8005 (from #C004)" in line for line in lines)
 
@@ -177,3 +179,22 @@ def test_line_map_covers_every_byte(tmp_path: Path) -> None:
     database = classified(view, starts=[0])
     generated, _ = round_trip(tmp_path, view, database)
     assert all(line > 0 for line in generated.line_of_offset)
+
+
+def test_overlay_blocks_share_a_ram_range(tmp_path: Path) -> None:
+    """Two routines run at the same RAM address (overlays): each gets its DISP and labels."""
+    image = bytes.fromhex(
+        "C9 00 00 00"  # &C000 ret
+        "00 18 FD"  # &C004 → RAM &8000: nop / jr &8000
+        "00 00 18 FC"  # &C007 → RAM &8000: nop / nop / jr &8000
+    )
+    blocks = (RelocatedBlock("rom1", 4, 3, 0x8000, executed=3),
+              RelocatedBlock("rom1", 7, 4, 0x8000, executed=4))  # fmt: skip
+    view = plain_view(image, blocks=blocks)
+    database = classified(view, starts=[0, 4, 5, 7, 8, 9])
+    generated, result = round_trip(tmp_path, view, database)
+    assert result.identical, result.differences
+    lines = code_lines(generated.text)
+    assert lines.count("DISP #8000") == 2
+    assert "ram_8000_c004:" in lines and "jr ram_8000_c004" in lines
+    assert "ram_8000_c007:" in lines and "jr ram_8000_c007" in lines

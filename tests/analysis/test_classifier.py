@@ -156,3 +156,21 @@ def test_static_code_over_operands_read_as_data() -> None:
                              view.decode)  # fmt: skip
     database = classified(opcode_read, starts=[0])
     assert database.kind_at(0x14) == Kind.BYTE_DATA
+
+
+def test_relocated_block_code_after_conditional_return() -> None:
+    """In a RAM copy every byte was read as data (the copy); code continues after ret nz."""
+    image = bytes.fromhex("CD 00 80 C9") + bytes.fromhex("C0 21 34 12 C9")  # ret nz / ld hl
+    block = RelocatedBlock("rom5", 4, 5, 0x8000, executed=1)
+    access = bytes([M1, DATA, DATA, M1]) + bytes([DATA] * 5)
+    view = TargetView("rom5", 0xC000, image, image, access, lambda _o, raw: raw, (block,))
+    database = classified(view, starts=[0, 4])
+    assert database.kind_at(5) == Kind.INSN_START and database.sources[5] == Source.STATIC
+
+
+def test_jump_table_entries() -> None:
+    """Entries after an executed `jp nn` of a jump table are code; other bytes are not."""
+    image = bytes.fromhex("C3 0C C0 C3 0C C0 C3 00 40 00 00 00 C9")
+    database = classified(plain_view(image), starts=[0])
+    assert database.kind_at(3) == Kind.INSN_START  # jp &C00C: target inside the ROM
+    assert database.kind_at(6) == Kind.UNKNOWN  # jp &4000: outside, not taken as an entry

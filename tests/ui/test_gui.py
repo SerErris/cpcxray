@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -16,8 +17,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_window_keyboard_and_type_box() -> None:
-    """The window runs the emulation; PC keys map to CPC keys; the Type text box types.
+def test_window_keyboard_type_box_and_panels(tmp_path: Path) -> None:
+    """The window runs; PC keys and the Type text box type; the debugger panels work.
 
     One test only: Dear PyGui crashes when a second context is created in the same process.
     """
@@ -45,5 +46,39 @@ def test_window_keyboard_and_type_box() -> None:
         for _ in range(60):
             app.render_frame()
         assert " 42" in app.session.screen_text()["lines"]
+        check_panels(app, dpg, tmp_path)
     finally:
         dpg.destroy_context()
+
+
+def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
+    """Exercise the debugger panels of a booted machine (called inside the one GUI test)."""
+    panels = app.panels
+    app.loop.stop()
+    panels.refresh(force=True)
+    assert dpg.get_value(panels.items["registers"]).startswith("AF ")
+    assert ">" in dpg.get_value(panels.items["disassembly"])  # the PC line is marked
+    assert "[gate_array]" in dpg.get_value(panels.items["devices"])
+    assert dpg.get_value(panels.items["memory"]).startswith("0000  ")
+    dpg.set_value(panels.items["bp_kind"], "write")
+    dpg.set_value(panels.items["bp_address"], "B000")
+    dpg.set_value(panels.items["bp_end"], "BFFF")
+    panels._call("bp_message", panels._add_bp)  # pylint: disable=protected-access
+    assert "write B000-BFFF" in dpg.get_value(panels.items["breakpoints"])
+    app.loop.start()
+    for _ in range(20):
+        app.render_frame()
+        if not app.loop.running:
+            break
+    assert app.loop.last_stop["reason"] == "breakpoint"  # the firmware writes its RAM
+    dpg.set_value(panels.items["sna_path"], str(tmp_path / "gui.sna"))
+    panels._call("files_message", lambda: app.session.sna_save(  # pylint: disable=protected-access
+        dpg.get_value(panels.items["sna_path"])))  # fmt: skip
+    assert (tmp_path / "gui.sna").stat().st_size == 0x100 + 0x10000
+    dpg.set_value(panels.items["memory_edit"], "4000: 3E 05")
+    panels._call("memory_message", panels._edit_memory)  # pylint: disable=protected-access
+    assert dpg.get_value(panels.items["memory_message"]) == "ok"
+    dpg.set_value(panels.items["register_edit"], "hl")
+    panels._call("cpu_message", panels._set_registers)  # pylint: disable=protected-access
+    assert dpg.get_value(panels.items["cpu_message"]).startswith("error:")
+    assert not panels.typing()

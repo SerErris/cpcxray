@@ -97,17 +97,33 @@ Implement strictly one phase of design.md §9 at a time. A phase is finished onl
 milestone tests pass together with the full suite, `ruff check` and `ruff format --check`.
 Do not start the next phase without the owner's go-ahead.
 
-**Status:** Phases 0-8 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
+**Status:** Phases 0-9 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
 pass); CPU validation (ZEXDOC/ZEXALL, z80test); disassembler, CPC RST profile, symbols, Session,
 MCP server; CPC 464 booting to BASIC; renderer and GUI (real time, MCP over HTTP); keyboard;
-decoding and analysis (VDOS decoded and initialised, shadow ROM, access map, dump, ROM map,
-provenance, relocated blocks, trace sinks); analysis database, execution observer, classifier,
-sjasmplus source generator and round-trip check (generated VDOS source reassembles
-byte-identically). Next: Phase 9 (full debugger UI, all breakpoint types incl. memory-access
-breakpoints and location qualifiers any/rom/rom:n/ram/ram:page per FR-DBG-07, `.sna`).
+decoding and analysis (VDOS decoded and initialised); analysis database, classifier, sjasmplus
+source generator and round-trip check (VDOS source reassembles byte-identically); full debugger
+(all breakpoint kinds with location qualifiers, bus trace, memory views, `.sna`, GUI panels).
+Next: Phase 10 (FDC µPD765 and disk images, drive A: 3", drive B: Vortex 80T DS).
 
 Validation runtimes on CPython (8 cores): z80test ~1 min for all variants; ZEXDOC+ZEXALL ~30 min,
 dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on one core).
+
+## Debugger notes (phase 9)
+
+- debugger/breakpoints.py: kinds pc, m1, read, write, access, io_in, io_out, io, rom_select,
+  interrupt; location qualifiers any/rom/lower/rom:n/ram/ram:page (FR-DBG-07). PC breakpoints
+  stop before the instruction (set lookup in the run loop); all others are a bus observer that
+  stops *after* the accessing instruction, the stop result carries `breakpoint` = access, address,
+  value, PC, location. Writes always count as `ram` (they go to RAM under a ROM).
+- debugger/bus_trace.py: ring buffer of bus accesses (FR-DBG-08). Both observers are registered
+  only while needed (D-12); `load_config` moves them to the new bus. FlatMachine: PC only.
+- session/debugger.py `DebuggerMixin`: breakpoint_*, bus_trace_*, memory_view (cpu, ram,
+  lower/romN, raw:romN, shadow:romN), sna_load/sna_save. machine/sna.py: load v1-v3 (MEM0 RLE
+  chunks), save v3 with a plain 64 KB dump; SystemIO now stores PSG register writes for it.
+- ui/panels/: tabs.py (Dear PyGui tab bar: CPU, Memory, Devices, Breakpoints, Trace, Bus trace,
+  Symbols, Files), text.py (formatting/parsing, tested headless). Panels only call Session
+  methods; the visible tab refreshes every 5th frame; PC keys go to a focused text input, not the
+  CPC. EmulationLoop: run_to(address), step_out.
 
 ## Analysis database and source notes (phase 8)
 

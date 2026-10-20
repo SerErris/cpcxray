@@ -1,0 +1,356 @@
+"""Debugger panels of the GUI (design.md §6.12, §6.13; FR-DBG-02..10).
+
+A tab bar next to the screen:
+
+| Tab         | Shows / does                                                               |
+|-------------|----------------------------------------------------------------------------|
+| CPU         | registers (editable), disassembly around the PC or at an address,          |
+|             | step out, run to address                                                   |
+| Memory      | hex dump through a view (CPU, RAM, ROM, raw ROM, shadow ROM), editing      |
+| Devices     | Gate Array, CRTC, SystemIO, ROM select, FDC                                |
+| Breakpoints | list; add any kind with location qualifier; enable, disable, remove        |
+| Trace       | instruction trace on/off and its last lines                                |
+| Bus trace   | bus access trace on/off (kinds filter) and its last lines                  |
+| Symbols     | search; add "address label ; comment"                                      |
+| Files       | .sna save/load, analysis save, source generate + verify                    |
+
+Every action is a `Session` call (the same as the MCP tool); errors show in the panel's message
+line. Only the visible tab is refreshed, every few frames (D-13: rendering and panels are
+asynchronous to execution).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+
+import dearpygui.dearpygui as dpg
+
+from cpcxray.session.errors import SessionError
+from cpcxray.session.session import Session
+from cpcxray.ui.emulation import EmulationLoop
+from cpcxray.ui.panels.text import (
+    breakpoint_lines,
+    devices_lines,
+    mark_pc,
+    parse_assignments,
+    parse_memory_edit,
+    registers_lines,
+)
+
+PANEL_WIDTH = 620
+DISASSEMBLY_LINES = 24
+MEMORY_BYTES = 256
+TRACE_LINES = 30
+BREAKPOINT_KINDS = ("pc", "m1", "read", "write", "access", "io_in", "io_out", "io",
+                    "rom_select", "interrupt")  # fmt: skip
+LOCATIONS = ("any", "rom", "ram", "lower", *(f"rom:{n}" for n in range(16)), "ram:0")
+
+
+class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one item id per widget
+    """The tab bar with all debugger panels."""
+
+    def __init__(self, session: Session, loop: EmulationLoop) -> None:
+        """Create the panels for a session driven by `loop` (build() creates the widgets)."""
+        self.session = session
+        self.loop = loop
+        self.items: dict[str, int | str] = {}
+        self.inputs: list[int | str] = []  # text inputs: PC keys go there, not to the CPC
+        self._refreshers: dict[int | str, Callable[[], None]] = {}
+
+    # -- helpers ---------------------------------------------------------------------------------
+
+    def _call(self, message_item: str, action: Callable[[], Any]) -> Any:
+        """Run a session action; show its error (or "ok") in a message line."""
+        try:
+            result = action()
+        except (SessionError, ValueError, KeyError) as error:
+            dpg.set_value(self.items[message_item], f"error: {error}")
+            return None
+        dpg.set_value(self.items[message_item], "ok")
+        self.refresh(force=True)
+        return result
+
+    def _text(self, name: str, **options: Any) -> None:
+        """Add a text widget remembered as `name`."""
+        self.items[name] = dpg.add_text("", **options)
+
+    def _input(self, name: str, hint: str, width: int = 160, **options: Any) -> None:
+        """Add a text input remembered as `name`."""
+        self.items[name] = dpg.add_input_text(hint=hint, width=width, **options)
+        self.inputs.append(self.items[name])
+
+    def typing(self) -> bool:
+        """True while one of the panels' text inputs has the keyboard focus."""
+        return any(dpg.is_item_focused(item) for item in self.inputs)
+
+    def _value(self, name: str) -> Any:
+        """Current value of a remembered widget."""
+        return dpg.get_value(self.items[name])
+
+    # -- building --------------------------------------------------------------------------------
+
+    def build(self) -> None:
+        """Create the tab bar in the current container."""
+        with dpg.tab_bar() as tab_bar:
+            self.items["tab_bar"] = tab_bar
+            for title, builder, refresher in (
+                ("CPU", self._build_cpu, self._refresh_cpu),
+                ("Memory", self._build_memory, self._refresh_memory),
+                ("Devices", self._build_devices, self._refresh_devices),
+                ("Breakpoints", self._build_breakpoints, self._refresh_breakpoints),
+                ("Trace", self._build_trace, self._refresh_trace),
+                ("Bus trace", self._build_bus_trace, self._refresh_bus_trace),
+                ("Symbols", self._build_symbols, self._refresh_symbols),
+                ("Files", self._build_files, lambda: None),
+            ):
+                with dpg.tab(label=title) as tab:
+                    builder()
+                self._refreshers[tab] = refresher
+
+    def _button(self, label: str, message: str, action: Callable[[], Any]) -> None:
+        """Add a button that runs a session action and reports into `message`."""
+        dpg.add_button(label=label, callback=lambda: self._call(message, action))
+
+    def _entry(  # pylint: disable=too-many-arguments  # widget name, layout and action
+        self, name: str, hint: str, width: int, message: str, action: Callable[[], Any]
+    ) -> None:
+        """Add a text input that runs an action on Enter and reports into `message`."""
+        self._input(name, hint, width, on_enter=True,
+                    callback=lambda: self._call(message, action))  # fmt: skip
+
+    def _build_cpu(self) -> None:
+        """Registers, register editing, disassembly, step out / run to."""
+        self._text("registers")
+        with dpg.group(horizontal=True):
+            self._entry("register_edit", "hl=4000, a=5", 200, "cpu_message", self._set_registers)
+            self._button("Step out", "cpu_message", self.loop.step_out)
+            self._entry("run_to", "run to address", 110, "cpu_message", self._run_to)
+        self._text("cpu_message")
+        with dpg.group(horizontal=True):
+            dpg.add_text("Disassembly at")
+            self._input("disassembly_address", "PC (empty) or address/label", 200)
+        self._text("disassembly")
+
+    def _build_memory(self) -> None:
+        """View selection, hex dump and editing."""
+        with dpg.group(horizontal=True):
+            self._input("memory_address", "address", 100, default_value="0000")
+            self.items["memory_view"] = dpg.add_combo(
+                self._memory_views(), default_value="cpu", width=120
+            )
+            self._entry("memory_edit", "4000: 3E 05 C9  (RAM)", 220, "memory_message",
+                        self._edit_memory)  # fmt: skip
+        self._text("memory_message")
+        self._text("memory")
+
+    def _build_devices(self) -> None:
+        """Device state."""
+        self._text("devices")
+
+    def _build_breakpoints(self) -> None:
+        """Breakpoint form and list."""
+        session = self.session
+        with dpg.group(horizontal=True):
+            self.items["bp_kind"] = dpg.add_combo(BREAKPOINT_KINDS, default_value="pc", width=100)
+            self._input("bp_address", "address/port", 100)
+            self._input("bp_end", "end (range)", 90)
+            self.items["bp_location"] = dpg.add_combo(LOCATIONS, default_value="any", width=80)
+        with dpg.group(horizontal=True):
+            self._input("bp_mask", "port mask (FF00)", 120)
+            self._input("bp_rom", "ROM number", 90)
+            self._button("Add", "bp_message", self._add_bp)
+            self._input("bp_id", "id", 50)
+            self._button("Enable", "bp_message",
+                         lambda: session.breakpoint_enable(self._bp_id(), True))  # fmt: skip
+            self._button("Disable", "bp_message",
+                         lambda: session.breakpoint_enable(self._bp_id(), False))  # fmt: skip
+            self._button("Remove", "bp_message",
+                         lambda: session.breakpoint_remove(self._bp_id()))  # fmt: skip
+        self._text("bp_message")
+        self._text("breakpoints")
+
+    def _build_trace(self) -> None:
+        """Instruction trace switch and lines."""
+        with dpg.group(horizontal=True):
+            self._button("Start", "trace_message", self._start_trace)
+            self._button("Stop", "trace_message", self.session.trace_stop)
+            self.items["trace_targets"] = dpg.add_checkbox(label="analysis targets only")
+        self._text("trace_message")
+        self._text("trace")
+
+    def _build_bus_trace(self) -> None:
+        """Bus trace switch, kinds filter and lines."""
+        with dpg.group(horizontal=True):
+            self._input("bus_kinds", "M1,read,write,in,out,interrupt (empty: all)", 300)
+            self._button("Start", "bus_message", self._start_bus_trace)
+            self._button("Stop", "bus_message", self.session.bus_trace_stop)
+        self._text("bus_message")
+        self._text("bus_trace")
+
+    def _build_symbols(self) -> None:
+        """Symbol search and adding."""
+        with dpg.group(horizontal=True):
+            self._input("symbol_search", "search label or comment", 200)
+            self._entry("symbol_add", "BB5A label ; comment", 260, "symbol_message",
+                        self._add_symbol)  # fmt: skip
+        self._text("symbol_message")
+        self._text("symbols")
+
+    def _build_files(self) -> None:
+        """Snapshots, analysis and source files."""
+        session = self.session
+        with dpg.group(horizontal=True):
+            self._input("sna_path", "output/state.sna", 220, default_value="output/state.sna")
+            self._button("Save .sna", "files_message",
+                         lambda: session.sna_save(self._value("sna_path")))  # fmt: skip
+            self._button("Load .sna", "files_message",
+                         lambda: session.sna_load(self._value("sna_path")))  # fmt: skip
+        with dpg.group(horizontal=True):
+            self._button("Save analysis", "files_message", session.analysis_save)
+            self._button("Generate + verify source", "files_message", self._generate_source)
+        self._text("files_message", wrap=PANEL_WIDTH)
+        self._text("files_result", wrap=PANEL_WIDTH)
+
+    # -- actions ---------------------------------------------------------------------------------
+
+    def _set_registers(self) -> Any:
+        """Apply "name=value" assignments from the register input."""
+        return self.session.registers_set(parse_assignments(self._value("register_edit")))
+
+    def _run_to(self) -> None:
+        """Start a free run that stops at the given address."""
+        address = self.session._address(self._value("run_to"))  # pylint: disable=protected-access
+        self.loop.run_to(address)
+
+    def _edit_memory(self) -> Any:
+        """Write "address: bytes" into RAM."""
+        address, data = parse_memory_edit(self._value("memory_edit"))
+        return self.session.memory_write(address, data)
+
+    def _bp_id(self) -> int:
+        """The breakpoint id typed into the id box."""
+        return int(self._value("bp_id"))
+
+    def _add_bp(self) -> Any:
+        """Add a breakpoint from the form."""
+        mask_text, rom_text = self._value("bp_mask").strip(), self._value("bp_rom").strip()
+        return self.session.breakpoint_add(
+            self._value("bp_address").strip() or None,
+            kind=self._value("bp_kind"),
+            end=self._value("bp_end").strip() or None,
+            location=self._value("bp_location"),
+            port_mask=int(mask_text, 16) if mask_text else 0xFFFF,
+            rom=int(rom_text) if rom_text else None,
+        )
+
+    def _start_trace(self) -> Any:
+        """Start the instruction trace (ring buffer; optionally analysis targets only)."""
+        return self.session.trace_start(targets_only=bool(self._value("trace_targets")))
+
+    def _start_bus_trace(self) -> Any:
+        """Start the bus trace with the kinds typed in (empty: all)."""
+        kinds = [k.strip() for k in self._value("bus_kinds").split(",") if k.strip()]
+        return self.session.bus_trace_start(kinds=kinds or None)
+
+    def _add_symbol(self) -> Any:
+        """Add "address label ; comment" as a user symbol."""
+        entry, _, comment = self._value("symbol_add").partition(";")
+        fields = entry.split()
+        if not fields:
+            raise ValueError("expected 'address label ; comment'")
+        label = fields[1] if len(fields) > 1 else None
+        return self.session.symbol_add(fields[0], label, comment.strip() or None)
+
+    def _generate_source(self) -> Any:
+        """Generate the source of the only analysis target and verify it (D-33)."""
+        generated = self.session.source_generate()
+        verified = self.session.source_verify()
+        text = (f"{generated['path']}: {generated['lines']} lines; "
+                f"{'identical' if verified['identical'] else 'DIFFERENT'} "
+                f"({verified['difference_count']} differing bytes)")  # fmt: skip
+        dpg.set_value(self.items["files_result"], text)
+        return verified
+
+    def _memory_views(self) -> list[str]:
+        """Views offered for the installed ROMs."""
+        views = ["cpu", "ram"]
+        memory = getattr(self.session.machine, "memory", None)
+        if memory is None:
+            return views
+        if memory.lower_rom is not None:
+            views.append("lower")
+        for slot, rom in sorted(memory.upper_roms.items()):
+            views.append(f"rom{slot}")
+            if rom.shadow is not None:
+                views += [f"raw:rom{slot}", f"shadow:rom{slot}"]
+        return views
+
+    # -- refreshing ------------------------------------------------------------------------------
+
+    def refresh(self, force: bool = False) -> None:
+        """Refresh the visible tab (all tabs with force=True after an action)."""
+        if force:
+            for refresher in self._refreshers.values():
+                refresher()
+            return
+        active = dpg.get_value(self.items["tab_bar"])
+        refresher = self._refreshers.get(active)
+        if refresher is not None:
+            refresher()
+
+    def _set_lines(self, name: str, lines: list[str]) -> None:
+        """Show lines in a text widget."""
+        dpg.set_value(self.items[name], "\n".join(lines))
+
+    def _refresh_cpu(self) -> None:
+        """Registers and disassembly (following the PC unless an address is given)."""
+        session = self.session
+        self._set_lines("registers", registers_lines(session.registers_get()))
+        address = self._value("disassembly_address").strip() or None
+        try:
+            lines = session.disassemble(address, DISASSEMBLY_LINES)["lines"]
+        except SessionError as error:
+            lines = [f"error: {error}"]
+        pc = session.machine.cpu.pc
+        self._set_lines("disassembly", mark_pc(lines, pc, set(session.breakpoints.addresses)))
+
+    def _refresh_memory(self) -> None:
+        """The hex dump of the selected view."""
+        try:
+            dump = self.session.memory_view(self._value("memory_address") or "0",
+                                            MEMORY_BYTES, self._value("memory_view"))  # fmt: skip
+            lines = dump["lines"]
+        except SessionError as error:
+            lines = [f"error: {error}"]
+        self._set_lines("memory", lines)
+
+    def _refresh_devices(self) -> None:
+        """Device state."""
+        try:
+            lines = devices_lines(self.session.devices_get())
+        except SessionError as error:
+            lines = [f"error: {error}"]
+        self._set_lines("devices", lines)
+
+    def _refresh_breakpoints(self) -> None:
+        """Breakpoint list."""
+        self._set_lines(
+            "breakpoints", breakpoint_lines(self.session.breakpoint_list()["breakpoints"])
+        )
+
+    def _refresh_trace(self) -> None:
+        """Last instruction trace lines."""
+        result = self.session.trace_read(TRACE_LINES)
+        self._set_lines("trace", result.get("lines", []))
+
+    def _refresh_bus_trace(self) -> None:
+        """Last bus trace lines."""
+        self._set_lines("bus_trace", self.session.bus_trace_read(TRACE_LINES)["lines"])
+
+    def _refresh_symbols(self) -> None:
+        """Symbols matching the search text."""
+        result = self.session.symbol_list(self._value("symbol_search"))
+        lines = [f"{s.get('scope') or '':6} {s['address']}  {s.get('label') or '-':<20} "
+                 f"{s.get('comment') or ''}" for s in result["symbols"][:60]]  # fmt: skip
+        self._set_lines("symbols", [*lines, f"({result['total']} matching)"])

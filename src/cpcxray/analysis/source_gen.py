@@ -225,7 +225,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         self.header: RomHeader | None = None
         self.items: list[_Item] = []
         self.labels: dict[int, str] = {}  # offset → label
-        self.label_by_address: dict[int, str] = {}
+        self._context: RelocatedBlock | None = None  # block of the line being emitted
         self.externals: dict[int, str] = {}
         self._boundaries: set[int] = set()
         self._far_starts: set[int] = set()
@@ -340,33 +340,28 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
 
     # -- pass 2: references and labels -----------------------------------------------------------
 
-    def _references(self) -> dict[int, set[str]]:
-        """Collect referenced addresses and how they are used ("call", "jump", "far", "data")."""
-        references: dict[int, set[str]] = {}
-
-        def add(address: int | None, use: str) -> None:
-            """Record one use of an address."""
-            if address is not None:
-                references.setdefault(address, set()).add(use)
-
-        for item in self.items:
-            instruction = item.instruction
-            if item.kind == "far":
-                add(self._word(item.offset), "data")
-            if instruction is None:
-                continue
-            if instruction.flow in _CALL_FLOWS:
-                add(instruction.target, "call")
-            elif instruction.flow in _JUMP_FLOWS:
-                add(instruction.target, "jump")
-            if (
-                instruction.word_operand is not None
-                and instruction.word_operand != instruction.target
-            ):
-                add(instruction.word_operand, "data")
-            for line in instruction.extra_lines:
-                add(line.word, "far" if instruction.raw[0] == 0xDF else "jump")
+    def _item_references(self, item: _Item) -> list[tuple[int, str]]:
+        """Addresses an item refers to, with their use ("call", "jump", "far", "data")."""
+        references = []
+        if item.kind == "far":
+            references.append((self._word(item.offset), "data"))
+        instruction = item.instruction
+        if instruction is None:
+            return references
+        if instruction.target is not None and instruction.flow in _CALL_FLOWS:
+            references.append((instruction.target, "call"))
+        elif instruction.target is not None and instruction.flow in _JUMP_FLOWS:
+            references.append((instruction.target, "jump"))
+        if instruction.word_operand is not None and instruction.word_operand != instruction.target:
+            references.append((instruction.word_operand, "data"))
+        for line in instruction.extra_lines:
+            if line.word is not None:
+                references.append((line.word, "far" if instruction.raw[0] == 0xDF else "jump"))
         return references
+
+    def _references(self) -> set[int]:
+        """All referenced addresses (for the EQUs of external symbols)."""
+        return {address for item in self.items for address, _ in self._item_references(item)}
 
     def _word(self, offset: int) -> int:
         """Return the little-endian word of the final image at an offset."""
@@ -387,17 +382,22 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
                 unique, number = f"{name}_{number}", number + 1
             used_names.add(unique)
             self.labels[item.offset] = unique
-            self.label_by_address[self.view.address(item.offset)] = unique
         self._assign_externals(used_names)
 
     def _uses_by_offset(self) -> dict[int, set[str]]:
-        """Map referenced line starts (offsets) to their uses ("call", "jump", ...)."""
+        """Map referenced line starts (offsets) to their uses ("call", "jump", ...).
+
+        A reference is resolved in the coordinates of the block it is made from, so code in
+        an overlay refers to its own copy.
+        """
         starts = {item.offset for item in self.items}
         uses: dict[int, set[str]] = {}
-        for address, address_uses in self._references().items():
-            offset = self.view.offset_of_target(address)
-            if offset is not None and offset in starts:
-                uses.setdefault(offset, set()).update(address_uses)
+        for item in self.items:
+            context = self.view.block_at(item.offset)
+            for address, use in self._item_references(item):
+                offset = self.view.offset_of_target(address, context)
+                if offset is not None and offset in starts:
+                    uses.setdefault(offset, set()).add(use)
         return uses
 
     def _symbol_label(self, offset: int) -> str | None:
@@ -410,9 +410,12 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         offset = item.offset
         if offset not in uses:
             return None
-        in_block = self.view.block_at(offset) is not None
-        use = "ram" if in_block else next(u for u in _USE_PRIORITY if u in uses[offset])
-        return f"{_PREFIX_BY_USE[use]}{self.view.address(offset):04x}"
+        block = self.view.block_at(offset)
+        address = self.view.address(offset)
+        if block is not None and self.view.overlaid(block):  # same RAM, other ROM routines
+            return f"ram_{address:04x}_{self.view.start + offset:04x}"
+        use = "ram" if block is not None else next(u for u in _USE_PRIORITY if u in uses[offset])
+        return f"{_PREFIX_BY_USE[use]}{address:04x}"
 
     def _header_names(self) -> dict[int, str]:
         """Labels from the ROM header: name table, jumpblock and the RSX routines."""
@@ -453,8 +456,13 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
                 used_names.add(symbol.label)
 
     def _lookup(self, address: int) -> str | None:
-        """Label for an operand: a line-start label or an external symbol."""
-        return self.label_by_address.get(address) or self.externals.get(address)
+        """Label for an operand (in the coordinates of the line being emitted), or None."""
+        offset = self.view.offset_of_target(address, self._context)
+        if offset is not None:
+            return self.labels.get(offset)
+        if self._inside_source(address):
+            return None  # inside the target but not a line start, or an ambiguous overlay
+        return self.externals.get(address)
 
     # -- pass 3: text ----------------------------------------------------------------------------
 
@@ -478,6 +486,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
     def _emit_from(self, index: int) -> int:
         """Emit the item at `index` (a whole data run for data); return the next index."""
         item = self.items[index]
+        self._context = self.view.block_at(item.offset)
         self._lines += self._before(item.offset)
         self._lines += self._open_never_read(index)
         if item.kind == "data":
@@ -590,7 +599,12 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         lines = []
         for block in self.view.blocks:
             if block.rom_start + block.length == end:
-                lines += [f"{INDENT}ENT", "; ---- end of RAM copy ----", ""]
+                ram_end = block.ram_start + block.length - 1
+                rom_first = self.view.start + block.rom_start
+                ent = f"{INDENT}ENT"
+                lines += [f"{ent:<{COMMENT_COLUMN}}; end of DISP {hex_word(block.ram_start)}",
+                          f"; ---- end of RAM copy {hex_word(block.ram_start)}-"
+                          f"{hex_word(ram_end)} (from {hex_word(rom_first)}) ----", ""]  # fmt: skip
         return lines
 
     def _item_lines(self, item: _Item) -> list[str]:

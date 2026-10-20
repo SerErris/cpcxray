@@ -129,20 +129,44 @@ class TargetView:  # pylint: disable=too-many-instance-attributes  # image, acce
             return address - self.start
         return None
 
-    def offset_of_target(self, address: int) -> int | None:
+    def offset_of_target(self, address: int, context: RelocatedBlock | None = None) -> int | None:
         """Map a jump/call target to an offset; None if outside or ambiguous.
 
-        RAM addresses of blocks map into the blocks; target addresses map to offsets
+        Args:
+            address: The referenced address.
+            context: The block the reference is made from: its own RAM range wins.
+
+        RAM addresses of blocks map into the blocks. Several blocks may share a RAM range
+        (overlays: different ROM routines copied to the same place at different times);
+        a reference from outside them is then ambiguous. Target addresses map to offsets
         outside every block (a target-address reference into a block's range would mean
         the ROM copy itself runs, which the block's RAM coordinates cannot express).
         """
-        for block in self.blocks:
-            if block.ram_start <= address < block.ram_start + block.length:
-                return block.rom_start + address - block.ram_start
+        if (
+            context is not None
+            and context.ram_start <= address < context.ram_start + context.length
+        ):
+            return context.rom_start + address - context.ram_start
+        matches = [
+            block.rom_start + address - block.ram_start
+            for block in self.blocks
+            if block.ram_start <= address < block.ram_start + block.length
+        ]
+        if matches:
+            return matches[0] if len(matches) == 1 else None
         if self.start <= address < self.start + self.length:
             offset = address - self.start
             return offset if self.block_at(offset) is None else None
         return None
+
+    def overlaid(self, block: RelocatedBlock) -> bool:
+        """True if another block shares part of this block's RAM range (an overlay)."""
+        return any(
+            other is not block
+            and other.ram_start < block.ram_start + block.length
+            and block.ram_start < other.ram_start + other.length
+            for other in self.blocks
+        )
 
     def disassemble(
         self, offset: int, profile: CpcProfile | None, symbols: SymbolLookup | None = None
@@ -380,8 +404,8 @@ def far_object_offset(view: TargetView, instruction: Instruction) -> int | None:
     return offset
 
 
-def successors(view: TargetView, instruction: Instruction) -> list[int]:
-    """Return the offsets where the control flow can continue after an instruction."""
+def successors(view: TargetView, instruction: Instruction, offset: int) -> list[int]:
+    """Return the offsets where the control flow can continue after the instruction at `offset`."""
     result = []
     if instruction.flow in _CONTINUES:
         result.append(instruction.next_address)
@@ -391,8 +415,27 @@ def successors(view: TargetView, instruction: Instruction) -> list[int]:
         other_rom = opcode == 0xD7 and len(raw) == 3 and raw[2] >> 6 != 0  # SIDE CALL slot != 0
         if not (far_call or other_rom):
             result.append(instruction.target)
-    offsets = [view.offset_of_target(address) for address in result]
-    return [offset for offset in offsets if offset is not None]
+    context = view.block_at(offset)
+    offsets = [view.offset_of_target(address, context) for address in result]
+    neighbour = _jump_table_neighbour(view, instruction, offset)
+    return [offset for offset in [*offsets, neighbour] if offset is not None]
+
+
+def _jump_table_neighbour(view: TargetView, instruction: Instruction, offset: int) -> int | None:
+    """After `jp nn`: the offset of a following `jp nn` entry of a jump table, if any.
+
+    Jump tables (ROM jumpblocks, RAM vectors copied from the ROM) are runs of `C3 nn nn`;
+    an unconditional jump has no fall-through, so without this the entries after the first
+    executed one would stay data. Only entries whose target lies in the target's own address
+    space (ROM or relocated blocks) count.
+    """
+    if instruction.raw[0] != 0xC3 or instruction.length != 3:
+        return None
+    entry = offset + 3
+    if not view.fits(offset, 6) or view.value(entry, as_opcode=True) != 0xC3:
+        return None
+    target = view.value(entry + 1) | view.value(entry + 2) << 8
+    return entry if view.offset_of_target(target, view.block_at(offset)) is not None else None
 
 
 def classify_static(
@@ -419,7 +462,7 @@ def classify_static(
     for offset in range(view.length):
         if database.kinds[offset] == Kind.INSN_START:
             instruction = view.disassemble(offset, profile)
-            work += successors(view, instruction)
+            work += successors(view, instruction, offset)
             _mark_far_object(database, view, instruction)
     found = 0
     while work:
@@ -433,7 +476,7 @@ def classify_static(
             continue
         mark_instruction(database, offset, instruction, Source.STATIC)
         found += 1
-        work += successors(view, instruction)
+        work += successors(view, instruction, offset)
         _mark_far_object(database, view, instruction)
     return found
 
@@ -452,11 +495,13 @@ def _static_code_possible(
     """True if a guessed instruction fits: unclassified bytes, opcode bytes not read as data.
 
     An opcode byte read as data would have to hold two values (§5.5); an operand byte read
-    as data is what executing the instruction does anyway.
+    as data is what executing the instruction does anyway. Inside a relocated block every
+    byte was read as data by the copy to RAM, and the CPU executes the copied (decoded)
+    values, so there the data reads say nothing against code (D-21, D-22).
     """
     if not view.fits(offset, instruction.length):
         return False
-    opcode_bytes = opcode_byte_count(instruction)
+    opcode_bytes = 0 if view.block_at(offset) is not None else opcode_byte_count(instruction)
     for index in range(instruction.length):
         if database.kinds[offset + index] != Kind.UNKNOWN:
             return False

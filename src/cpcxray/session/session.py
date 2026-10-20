@@ -29,7 +29,6 @@ from pathlib import Path
 from typing import Any
 
 from cpcxray.cpu.disasm import Flow, Instruction, disassemble
-from cpcxray.debugger.breakpoints import Breakpoints
 from cpcxray.debugger.symbols import GLOBAL, SymbolError, SymbolTable, parse_address
 from cpcxray.debugger.trace import Trace
 from cpcxray.devices.key_map import KeyMap, KeyMapError
@@ -38,6 +37,7 @@ from cpcxray.machine.cpc464 import CPC464, build_cpc464
 from cpcxray.machine.flat import FlatMachine, Machine
 from cpcxray.machine.screen import FONT_ADDRESS, screen_text
 from cpcxray.session.analysis import AnalysisMixin
+from cpcxray.session.debugger import DebuggerMixin
 from cpcxray.session.errors import SessionError
 from cpcxray.ui.png import encode_png
 from cpcxray.ui.renderer import double_lines, render
@@ -69,13 +69,14 @@ class _RunLimits:
 
 
 # The façade owns all debugger state and offers one public method per MCP tool (D-27).
-class Session(AnalysisMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
+class Session(AnalysisMixin, DebuggerMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
     """Owns a machine and offers every debugger operation (D-27).
 
     Attributes:
         machine: The emulated machine (phase 3: `FlatMachine`).
         symbols: Labels and comments (firmware names preloaded).
-        breakpoints: PC breakpoints.
+        breakpoints: Breakpoints of all kinds (FR-DBG-07).
+        bus_trace: The bus access ring buffer (FR-DBG-08).
         trace: The instruction trace.
         project_dir: Base directory for relative file paths.
     """
@@ -91,7 +92,7 @@ class Session(AnalysisMixin):  # pylint: disable=too-many-public-methods,too-man
         self.machine: Machine = machine if machine is not None else FlatMachine()
         self.project_dir = Path(project_dir).resolve()
         self.symbols = SymbolTable()
-        self.breakpoints = Breakpoints()
+        self._setup_debugger()
         self.trace = Trace()
         self._pause_requested = threading.Event()
         self.pause_generation = 0  # counts pause() calls; the GUI stops free-running on change
@@ -144,10 +145,13 @@ class Session(AnalysisMixin):  # pylint: disable=too-many-public-methods,too-man
             f"IX={hex4(cpu.ix)} IY={hex4(cpu.iy)} SP={hex4(cpu.sp)} PC={hex4(cpu.pc)}"
         )
 
-    def _stop_result(self, reason: str, instructions: int, emulated_us: int) -> dict[str, Any]:
-        """Describe where and why a run or step stopped."""
+    def _stop_result(
+        self, reason: str, instructions: int, emulated_us: int,
+        breakpoint_hit: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:  # fmt: skip
+        """Describe where and why a run or step stopped (with the breakpoint that hit)."""
         pc = self.machine.cpu.pc
-        return {
+        result: dict[str, Any] = {
             "reason": reason,
             "pc": hex4(pc),
             "label": self._label(pc),
@@ -156,6 +160,9 @@ class Session(AnalysisMixin):  # pylint: disable=too-many-public-methods,too-man
             "emulated_us": emulated_us,
             "registers": self._register_summary(),
         }
+        if breakpoint_hit is not None:
+            result["breakpoint"] = breakpoint_hit
+        return result
 
     @staticmethod
     def _limits(
@@ -179,7 +186,8 @@ class Session(AnalysisMixin):  # pylint: disable=too-many-public-methods,too-man
         """Execute instructions until a breakpoint, target, limit, timeout or pause.
 
         The instruction at the start PC is always executed, so a run continues from a
-        breakpoint it stopped at.
+        breakpoint it stopped at. PC breakpoints stop before an instruction, access
+        breakpoints (memory, I/O, ROM select, interrupt) after the instruction that hit them.
 
         Args:
             limits: Instruction, emulated-time and wall-clock limits.
@@ -191,14 +199,15 @@ class Session(AnalysisMixin):  # pylint: disable=too-many-public-methods,too-man
         deadline = time.monotonic() + limits.timeout_s
         instructions = emulated_us = 0
         reason = None
+        breakpoint_hit = None
         while reason is None:
             pc = cpu.pc
             if instructions:
                 if pc == until_address:
                     reason = "address_reached"
                     break
-                if pc in self.breakpoints.addresses:
-                    self.breakpoints.hit(pc)
+                breakpoint_hit = self._pc_breakpoint(pc)
+                if breakpoint_hit is not None:
                     reason = "breakpoint"
                     break
             reason = self._limit_reached(limits, instructions, emulated_us, deadline)
@@ -208,9 +217,14 @@ class Session(AnalysisMixin):  # pylint: disable=too-many-public-methods,too-man
                 self._trace_instruction(pc)
             emulated_us += machine.step()
             instructions += 1
+            if self._breakpoint_observer is not None:
+                breakpoint_hit = self._access_breakpoint()
+                if breakpoint_hit is not None:
+                    reason = "breakpoint"
+                    break
             if finished is not None:
                 reason = finished()
-        return self._stop_result(reason, instructions, emulated_us)
+        return self._stop_result(reason, instructions, emulated_us, breakpoint_hit)
 
     def _scrambled_bytes(self, address: int, length: int) -> bytes | None:
         """Return the raw image bytes if `address` lies in a paged-in scrambled ROM, else None."""
@@ -336,12 +350,15 @@ class Session(AnalysisMixin):  # pylint: disable=too-many-public-methods,too-man
         """Power on a CPC 464 with the ROMs of a machine.toml (default config/machine.toml).
 
         Replaces the current machine (memory is cleared); symbols, breakpoints and the trace
-        are kept. ROM slots with a decoder (VDOS) are skipped until phase 7.
+        are kept; the breakpoint and bus-trace observers move to the new bus.
         """
         try:
             self.machine = build_cpc464(self._path(path))
         except ConfigError as error:
             raise SessionError(str(error)) from None
+        self._breakpoint_observer = None
+        self._bus_trace_observing = False
+        self._sync_debug_observers()
         self._setup_analysis()
         return self.machine_status()
 
@@ -700,30 +717,6 @@ class Session(AnalysisMixin):  # pylint: disable=too-many-public-methods,too-man
                 line = f"{line:<44} ; {joined}"
             lines.append(line.rstrip())
         return lines
-
-    # == breakpoints ===========================================================================
-
-    def breakpoint_add(self, address: int | str) -> dict[str, Any]:
-        """Add a PC breakpoint; returns its id."""
-        breakpoint_ = self.breakpoints.add(self._address(address))
-        return {"id": breakpoint_.id, "address": hex4(breakpoint_.address)}
-
-    def breakpoint_remove(self, breakpoint_id: int) -> dict[str, Any]:
-        """Remove a breakpoint by id."""
-        try:
-            removed = self.breakpoints.remove(breakpoint_id)
-        except KeyError as error:
-            raise SessionError(str(error)) from None
-        return {"removed": removed.id, "address": hex4(removed.address)}
-
-    def breakpoint_list(self) -> dict[str, Any]:
-        """List all breakpoints with id, address, label, enabled state and hit count."""
-        entries = [
-            {"id": b.id, "address": hex4(b.address), "label": self._label(b.address),
-             "enabled": b.enabled, "hits": b.hits}
-            for b in self.breakpoints.all()
-        ]  # fmt: skip
-        return {"breakpoints": entries}
 
     # == trace =================================================================================
 

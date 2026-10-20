@@ -466,8 +466,9 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods  # one method pe
 
         Only blocks that ran in RAM (or that the owner added) count: a copy that never runs is
         data, e.g. a table. Per ROM range the copy with the most executed instructions wins;
-        blocks overlapping a chosen one (in the ROM or in RAM) or the target's own address
-        range are left out.
+        blocks overlapping a chosen one in the ROM, or lying in the target's own address
+        range, are left out. RAM ranges may overlap: VDOS copies several routines to &BF00
+        at different times (overlays); each keeps its own DISP block.
 
         Returns:
             (chosen blocks sorted by ROM start, all blocks of the target).
@@ -483,11 +484,7 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods  # one method pe
                 continue
             if target.start < ram.stop and ram.start < target.start + target.length:
                 continue  # RAM range inside the target's own addresses: labels would clash
-            if any(
-                (c.rom_start < rom.stop and rom.start < c.rom_start + c.length)
-                or (c.ram_start < ram.stop and ram.start < c.ram_start + c.length)
-                for c in chosen
-            ):
+            if any(c.rom_start < rom.stop and rom.start < c.rom_start + c.length for c in chosen):
                 continue
             chosen.append(block)
         return tuple(sorted(chosen, key=lambda b: b.rom_start)), tuple(blocks)

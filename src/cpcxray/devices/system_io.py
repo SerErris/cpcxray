@@ -12,7 +12,8 @@ Ports with A11 = 0; bits 9-8 select the PPI port:
 
 The firmware reads a keyboard row with: OUT &F4xx = 14, OUT &F6xx with bits 7-6 = 11 (select
 PSG register 14), OUT &F6xx = &40 + row, IN &F4xx → the row's key bits (0 = pressed). That is
-all of the PSG this emulator needs: other PSG registers and all sound are ignored.
+all of the PSG this emulator needs for input. Values written to the other PSG registers (function
+10, "write") are stored for the device view and `.sna` snapshots; no sound is produced.
 
 VSYNC (D-05) is computed when port B is read: `(clock_us % 19968) < 512`, i.e. the first 8
 scan lines of each 19,968 µs frame. The port B constant (manufacturer and 50 Hz bits) is
@@ -41,6 +42,7 @@ class SystemIO:  # pylint: disable=too-many-instance-attributes  # mirrors the P
         port_a: Last value written to port A (PSG data bus).
         port_c: Last value of port C (row bits 3-0, PSG function bits 7-6).
         psg_register: PSG register selected by the "select register" function.
+        psg_registers: Values written to the 16 PSG registers (no sound is produced).
     """
 
     def __init__(
@@ -59,12 +61,14 @@ class SystemIO:  # pylint: disable=too-many-instance-attributes  # mirrors the P
         self.port_a = 0xFF
         self.port_c = 0x00
         self.psg_register = 0
+        self.psg_registers = [0] * 16
 
     def reset(self) -> None:
         """PPI reset: port latches cleared, no PSG register selected."""
         self.port_a = 0xFF
         self.port_c = 0x00
         self.psg_register = 0
+        self.psg_registers = [0] * 16
 
     @staticmethod
     def decodes(port: int) -> bool:
@@ -88,10 +92,12 @@ class SystemIO:  # pylint: disable=too-many-instance-attributes  # mirrors the P
             self._write_port_c(new_c & 0xFF)
 
     def _write_port_c(self, value: int) -> None:
-        """Store port C; PSG function 11 latches the register number from port A."""
+        """Store port C; PSG function 11 latches the register number, 10 writes port A to it."""
         self.port_c = value
         if value & 0xC0 == 0xC0:
             self.psg_register = self.port_a & 0x0F
+        elif value & 0xC0 == 0x80:
+            self.psg_registers[self.psg_register] = self.port_a
 
     def io_in(self, port: int) -> int | None:
         """Read port B (constant + VSYNC) or port A (keyboard row via PSG register 14)."""
@@ -109,6 +115,7 @@ class SystemIO:  # pylint: disable=too-many-instance-attributes  # mirrors the P
             "port_b": self.port_b_constant | (1 if self.vsync() else 0),
             "port_c": self.port_c,
             "psg_register": self.psg_register,
+            "psg_registers": list(self.psg_registers),
             "keyboard_row": self.port_c & 0x0F,
             "vsync": self.vsync(),
         }
