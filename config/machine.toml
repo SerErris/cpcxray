@@ -1,0 +1,26 @@
+[machine]
+model = "464"
+unpopulated_rom = 0          # D-10
+
+[rom.lower]
+file = "roms/os464.rom"
+
+# Upper ROM slots 0-15 (D-09)
+[rom.upper.0]
+file = "roms/basic10.rom"
+
+[rom.upper.5]                # typical VDOS slot
+file = "roms/vdos211x.rom"  # VDOS 2.11X (raw, scrambled dump)
+decoder = "vortex"           # M1 raw, data reads decoded (§5.5)
+decode = true                # initial state of the decode switch (D-11)
+analyse = true               # analysis target (D-16)
+
+[rom.upper.7]
+file = "roms/amsdos.rom"
+
+# Optional RAM-range analysis targets (D-23)
+# [[analysis.ram]]
+# name    = "loader"
+# start   = 0x8000
+# length  = 0x1000
+# capture = "first_m1"       # or "manual"

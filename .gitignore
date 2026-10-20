@@ -1,0 +1,19 @@
+# Python / tooling
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# Windows download markers (WSL)
+*:Zone.Identifier
+
+# ROM images are never committed (NFR-07); generated output stays local
+roms/*
+!roms/.gitignore
+output/*
+!output/.gitignore

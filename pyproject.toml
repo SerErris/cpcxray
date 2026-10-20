@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cpcxray"
+dynamic = ["version"]
+description = "CPC X-Ray: an Amstrad CPC 464 emulator for reverse engineering scrambled ROMs"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+gui = ["dearpygui", "numpy"]
+mcp = ["mcp"]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+cpcxray = "cpcxray.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "cpcxray.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.format]
+exclude = ["*.md"]  # design docs contain illustrative, hand-aligned snippets
