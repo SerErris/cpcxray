@@ -52,6 +52,7 @@ ruff format                       # format (Markdown is excluded)
 pylint src tests tools            # must rate 10/10; disables only with a stated reason
 cpcxray config                    # show parsed config/machine.toml, missing ROMs, sjasmplus
 cpcxray mcp                       # headless MCP server on stdio (Claude Code: .mcp.json)
+cpcxray source-verify output/vdos211x.asm output/vdos211x_clear.rom   # round trip (D-33)
 cpcxray gui                       # window, starts running (--paused: stopped at &0000); MCP over
                                   #   HTTP on 127.0.0.1:8765 (--mcp-port 0: off)
 CPCXRAY_UPDATE_GOLDEN=1 pytest tests/disasm   # regenerate the disassembler golden listing
@@ -96,15 +97,38 @@ Implement strictly one phase of design.md §9 at a time. A phase is finished onl
 milestone tests pass together with the full suite, `ruff check` and `ruff format --check`.
 Do not start the next phase without the owner's go-ahead.
 
-**Status:** Phases 0-7 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
+**Status:** Phases 0-8 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
 pass); CPU validation (ZEXDOC/ZEXALL, z80test); disassembler, CPC RST profile, symbols, Session,
 MCP server; CPC 464 booting to BASIC; renderer and GUI (real time, MCP over HTTP); keyboard;
 decoding and analysis (VDOS decoded and initialised, shadow ROM, access map, dump, ROM map,
-provenance, relocated blocks, trace sinks). Next: Phase 8 (analysis database, RST-operand and
-far-address observers, sjasmplus source generator, round-trip check).
+provenance, relocated blocks, trace sinks); analysis database, execution observer, classifier,
+sjasmplus source generator and round-trip check (generated VDOS source reassembles
+byte-identically). Next: Phase 9 (full debugger UI, all breakpoint types incl. memory-access
+breakpoints and location qualifiers any/rom/rom:n/ram/ram:page per FR-DBG-07, `.sna`).
 
 Validation runtimes on CPython (8 cores): z80test ~1 min for all variants; ZEXDOC+ZEXALL ~30 min,
 dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on one core).
+
+## Analysis database and source notes (phase 8)
+
+- analysis/database.py `TargetDatabase`: kind + source (owner > observed > static) per byte,
+  observations by CPU address, owner overrides. Kinds are rebuilt from the facts (overrides,
+  access map, target flags, observations) by analysis/classifier.py before every use, so only
+  facts are authoritative. File: project/<rom>.analysis.json (also target flags, relocations),
+  merged at session start, saved by `analysis_save` and on GUI exit.
+- analysis/observers.py `ExecutionObserver` (with the provenance observer): instruction starts
+  executed directly in targets, RST 1/2/3/5, far address objects, where SIDE/FAR CALLs arrived.
+- analysis/classifier.py `TargetView`: clear image, access map, relocated blocks (RAM
+  coordinates). Never-read scrambled bytes: opcode reads see raw, data reads decoded;
+  `final_image` per fill policy ("static" keeps opcode bytes of classified code raw). Static
+  descent from observed code and the ROM header jumpblock; never into &FF or non-canonical code.
+- Only relocated blocks that ran in RAM (or manual ones) become DISP blocks; unexecuted copies
+  are data tables (VDOS copies its jumpblock to RAM).
+- analysis/source_gen.py: one item per instruction / far object / header field, data merged
+  into lines; labels only at line starts (else hex), firmware symbols outside via EQU.
+  analysis/verify.py runs sjasmplus (`--raw`, temp dir). CLI: `cpcxray source-verify SRC BIN`.
+- Outputs: output/<rom>.asm (`source_generate`), checked by `source_verify` (fill policy read
+  from the source's header line).
 
 ## Decoding and analysis notes (phase 7)
 
@@ -115,7 +139,7 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   for operands (decoded); Session passes machine.peek_opcode / machine.peek.
 - Access map: project/<rom>.m1map (16 KB, D-19), merged at session start, saved on GUI exit and
   with `m1map_save`. Dumps/maps go to output/<rom>_clear.rom, _rom_map.html/.txt, _coverage.csv.
-  Fill policy "static" needs the phase 8 classifier.
+  Fill policy "static" comes from the phase 8 classifier.
 - devices/fdc765.py is a µPD765 *stub* (all drives not ready): without it VDOS's result loop
   reads &FF forever and overwrites RAM. The full FDC with disk images is phase 10.
 - analysis/provenance.py `AnalysisObserver` (bus observer, only while targets exist): RAM tags

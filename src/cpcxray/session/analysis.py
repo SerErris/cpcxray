@@ -5,23 +5,35 @@ A mixin of `Session`: every public method here is an MCP tool as well (D-27). Gr
 * Scrambled ROMs: decode switch, shadow status, conflicts, access map files and ranges, decoding
   from a map without a run, clear dump, ROM map, coverage CSV.
 * Analysis targets: add/remove/list, RAM-target capture, relocated blocks.
+* Analysis database and source (phase 8, D-31..D-33): save/load (merge), owner
+  classification, source generation, round-trip check.
 
-Slots are given as "romN" / N / "lower"; when omitted, the only scrambled ROM is used. Default
-file names derive from the ROM file: project/<rom>.m1map for the access map (loaded and merged
-when the session starts), output/<rom>_clear.rom, output/<rom>_rom_map.html,
-output/<rom>_coverage.csv.
+Slots are given as "romN" / N / "lower"; when omitted, the only scrambled ROM is used (for
+the database tools: the only analysis target). Default file names derive from the ROM file:
+project/<rom>.m1map for the access map and project/<rom>.analysis.json for the database (both
+loaded and merged when the session starts), output/<rom>_clear.rom, output/<rom>_rom_map.html,
+output/<rom>_coverage.csv, output/<rom>.asm.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from cpcxray.analysis.classifier import TargetView, build_observed, classify_static
+from cpcxray.analysis.cpc_profile import CpcProfile
+from cpcxray.analysis.database import Kind, TargetDatabase
+from cpcxray.analysis.observers import ExecutionObserver
 from cpcxray.analysis.provenance import AnalysisObserver, RelocatedBlock, capture
+from cpcxray.analysis.source_gen import generate_source
 from cpcxray.analysis.targets import AnalysisTarget, ram_target, rom_target
+from cpcxray.analysis.verify import AssemblyError, verify_source
+from cpcxray.debugger.symbols import SymbolTable
 from cpcxray.decoding import export
 from cpcxray.decoding.m1map import (
+    FILL_POLICIES,
     AccessMapError,
     access_ranges,
     decode_rom,
@@ -39,12 +51,17 @@ if TYPE_CHECKING:
     from cpcxray.machine.cpc464 import CPC464
 
 
-class AnalysisMixin:
+class AnalysisMixin:  # pylint: disable=too-many-public-methods  # one method per MCP tool (D-27)
     """Scrambled-ROM and analysis-target methods of `Session` (see the module docstring)."""
 
     analysis_targets: dict[str, AnalysisTarget]
+    analysis_databases: dict[str, TargetDatabase]
     manual_relocations: list[RelocatedBlock]
+    saved_relocations: list[RelocatedBlock]
+    symbols: SymbolTable
     _analysis_observer: AnalysisObserver | None
+    _execution_observer: ExecutionObserver | None
+    _line_maps: dict[Path, list[int]]
 
     # -- helpers (provided by Session) -----------------------------------------------------------
 
@@ -62,33 +79,58 @@ class AnalysisMixin:
 
     def _setup_analysis(self) -> None:
         """Create targets from the machine configuration and load saved access maps."""
-        self.analysis_targets = {}
-        self.manual_relocations = []
-        self._analysis_observer = None
+        self._reset_analysis_state()
         config = getattr(self.machine, "config", None)  # type: ignore[attr-defined]
         if config is None:
             return
         for rom in config.analysis_targets():
             name = "lower" if rom.slot == "lower" else f"rom{rom.slot}"
-            self.analysis_targets[name] = rom_target(name)
+            self._add_target(rom_target(name))
         for ram in config.ram_targets:
-            target = ram_target(ram.name, ram.start, ram.length, ram.capture)
-            self.analysis_targets[target.name] = target
+            self._add_target(ram_target(ram.name, ram.start, ram.length, ram.capture))
         for slot_name, _ in self._cpc().memory.shadows():
             path = self._default_path(slot_name, "m1map")
             if path.exists():
                 self._shadow(slot_name).merge_access_map(load_m1map(path))
         self._sync_observer()
 
+    def _reset_analysis_state(self) -> None:
+        """Start without targets, databases, observers or relocations."""
+        self.analysis_targets = {}
+        self.analysis_databases = {}
+        self.manual_relocations = []
+        self.saved_relocations = []
+        self._analysis_observer = None
+        self._execution_observer = None
+        self._line_maps = {}
+
+    def _add_target(self, target: AnalysisTarget) -> None:
+        """Add a target with its database; merge its saved database file if there is one."""
+        self.analysis_targets[target.name] = target
+        self.analysis_databases[target.name] = TargetDatabase(
+            target.name, target.start, target.length
+        )
+        path = self._database_path(target.name)
+        if path.exists():
+            self._merge_database(target.name, path)
+
     def _sync_observer(self) -> None:
-        """Register the analysis observer while targets exist, remove it otherwise (D-12)."""
+        """Register the analysis observers while targets exist, remove them otherwise (D-12)."""
         machine = self._cpc()
         if self.analysis_targets and self._analysis_observer is None:
             self._analysis_observer = AnalysisObserver(machine.memory, self.analysis_targets)
+            self._execution_observer = ExecutionObserver(
+                machine.memory, self.analysis_targets, self.analysis_databases,
+                self._analysis_observer,
+            )  # fmt: skip
             machine.bus.add_observer(self._analysis_observer)
+            machine.bus.add_observer(self._execution_observer)
         elif not self.analysis_targets and self._analysis_observer is not None:
             machine.bus.remove_observer(self._analysis_observer)
+            if self._execution_observer is not None:
+                machine.bus.remove_observer(self._execution_observer)
             self._analysis_observer = None
+            self._execution_observer = None
 
     def _slot_name(self, slot: str | int | None) -> str:
         """Normalise a slot ("rom5", 5, "5", "lower"); None = the only scrambled ROM."""
@@ -121,10 +163,23 @@ class AnalysisMixin:
 
     def _default_path(self, slot_name: str, kind: str) -> Path:
         """Default file for a slot: project/<rom>.m1map or output/<rom>_<kind>."""
-        stem = Path(self._rom_slot(slot_name).name).stem or slot_name
+        stem = self._stem(slot_name)
         if kind == "m1map":
             return self._path(f"project/{stem}.m1map")
         return self._path(f"output/{stem}_{kind}")
+
+    def _stem(self, target: str) -> str:
+        """File name stem of a target: the ROM file's stem, or ram_<name> for RAM targets."""
+        if target.startswith("ram:"):
+            return "ram_" + target[4:]
+        try:
+            return Path(self._rom_slot(target).name).stem or target
+        except SessionError:
+            return target
+
+    def _database_path(self, target: str) -> Path:
+        """Database file of a target: project/<stem>.analysis.json (D-31)."""
+        return self._path(f"project/{self._stem(target)}.analysis.json")
 
     @staticmethod
     def _error(message: str) -> SessionError:
@@ -213,12 +268,16 @@ class AnalysisMixin:
             raw_path: The scrambled ROM image.
             map_path: The access map.
             out_path: Where to write the clear ROM.
-            fill_policy: Never-read bytes: "raw", "data" or "ff" ("static" in phase 8).
+            fill_policy: Never-read bytes: "raw", "data", "ff" or "static" (code/data guess
+                by recursive disassembly from the ROM header; no run-time observations).
             conflict: Value for conflict bytes: "m1" (raw) or "data" (decoded).
         """
         try:
-            clear = decode_rom(self._path(raw_path).read_bytes(), load_m1map(self._path(map_path)),
-                               vortex_decode, fill_policy, conflict)  # fmt: skip
+            raw, access_map = self._path(raw_path).read_bytes(), load_m1map(self._path(map_path))
+            if fill_policy == "static":
+                clear = self._static_from_map(raw, access_map, conflict)
+            else:
+                clear = decode_rom(raw, access_map, vortex_decode, fill_policy, conflict)
         except (OSError, AccessMapError) as error:
             raise self._error(str(error)) from None
         out = self._path(out_path)
@@ -235,13 +294,19 @@ class AnalysisMixin:
         Args:
             slot: The scrambled slot (default: the only one).
             path: Output file (default output/<rom>_clear.rom).
-            fill_policy: Never-read bytes: "raw", "data" or "ff" ("static" in phase 8).
+            fill_policy: Never-read bytes: "raw", "data", "ff" or "static" (opcode bytes of
+                statically found code raw, all other never-read bytes decoded; D-20).
             conflict: Value for conflict bytes: "m1" (raw) or "data" (decoded).
         """
         name = self._slot_name(slot)
         file = self._path(path) if path else self._default_path(name, "clear.rom")
         try:
-            export.rom_dump(file, self._shadow(name), fill_policy, conflict)
+            if fill_policy == "static":
+                view, database = self._classified(name, "static", conflict)
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_bytes(view.final_image(database, "static"))
+            else:
+                export.rom_dump(file, self._shadow(name), fill_policy, conflict)
         except AccessMapError as error:
             raise self._error(str(error)) from None
         return {"slot": name, "path": str(file), "fill_policy": fill_policy,
@@ -290,7 +355,8 @@ class AnalysisMixin:
             if length is None or length < 1 or capture_at not in ("first_m1", "manual"):
                 raise self._error("a RAM target needs length >= 1 and capture 'first_m1'/'manual'")
             new = ram_target(target, self._address(start), length, capture_at)
-        self.analysis_targets[new.name] = new
+        if new.name not in self.analysis_targets:
+            self._add_target(new)
         self._sync_observer()
         return self.analysis_target_list()
 
@@ -298,6 +364,7 @@ class AnalysisMixin:
         """Remove an analysis target by name ("rom5", "lower", "ram:<name>")."""
         if self.analysis_targets.pop(target, None) is None:
             raise self._error(f"no analysis target {target!r}")
+        self.analysis_databases.pop(target, None)
         self._sync_observer()
         return self.analysis_target_list()
 
@@ -308,6 +375,9 @@ class AnalysisMixin:
             entry: dict[str, Any] = {"name": target.name, "kind": target.kind,
                                      "start": f"{target.start:04X}", "length": target.length,
                                      "flags": target.flag_counts()}  # fmt: skip
+            database = self.analysis_databases.get(target.name)
+            if database is not None:
+                entry["kinds"] = database.counts()["kinds"]
             if target.kind == "ram":
                 entry |= {"capture": target.capture, "captured": target.image is not None,
                           "modified_after_capture": len(target.modifications)}  # fmt: skip
@@ -328,8 +398,7 @@ class AnalysisMixin:
         For a ROM range copied to several places, `preferred` marks the copy with the most
         executed instructions (used for disassembly).
         """
-        detected = self._analysis_observer.relocated_blocks() if self._analysis_observer else []
-        blocks = [b for b in detected + self.manual_relocations if target in (None, b.target)]
+        blocks = [b for b in self._all_relocations() if target in (None, b.target)]
         best: dict[tuple[str, int], RelocatedBlock] = {}
         for block in blocks:
             key = (block.target, block.rom_start)
@@ -354,10 +423,272 @@ class AnalysisMixin:
     def reloc_remove(self, target: str, ram_start: int | str) -> dict[str, Any]:
         """Remove a manually added relocated block (by target and RAM start)."""
         address = self._address(ram_start)
-        before = len(self.manual_relocations)
-        self.manual_relocations = [
-            b for b in self.manual_relocations if (b.target, b.ram_start) != (target, address)
-        ]
-        if len(self.manual_relocations) == before:
-            raise self._error(f"no manual block of {target} at {address:04X}")
+        before = len(self.manual_relocations) + len(self.saved_relocations)
+
+        def kept(block: RelocatedBlock) -> bool:
+            """True for blocks other than the one to remove."""
+            return (block.target, block.ram_start) != (target, address)
+
+        self.manual_relocations = [b for b in self.manual_relocations if kept(b)]
+        self.saved_relocations = [b for b in self.saved_relocations if kept(b)]
+        if len(self.manual_relocations) + len(self.saved_relocations) == before:
+            raise self._error(f"no manual or saved block of {target} at {address:04X}")
         return self.reloc_list(target)
+
+    def _all_relocations(self) -> list[RelocatedBlock]:
+        """Detected blocks of this run, manual ones, and saved ones not detected again."""
+        detected = self._analysis_observer.relocated_blocks() if self._analysis_observer else []
+        blocks = detected + self.manual_relocations
+        keys = {(b.target, b.rom_start, b.ram_start) for b in blocks}
+        return blocks + [
+            b for b in self.saved_relocations if (b.target, b.rom_start, b.ram_start) not in keys
+        ]
+
+    # == analysis database and source (phase 8) ==================================================
+
+    def _target_name(self, target: str | int | None) -> str:
+        """Normalise a target name; None = the only analysis target."""
+        if target is None:
+            if len(self.analysis_targets) != 1:
+                names = sorted(self.analysis_targets) or "none"
+                raise self._error(f"give the target: analysis targets: {names}")
+            return next(iter(self.analysis_targets))
+        text = str(target)
+        name = text if text.startswith("ram:") else self._slot_name(text)
+        if name not in self.analysis_targets:
+            raise self._error(f"no analysis target {name!r} (add it with analysis_target_add)")
+        return name
+
+    def _chosen_blocks(
+        self, target: AnalysisTarget
+    ) -> tuple[tuple[RelocatedBlock, ...], tuple[RelocatedBlock, ...]]:
+        """Pick the relocated blocks shown at their RAM address (D-22).
+
+        Only blocks that ran in RAM (or that the owner added) count: a copy that never runs is
+        data, e.g. a table. Per ROM range the copy with the most executed instructions wins;
+        blocks overlapping a chosen one (in the ROM or in RAM) or the target's own address
+        range are left out.
+
+        Returns:
+            (chosen blocks sorted by ROM start, all blocks of the target).
+        """
+        blocks = [b for b in self._all_relocations() if b.target == target.name]
+        chosen: list[RelocatedBlock] = []
+        for block in sorted(blocks, key=lambda b: (-b.executed, -b.length, b.rom_start)):
+            rom = range(block.rom_start, block.rom_start + block.length)
+            ram = range(block.ram_start, block.ram_start + block.length)
+            if not (block.executed or block.manual):
+                continue
+            if rom.stop > target.length or ram.stop > 0x10000:
+                continue
+            if target.start < ram.stop and ram.start < target.start + target.length:
+                continue  # RAM range inside the target's own addresses: labels would clash
+            if any(
+                (c.rom_start < rom.stop and rom.start < c.rom_start + c.length)
+                or (c.ram_start < ram.stop and ram.start < c.ram_start + c.length)
+                for c in chosen
+            ):
+                continue
+            chosen.append(block)
+        return tuple(sorted(chosen, key=lambda b: b.rom_start)), tuple(blocks)
+
+    def _view(self, name: str, conflict: str = "m1") -> TargetView:
+        """Build the view of a target: clear image, access map and relocated blocks."""
+        if conflict not in ("m1", "data"):
+            raise self._error("conflict must be 'm1' or 'data'")
+        target = self.analysis_targets[name]
+        blocks, _ = self._chosen_blocks(target)
+        if target.kind == "ram":
+            start = target.start
+            image = target.image or bytes(self._cpc().memory.ram[start : start + target.length])
+            return TargetView(name, start, image, blocks=blocks)
+        rom = self._rom_slot(name)
+        if rom.shadow is None or rom.decoder is None:
+            return TargetView(name, target.start, rom.data, blocks=blocks)
+        access = bytes(rom.shadow.access_map)
+        image = decode_rom(rom.data, access, rom.decoder, "data", conflict)
+        return TargetView(name, target.start, image, rom.data, access, rom.decoder, blocks)
+
+    def _classified(
+        self, name: str, fill_policy: str, conflict: str = "m1"
+    ) -> tuple[TargetView, TargetDatabase]:
+        """Rebuild the classification of a target (owner, observed, static) and return it.
+
+        Static guesses are made for plain targets always, for scrambled ROMs only with the
+        "static" fill policy (other policies do not keep opcode bytes raw, so a guessed
+        instruction would not survive in the image).
+        """
+        if fill_policy not in FILL_POLICIES:
+            raise self._error(f"fill policy must be one of {', '.join(FILL_POLICIES)}")
+        view = self._view(name, conflict)
+        database = self.analysis_databases[name]
+        profile = CpcProfile(image_range=(view.start, view.start + view.length - 1))
+        build_observed(database, view, bytes(self.analysis_targets[name].flags), profile)
+        if fill_policy == "static" or not view.scrambled:
+            classify_static(database, view, profile)
+        return view, database
+
+    @staticmethod
+    def _static_from_map(raw: bytes, access_map: bytes, conflict: str) -> bytes:
+        """Decode a Vortex ROM from its map with the static fill policy (no observations)."""
+        image = decode_rom(raw, access_map, vortex_decode, "data", conflict)
+        view = TargetView("rom", 0xC000, image, raw, access_map, vortex_decode)
+        database = TargetDatabase("rom", 0xC000, len(raw))
+        profile = CpcProfile(image_range=(0xC000, 0xC000 + len(raw) - 1))
+        build_observed(database, view, bytes(len(raw)), profile)
+        classify_static(database, view, profile)
+        return view.final_image(database, "static")
+
+    def _merge_database(self, name: str, path: Path) -> None:
+        """Merge a database file: kinds, observations, overrides, flags, relocated blocks."""
+        try:
+            extra = self.analysis_databases[name].merge_file(path)
+        except (OSError, ValueError, KeyError) as error:
+            raise self._error(f"cannot load {path}: {error}") from None
+        flags = bytes.fromhex(extra.get("flags", ""))
+        target = self.analysis_targets[name]
+        for offset, value in enumerate(flags[: target.length]):
+            target.flags[offset] |= value
+        for entry in extra.get("relocations", []):
+            block = RelocatedBlock(**{**entry, "rom_start": int(entry["rom_start"], 16),
+                                      "ram_start": int(entry["ram_start"], 16)})  # fmt: skip
+            existing = self.manual_relocations if block.manual else self.saved_relocations
+            if all((b.rom_start, b.ram_start) != (block.rom_start, block.ram_start)
+                   or b.target != block.target for b in existing):  # fmt: skip
+                existing.append(block)
+
+    def analysis_save(self, target: str | None = None) -> dict[str, Any]:
+        """Save the analysis state (D-19, D-31); called automatically when the GUI closes.
+
+        Writes the access map of every scrambled ROM (project/<rom>.m1map) and the database
+        of every analysis target (project/<rom>.analysis.json: classification, runtime
+        observations, owner overrides, target flags, relocated blocks).
+
+        Args:
+            target: Only this target (and its access map); None saves everything.
+        """
+        names = list(self.analysis_targets) if target is None else [self._target_name(target)]
+        saved = []
+        for slot_name, _ in self._cpc().memory.shadows():
+            if target is None or slot_name in names:
+                saved.append(self.m1map_save(slot_name)["path"])
+        for name in names:
+            self._classified(name, "static")
+            blocks = [b for b in self._all_relocations() if b.target == name]
+            extra = {
+                "flags": bytes(self.analysis_targets[name].flags).hex(),
+                "relocations": [
+                    {**asdict(b), "rom_start": f"{b.rom_start:04X}",
+                     "ram_start": f"{b.ram_start:04X}"} for b in blocks
+                ],
+            }  # fmt: skip
+            path = self._database_path(name)
+            self.analysis_databases[name].save(path, extra)
+            saved.append(str(path))
+        return {"saved": saved}
+
+    def analysis_load(self, target: str | None = None, path: str | None = None) -> dict[str, Any]:
+        """Merge a saved database into the current one (stronger classification wins per byte).
+
+        Args:
+            target: The target (default: the only one).
+            path: The file (default project/<rom>.analysis.json).
+        """
+        name = self._target_name(target)
+        file = self._path(path) if path else self._database_path(name)
+        if not file.exists():
+            raise self._error(f"no database file {file}")
+        self._merge_database(name, file)
+        return {"target": name, "path": str(file),
+                "kinds": self.analysis_databases[name].counts()["kinds"]}  # fmt: skip
+
+    def classify(
+        self, first: int | str, last: int | str, kind: str, target: str | None = None
+    ) -> dict[str, Any]:
+        """Classify an address range as the owner (strongest source, kept in the database).
+
+        Args:
+            first: First address (CPU address in the target, e.g. "C123").
+            last: Last address (inclusive).
+            kind: "code" (consecutive instructions from `first`), "string", "word_table",
+                "byte_data", or "auto" to drop the owner's classification of exactly this
+                range again.
+            target: The target (default: the only one).
+        """
+        name = self._target_name(target)
+        database = self.analysis_databases[name]
+        first_offset = self._address(first) - database.start
+        last_offset = self._address(last) - database.start
+        if not 0 <= first_offset <= last_offset < database.length:
+            raise self._error(f"range outside the target {name}")
+        kinds = {"code": Kind.INSN_START, "string": Kind.STRING, "word_table": Kind.WORD_TABLE,
+                 "byte_data": Kind.BYTE_DATA}  # fmt: skip
+        if kind == "auto":
+            database.remove_override(first_offset, last_offset)
+        elif kind in kinds:
+            database.add_override(first_offset, last_offset, kinds[kind])
+        else:
+            raise self._error(f"kind must be one of {', '.join([*kinds, 'auto'])}")
+        self._classified(name, "static")
+        return {"target": name, "overrides": database.overrides,
+                "kinds": database.counts()["kinds"]}  # fmt: skip
+
+    def source_generate(
+        self, target: str | None = None, path: str | None = None, fill_policy: str = "static",
+        conflict: str = "m1",
+    ) -> dict[str, Any]:  # fmt: skip
+        """Generate the sjasmplus source of a target from its database (D-31, §6.15).
+
+        Args:
+            target: The target (default: the only one).
+            path: Output file (default output/<rom>.asm).
+            fill_policy: Never-read bytes of a scrambled ROM: "static" (default; code guesses
+                disassembled), "raw", "data" or "ff" (emitted as data).
+            conflict: Value for conflict bytes: "m1" (raw) or "data" (decoded).
+
+        Returns:
+            Path, number of lines, statistics, and the kinds per byte.
+        """
+        name = self._target_name(target)
+        view, database = self._classified(name, fill_policy, conflict)
+        stem = self._stem(name)
+        file = self._path(path) if path else self._path(f"output/{stem}.asm")
+        _, all_blocks = self._chosen_blocks(self.analysis_targets[name])
+        is_ram = name.startswith("ram:")
+        title = f"RAM target {name}" if is_ram else f"{self._rom_slot(name).name} (slot {name})"
+        generated = generate_source(
+            view.resolve(database, fill_policy), database, self.symbols, title=title,
+            output_name=f"{stem}.bin" if is_ram else f"{stem}_clear.rom",
+            fill_policy=fill_policy, conflict=conflict, alternative_blocks=all_blocks,
+        )  # fmt: skip
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(generated.text, encoding="utf-8")
+        self._line_maps[file.resolve()] = generated.line_of_offset
+        return {"target": name, "path": str(file), "lines": generated.text.count("\n"),
+                "statistics": generated.statistics,
+                "kinds": database.counts()["kinds"]}  # fmt: skip
+
+    def source_verify(self, path: str | None = None, target: str | None = None) -> dict[str, Any]:
+        """Round-trip check (D-33): assemble a generated source, compare with the clear image.
+
+        The expected image uses the fill policy and conflict choice recorded in the source's
+        header line; differing addresses are listed with both values and the source line.
+
+        Args:
+            path: The source (default output/<rom>.asm).
+            target: The target (default: the only one).
+        """
+        name = self._target_name(target)
+        file = self._path(path) if path else self._path(f"output/{self._stem(name)}.asm")
+        if not file.exists():
+            raise self._error(f"no source {file} (generate it with source_generate)")
+        header = re.search(r"fill policy: (\w+), conflicts: (\w+)",
+                           file.read_text(encoding="utf-8"))  # fmt: skip
+        fill_policy, conflict = header.groups() if header else ("static", "m1")
+        view, database = self._classified(name, fill_policy, conflict)
+        expected = view.final_image(database, fill_policy)
+        try:
+            result = verify_source(file, expected, view.start, self._line_maps.get(file.resolve()))
+        except AssemblyError as error:
+            raise self._error(str(error)) from None
+        return {"target": name, "path": str(file), "fill_policy": fill_policy, **asdict(result)}

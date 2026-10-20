@@ -98,11 +98,9 @@ class Session(AnalysisMixin):  # pylint: disable=too-many-public-methods,too-man
         annotations = self.project_dir / ANNOTATIONS_FILE
         if annotations.exists():
             self.symbols.load(annotations)
-        self.analysis_targets = {}
-        self.manual_relocations = []
-        self._analysis_observer = None
+        self._reset_analysis_state()
         if isinstance(self.machine, CPC464):
-            self._setup_analysis()  # targets from the config, saved access maps (phase 7)
+            self._setup_analysis()  # targets from the config, saved access maps and databases
 
     # == helpers ===============================================================================
 
@@ -226,16 +224,6 @@ class Session(AnalysisMixin):  # pylint: disable=too-many-public-methods,too-man
             return None
         first = address & 0x3FFF
         return rom.data[first : first + length]
-
-    def save_analysis(self) -> dict[str, Any]:
-        """Save the analysis state: the access map of every scrambled ROM (project/<rom>.m1map).
-
-        Called automatically when the GUI closes; the analysis database follows in phase 8.
-        """
-        if not isinstance(self.machine, CPC464):
-            return {"saved": []}
-        saved = [self.m1map_save(name)["path"] for name, _ in self.machine.memory.shadows()]
-        return {"saved": saved}
 
     def _trace_instruction(self, pc: int) -> None:
         """Record the instruction at `pc` in the trace (applying the targets-only filter)."""

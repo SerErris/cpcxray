@@ -1,0 +1,178 @@
+"""Tests of the sjasmplus source generator and the round-trip check (§6.15; D-22, D-32, D-33).
+
+Every generated source is assembled with sjasmplus and must reproduce the image byte for byte.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from cpcxray.analysis.provenance import RelocatedBlock
+from cpcxray.analysis.source_gen import generate_source, split_data, string_operands
+from cpcxray.analysis.verify import compare
+from cpcxray.cpu.disasm import disassemble
+from cpcxray.debugger.symbols import SymbolTable
+from tests.analysis.helpers import classified, plain_view, round_trip
+from tests.analysis.test_classifier import scrambled_view
+
+
+def code_lines(text: str) -> list[str]:
+    """Return the source lines without surrounding whitespace."""
+    return [line.strip() for line in text.splitlines()]
+
+
+def test_cpc_strings() -> None:
+    """Strings with a bit-7 terminator become "NAM","E"+#80; short runs stay bytes."""
+    assert string_operands(b"WORL\xc4") == '"WORL","D"+#80'
+    assert string_operands(b'A"B\x01') == '"A",#22,"B",#01'
+    data = b"\x01\x02HELLO WORL\xc4AB\x03"
+    assert split_data(data) == [(0, 2, False), (2, 11, True), (13, 3, False)]
+    assert split_data(b"OK\xcb") == [(0, 3, True)]
+
+
+def test_rst_rendering(tmp_path: Path) -> None:
+    """RST 1/2/3/5 with their inline defw lines, the far address object and observations."""
+    image = bytes.fromhex(
+        "CF 50 81"  # rst #08  LOW JUMP to &0150, upper ROM off
+        "D7 50 41"  # rst #10  SIDE CALL to &C150, slot 1
+        "DF 10 C0"  # rst #18  FAR CALL via the far address object at &C010
+        "EF 5A BB"  # rst #28  FIRM JUMP to &BB5A
+        "C9 00 00 00"
+        "5A BB 07"  # far address object: &BB5A in ROM 7
+    )
+    observations = {"C003": {"rst": 2, "reached": "rom6"}, "C010": {"far_object": True}}
+    view = plain_view(image)
+    database = classified(view, starts=[0, 3, 6], observations=observations)
+    generated, result = round_trip(tmp_path, view, database)
+    assert result.identical, result.differences
+    lines = code_lines(generated.text)
+    assert "rst #08                         ; LOW JUMP" in lines
+    assert "defw 08150h                     ;   to #0150 [lower ROM on, upper ROM off]" in lines
+    assert (
+        "defw 04150h                     ;   to #C150 [slot 1]  (observed: reached rom6)" in lines
+    )
+    assert "defw far_c010                   ;   to txt_output [ROM 7]" in lines  # firmware name
+    assert "far_c010:" in lines
+    assert "defw txt_output                 ; far address: to txt_output" in lines
+    assert "defb #07                        ;   ROM 7" in lines
+    assert any(line.startswith("rst #28") for line in lines)
+
+
+def test_labels_and_externals(tmp_path: Path) -> None:
+    """Call/jump targets get labels; firmware addresses outside the image get EQU lines."""
+    image = bytes.fromhex("CD 06 C0 C3 5A BB C9 18 FD")
+    view = plain_view(image)
+    database = classified(view, starts=[0])
+    symbols = SymbolTable()
+    generated = generate_source(
+        view.resolve(database, "static"), database, symbols, title="t", output_name="t.bin",
+        fill_policy="static",
+    )  # fmt: skip
+    lines = code_lines(generated.text)
+    assert "txt_output              EQU #BB5A" in lines
+    assert "call sub_c006" in lines and "sub_c006:" in lines
+    assert "jp txt_output                   ; [static]" in lines
+    _, result = round_trip(tmp_path, view, database)
+    assert result.identical
+
+
+def test_relocated_block_uses_disp(tmp_path: Path) -> None:
+    """A block copied to RAM is assembled at its RAM address with DISP/ENT and ram_ labels."""
+    image = bytes.fromhex("CD 00 80 C9") + bytes.fromhex("21 00 80 C3 00 80")
+    block = RelocatedBlock("rom1", 4, 6, 0x8000, executed=2)
+    view = plain_view(image, blocks=(block,))
+    database = classified(view, starts=[0, 4, 7])
+    generated, result = round_trip(tmp_path, view, database)
+    assert result.identical, result.differences
+    lines = code_lines(generated.text)
+    assert "DISP #8000" in lines and "ENT" in lines
+    assert "call ram_8000" in lines and "ram_8000:" in lines and "jp ram_8000" in lines
+    assert any("copied to RAM #8000-#8005 (from #C004)" in line for line in lines)
+
+
+def non_canonical_encodings() -> list[bytes]:
+    """Every encoding the disassembler flags as non-canonical (D-32), with operands."""
+    candidates = [bytes([0xED, op, 0x34, 0x12]) for op in range(256)]
+    for prefix in (0xDD, 0xFD):
+        candidates += [bytes([prefix, op, 0x34, 0x12, 0x00]) for op in range(256)]
+        candidates += [bytes([prefix, 0xCB, 0x05, op]) for op in range(256)]
+    found = []
+    for candidate in candidates:
+        padded = candidate + bytes(4)
+        instruction = disassemble(lambda a, data=padded: data[a], 0)
+        if instruction.non_canonical:
+            found.append(instruction.raw)
+    return found
+
+
+def test_every_non_canonical_encoding_round_trips(tmp_path: Path) -> None:
+    """All non-canonical encodings are emitted as defb with the mnemonic and reassemble (D-32)."""
+    encodings = non_canonical_encodings()
+    assert len(encodings) > 400
+    image = b"".join(encodings)
+    starts, offset = [], 0
+    for encoding in encodings:
+        starts.append(offset)
+        offset += len(encoding)
+    view = plain_view(image, start=0x4000, name="lower")
+    database = classified(view, starts=starts, static=False)
+    generated, result = round_trip(tmp_path, view, database)
+    assert result.identical, result.differences[:5]
+    assert generated.statistics["non_canonical"] == len(encodings)
+    assert "defb #ED,#6B,#34,#12            ; ld hl,(#1234)" in code_lines(generated.text)
+
+
+def test_scrambled_never_accessed_and_static(tmp_path: Path) -> None:
+    """Never-read bytes are marked; static code is disassembled and reassembles with "static"."""
+    view = scrambled_view()
+    database = classified(view, starts=[0])
+    generated, result = round_trip(tmp_path, view, database)
+    assert result.identical, result.differences
+    lines = code_lines(generated.text)
+    assert "; ---- never accessed: #C003-#C03F (61 bytes, fill: static) ----" in lines
+    assert any(line.startswith("ld a,#05") and "[static]" in line for line in lines)
+    assert "jp l_c014" in lines
+    for policy in ("raw", "data", "ff"):  # no static code: the bytes are emitted as data
+        database = classified(view, starts=[0], static=False)
+        _, result = round_trip(tmp_path, view, database, policy)
+        assert result.identical, (policy, result.differences)
+
+
+def test_rom_header_rendering(tmp_path: Path) -> None:
+    """The ROM header gets its labels, the name table strings and RSX labels."""
+    image = bytearray(0x40)
+    image[0:6] = bytes.fromhex("01 01 02 03 20 C0")
+    image[6:15] = bytes.fromhex("C3 30 C0 C3 31 C0 C3 32 C0")
+    image[0x20:0x29] = b"TES\xd4CM\xc4\x81\x00"
+    image[0x30:0x33] = bytes.fromhex("C9 C9 C9")
+    view = plain_view(bytes(image))
+    database = classified(view)
+    generated, result = round_trip(tmp_path, view, database)
+    assert result.identical, result.differences
+    lines = code_lines(generated.text)
+    expected_lines = (
+        "rom_type:", "rom_name_table:", "rom_jumpblock:", "rom_init:", "rsx_cmd:", "rsx_81:",
+        'defb "TES","T"+#80', "defw rom_name_table             ; name table",
+        'jp rsx_cmd                      ; RSX "CMD"; [static]',
+    )  # fmt: skip
+    for expected in expected_lines:
+        assert expected in lines, expected
+    assert "defb #01                        ; background ROM" in lines
+
+
+def test_compare_reports_lines() -> None:
+    """Differences carry both values and the source line."""
+    result = compare(b"\x01\x02", b"\x01\x03\x04", 0xC000, ["a", "defb 2,3"], [1, 2, 2])
+    assert not result.identical and result.difference_count == 2
+    assert result.differences[0] == {
+        "address": "C001", "expected": "03", "assembled": "02", "line": 2, "source": "defb 2,3",
+    }  # fmt: skip
+    assert result.differences[1]["assembled"] is None
+
+
+def test_line_map_covers_every_byte(tmp_path: Path) -> None:
+    """The generator maps every target byte to a source line."""
+    view = scrambled_view()
+    database = classified(view, starts=[0])
+    generated, _ = round_trip(tmp_path, view, database)
+    assert all(line > 0 for line in generated.line_of_offset)

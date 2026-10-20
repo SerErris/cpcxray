@@ -10,6 +10,9 @@ Subcommands:
 * `gui`: the Dear PyGui window with a CPC 464 from the configuration. The machine starts
   running (`--paused` starts it stopped at &0000); by default the window also serves MCP over
   HTTP on 127.0.0.1:8765 so Claude can attach (`--mcp-port 0` turns that off).
+* `source-verify`: the round-trip check (D-33) without a session: assemble a source with
+  sjasmplus and compare it byte for byte with an image (e.g. a clear dump); lists differing
+  addresses with the source line, exit code 1 if they differ.
 """
 
 from __future__ import annotations
@@ -58,6 +61,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     p_gui.add_argument(
         "--paused", action="store_true", help="start stopped at the reset vector (debug the boot)"
     )
+    p_verify = sub.add_parser("source-verify", help="assemble a source and compare with an image")
+    p_verify.add_argument("source", help="the sjasmplus source (e.g. output/vdos211x.asm)")
+    p_verify.add_argument("expected", help="the image it must reproduce (e.g. a clear dump)")
+    p_verify.add_argument("--start", default="C000", help="address of the first byte (hex)")
 
     args = parser.parse_args(argv)
     if args.command == "config":
@@ -66,6 +73,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_gui(args.project_dir, args.config, args.mcp_port, args.paused)
     if args.command == "mcp":
         return _cmd_mcp(args.project_dir, args.machine, args.config)
+    if args.command == "source-verify":
+        return _cmd_source_verify(args.source, args.expected, int(args.start.lstrip("&#"), 16))
     parser.print_help()
     return 0
 
@@ -120,6 +129,32 @@ def _cmd_gui(project_dir: str, config: str, mcp_port: int, paused: bool) -> int:
         return 1
     App(Session(machine, project_dir=project_dir), mcp_port or None, autostart=not paused).run()
     return 0
+
+
+def _cmd_source_verify(source: str, expected: str, start: int) -> int:
+    """Run `cpcxray source-verify`: round-trip check of a source against an image (D-33).
+
+    Returns:
+        0 if identical, 1 if the bytes differ or sjasmplus fails.
+    """
+    from cpcxray.analysis.verify import (  # pylint: disable=import-outside-toplevel  # CLI only
+        AssemblyError,
+        verify_source,
+    )
+
+    try:
+        result = verify_source(Path(source), Path(expected).read_bytes(), start)
+    except (OSError, AssemblyError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    if result.identical:
+        print(f"identical: {result.assembled_length} bytes")
+        return 0
+    print(f"{result.difference_count} differing bytes (assembled {result.assembled_length}, "
+          f"expected {result.expected_length})")  # fmt: skip
+    for entry in result.differences:
+        print(f"{entry['address']}  expected {entry['expected']}  assembled {entry['assembled']}")
+    return 1
 
 
 def _cmd_config(path: str) -> int:

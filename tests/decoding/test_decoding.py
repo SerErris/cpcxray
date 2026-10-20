@@ -107,9 +107,9 @@ def test_fill_policies(policy: str, expected: int) -> None:
     assert decode_rom(bytes(raw), access_map, vortex_decode, policy)[0x14] == expected
 
 
-def test_static_policy_needs_phase_8() -> None:
-    """The static code/data guess comes with the classifier in phase 8."""
-    with pytest.raises(AccessMapError, match="phase 8"):
+def test_static_policy_needs_the_classifier() -> None:
+    """decode_rom cannot do the static guess: it needs the classification (TargetView)."""
+    with pytest.raises(AccessMapError, match="classifier"):
         decode_rom(bytes(0x4000), bytes([UNKNOWN] * 0x4000), vortex_decode, "static")
 
 

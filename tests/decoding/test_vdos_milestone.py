@@ -13,23 +13,17 @@ import pytest
 
 from cpcxray.decoding.m1map import decode_rom, load_m1map
 from cpcxray.decoding.vortex import vortex_decode
-from cpcxray.machine.config import load_config
 from cpcxray.machine.cpc464 import CPC464
 from cpcxray.session.session import Session
+from tests.vdos import CONFIG, boot_vdos, requires_roms
 
-REPO = Path(__file__).resolve().parents[2]
-CONFIG = load_config(REPO / "config" / "machine.toml")
-pytestmark = pytest.mark.skipif(
-    not all(rom.exists for rom in CONFIG.roms()), reason="ROM files missing"
-)
+pytestmark = requires_roms
 
 
 @pytest.fixture(name="session", scope="module")
 def fixture_session(tmp_path_factory: pytest.TempPathFactory) -> Session:
     """Boot the CPC 464 with VDOS (project files in a temporary directory)."""
-    session = Session(CPC464(CONFIG), project_dir=tmp_path_factory.mktemp("project"))
-    session.run(max_us=4_000_000, timeout_s=120)
-    return session
+    return boot_vdos(tmp_path_factory.mktemp("project"))
 
 
 def test_vdos_signs_on(session: Session) -> None:

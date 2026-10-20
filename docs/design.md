@@ -117,7 +117,7 @@ software.
 | FR-DBG-04 | Disassembly view around PC and at any address; raw and clear bytes for scrambled ROMs. |
 | FR-DBG-05 | Device view: Gate Array, CRTC, SystemIO, ROM selection, interrupt state; later FDC. |
 | FR-DBG-06 | Run, pause, step, step over, step out, run to address, reset. |
-| FR-DBG-07 | Breakpoints: PC; M1 at address/range; memory read/write at address/range; I/O by mask; ROM-select change; interrupt accepted. |
+| FR-DBG-07 | Breakpoints: PC; M1 at address/range; memory read/write at address/range ("who accesses this byte": stops after the accessing instruction and reports its PC); I/O by mask; ROM-select change; interrupt accepted. Every address-based breakpoint takes a location qualifier: `any` (whatever is paged in), `rom` (any ROM), `rom:<n>` / `lower` (one ROM), `ram` (RAM only), `ram:<page>` (one RAM bank, for 6128 banking later). |
 | FR-DBG-08 | Bus trace view of M1/MREQ/IORQ/RD/WR accesses (switchable ring buffer). |
 | FR-DBG-09 | Symbols and comments (annotation file), with firmware jumpblock names preloaded. |
 | FR-DBG-10 | Snapshots in `.sna` format (save and load). |
@@ -589,6 +589,12 @@ Responsible for reset, configuration and wiring; provides `snapshot()` for rende
 - Breakpoints as bus observers, except PC breakpoints (set lookup before each `step()`): PC; M1 at
   address/range (also per ROM number); memory read/write; I/O by mask/value; ROM-select change;
   interrupt accepted.
+- Location qualifier per address-based breakpoint (FR-DBG-07), checked against what the memory
+  map has paged in at the access: `any`, `rom`, `rom:<n>`, `lower`, `ram`, `ram:<page>` (464: only
+  page 0; 6128 banking in phase 11). PC breakpoints check it before `step()`; memory-access
+  breakpoints check it in the observer, so a write to RAM under a paged-in ROM is matched as
+  `ram`, a read of the ROM as `rom:<n>`. A memory-access hit finishes the current instruction and
+  stops with the accessing PC, access kind, address, value and location in the result.
 - Stepping: step, step over (CALL/RST/DJNZ/LDIR → temporary breakpoint after the instruction), run
   to address, step out.
 - Disassembler: table-driven, sharing opcode metadata with the CPU; works on any byte source (CPU

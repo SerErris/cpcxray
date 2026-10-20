@@ -12,43 +12,27 @@ from cpcxray.analysis.targets import (
 )
 from cpcxray.cpu.bus import Cycle
 from cpcxray.machine.cpc464 import CPC464
-from cpcxray.machine.memory import RomSlot
+from tests.analysis.helpers import make_test_cpc, run_until_halt
 
 # OS ROM: upper ROM on, JP &C000.  Upper ROM 3 at &C000:
 #   LD HL,&C100 / LD DE,&4000 / LD BC,4 / LDIR      exact copy of 4 bytes to &4000
 #   LD A,(&C104) / LD (&5000),A                     copy via a register (probable)
 #   CALL &4000 / HALT                               run the RAM copy
 # &C100: INC A / INC A / RET / NOP;  &C104: &77
-OS = bytes.fromhex("01817F ED49 C300C0")
-UPPER = bytes.fromhex("2100C1 110040 010400 EDB0 3A04C1 320050 CD0040 76")
+OS = {0x0000: "01817F ED49 C300C0"}
+UPPER = {
+    0x0000: "2100C1 110040 010400 EDB0 3A04C1 320050 CD0040 76",
+    0x0100: "3C 3C C9 00 77",
+}
 
 
 def make_machine() -> tuple[CPC464, AnalysisObserver, dict]:
     """A CPC 464 with the test ROMs and an observer for the target "rom3"."""
-    machine = CPC464()
-    os_rom = bytearray(0x4000)
-    os_rom[: len(OS)] = OS
-    upper = bytearray(0x4000)
-    upper[: len(UPPER)] = UPPER
-    upper[0x100:0x105] = bytes.fromhex("3C 3C C9 00 77")
-    machine.memory.set_lower_rom(RomSlot(bytes(os_rom), "os"))
-    machine.memory.set_upper_rom(3, RomSlot(bytes(upper), "test"))
-    machine.reset()
-    machine.cpu.sp = 0x8000
-    machine.rom_select.io_out(0xDF03, 3)
+    machine = make_test_cpc(OS, UPPER)
     targets = {"rom3": rom_target("rom3")}
     observer = AnalysisObserver(machine.memory, targets)
     machine.bus.add_observer(observer)
     return machine, observer, targets
-
-
-def run_until_halt(machine: CPC464) -> None:
-    """Step until HALT."""
-    for _ in range(200):
-        machine.step()
-        if machine.cpu.halted:
-            return
-    raise AssertionError("program did not halt")
 
 
 def test_block_move_gives_exact_tags_and_register_copy_probable() -> None:

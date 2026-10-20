@@ -11,7 +11,8 @@ are decoded, and bytes never read (or in conflict) follow a fill policy (D-20):
 * "raw": keep the scrambled byte;
 * "data": decode as if it were data;
 * "ff": &FF;
-* "static": code/data guess by recursive disassembly - needs the classifier of phase 8.
+* "static": code/data guess by recursive disassembly (analysis/classifier.py; decode_rom
+  itself cannot do it, because it needs the classification).
 
 Conflict bytes (&FF) take the M1 value unless `conflict="data"`: in a plain replacement ROM a
 byte can hold only one value (D-18), and the owner decides which.
@@ -120,7 +121,8 @@ def decode_rom(
         raw: The scrambled ROM image.
         access_map: Class per byte.
         decode: The decode rule, e.g. `vortex_decode`.
-        fill_policy: For never-read bytes: "raw", "data" or "ff" ("static" from phase 8).
+        fill_policy: For never-read bytes: "raw", "data" or "ff"; "static" depends on the
+            code/data classification and is done by `TargetView.final_image` (phase 8).
         conflict: Value for conflict bytes: "m1" (raw, as fetched) or "data" (decoded).
 
     Raises:
@@ -129,7 +131,9 @@ def decode_rom(
     if fill_policy not in FILL_POLICIES or conflict not in ("m1", "data"):
         raise AccessMapError(f"unknown fill policy {fill_policy!r} / conflict choice {conflict!r}")
     if fill_policy == "static":
-        raise AccessMapError("fill policy 'static' needs the code/data classifier (phase 8)")
+        raise AccessMapError(
+            "fill policy 'static' needs the classifier: use analysis.classifier.TargetView"
+        )
     clear = bytearray(raw)
     for offset, access_class in enumerate(access_map):
         if access_class == DATA or (access_class == ERROR and conflict == "data"):

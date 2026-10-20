@@ -167,5 +167,5 @@ class App:
                 if remaining > 0 and not self.loop.max_speed:
                     time.sleep(remaining)
         finally:
-            self.session.save_analysis()  # access maps survive the session (D-19)
+            self.session.analysis_save()  # access maps and databases survive (D-19, D-31)
             dpg.destroy_context()
