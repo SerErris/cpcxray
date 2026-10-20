@@ -17,3 +17,6 @@ roms/*
 !roms/.gitignore
 output/*
 !output/.gitignore
+
+# External test vectors (tools/fetch_test_data.sh)
+tests/data/external/

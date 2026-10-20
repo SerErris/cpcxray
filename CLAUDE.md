@@ -53,6 +53,16 @@ cpcxray config                    # show parsed config/machine.toml, missing ROM
 
 `sjasmplus` must be on the PATH (round-trip check, D-33); `tests/test_tools.py` checks it.
 
+External CPU test vectors (not committed) live in `tests/data/external/`:
+
+```bash
+tools/fetch_test_data.sh          # SingleStepTests/z80, ~1.4 GB
+python tools/run_singlestep.py    # all 1.6 M per-opcode tests in parallel (~3 min); globs: 'ed b*'
+CPCXRAY_SST=all pytest tests/cpu  # same via pytest (slow); default pytest runs 25 per opcode file
+```
+
+Tests that need external data skip when it is missing.
+
 ## Conventions
 
 - Python 3.12+, type hints on all functions; dataclasses for plain data.
@@ -68,4 +78,15 @@ Implement strictly one phase of design.md §9 at a time. A phase is finished onl
 milestone tests pass together with the full suite, `ruff check` and `ruff format --check`.
 Do not start the next phase without the owner's go-ahead.
 
-**Status:** Phase 0 (skeleton, tooling, config loader) done. Next: Phase 1 (Z80 core).
+**Status:** Phase 0 (skeleton, tooling, config loader) and Phase 1 (Z80 core, all 1.6 M
+SingleStepTests pass) done. Next: Phase 2 (ZEXDOC/ZEXALL, raxoft z80test).
+
+## Z80 core notes (`src/cpcxray/cpu/`)
+
+- `z80.py`: handlers are closures built per CPU instance from the x/y/z opcode decoding; DD/FD
+  tables come from the same factories with IX/IY in place of HL. Registers live in `cpu.r8`
+  (indices B C D E H L F A IXH IXL IYH IYL); named properties (`cpu.hl`, `cpu.ix`, ...) and
+  `registers()` / `set_registers()` for the debugger.
+- `step()` returns the cost in CPC NOPs from `timing.py` (D-04). Building a `Z80` is expensive
+  (~2000 closures): reuse instances in loops.
+- After a bus swaps its methods (observers, D-12) call `cpu.rebind_bus()`.
