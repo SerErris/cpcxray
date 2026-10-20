@@ -48,6 +48,7 @@ pip install -e ".[dev]"          # extras: dev (pytest, ruff), gui (dearpygui, n
 pytest                            # all tests
 ruff check                        # lint
 ruff format                       # format (Markdown is excluded)
+pylint src tests tools            # must rate 10/10; disables only with a stated reason
 cpcxray config                    # show parsed config/machine.toml, missing ROMs, sjasmplus
 ```
 
@@ -57,7 +58,7 @@ External CPU test vectors (not committed) live in `tests/data/external/`:
 
 ```bash
 tools/fetch_test_data.sh          # SingleStepTests/z80, ~1.4 GB
-python tools/run_singlestep.py    # all 1.6 M per-opcode tests in parallel (~3 min); globs: 'ed b*'
+python -m tools.run_singlestep    # all 1.6 M per-opcode tests in parallel (~10 s); globs: 'ed b*'
 CPCXRAY_SST=all pytest tests/cpu  # same via pytest (slow); default pytest runs 25 per opcode file
 ```
 
@@ -102,4 +103,5 @@ SingleStepTests pass) done. Next: Phase 2 (ZEXDOC/ZEXALL, raxoft z80test).
   the CPC timing cheat sheet (https://www.cpcwiki.eu/imgs/b/b4/Z80_CPC_Timings_cheat_sheet.20230709.pdf;
   third-party, not committed). Building a `Z80` is expensive (~2000 closures): reuse
   instances in loops.
-- After a bus swaps its methods (observers, D-12) call `cpu.rebind_bus()`.
+- Handlers call `cpu.bus.read(...)` etc. on every access (no cached methods), so a bus may swap
+  in observed variants of its methods (D-12) at any time.

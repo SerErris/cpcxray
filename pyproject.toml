@@ -12,7 +12,7 @@ dependencies = []
 [project.optional-dependencies]
 gui = ["dearpygui", "numpy"]
 mcp = ["mcp"]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff", "pylint"]
 
 [project.scripts]
 cpcxray = "cpcxray.cli:main"
@@ -40,3 +40,9 @@ convention = "google"  # every module, class and function gets a docstring
 
 [tool.ruff.format]
 exclude = ["*.md"]  # design docs contain illustrative, hand-aligned snippets
+
+[tool.pylint.main]
+ignore-paths = ["tests/data/external/.*"]  # downloaded third-party test vectors
+
+[tool.pylint.format]
+max-line-length = 100

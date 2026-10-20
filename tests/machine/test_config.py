@@ -44,7 +44,7 @@ def test_repo_config_loads() -> None:
     for slot in (0, 7):
         rom = cfg.upper_roms[slot]
         assert (rom.decoder, rom.analyse) == (None, False)
-    assert cfg.ram_targets == ()
+    assert not cfg.ram_targets
 
 
 def test_only_marked_targets_are_analysed() -> None:
@@ -58,7 +58,7 @@ def test_defaults(tmp_path: Path) -> None:
     cfg = load_config(write_config(tmp_path, MINIMAL))
     assert cfg.model == "464"
     assert cfg.unpopulated_rom == 0
-    assert cfg.upper_roms == {}
+    assert not cfg.upper_roms
     assert cfg.lower_rom is not None
     assert cfg.lower_rom.slot == "lower"
     assert (cfg.lower_rom.decoder, cfg.lower_rom.decode, cfg.lower_rom.analyse) == (

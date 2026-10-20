@@ -1,21 +1,24 @@
 """Run the SingleStepTests/z80 suite in parallel and summarise failures per opcode file.
 
-Usage: python tools/run_singlestep.py [--limit N] [--show N] [pattern ...]
+Usage (from the project root): python -m tools.run_singlestep [--limit N] [--show N] [pattern ...]
 Fetch the data first with tools/fetch_test_data.sh.
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 import sys
 from multiprocessing import Pool
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests" / "cpu"))
+from tests.cpu import singlestep
 
-import singlestep
 
-_runner: singlestep.Runner | None = None
+@functools.cache
+def _worker_runner() -> singlestep.Runner:
+    """Return this worker process's runner, created on first use (building a CPU is slow)."""
+    return singlestep.Runner()
 
 
 def _run_file(job: tuple[Path, int | None, int]) -> tuple[str, int, int, list[str]]:
@@ -24,15 +27,13 @@ def _run_file(job: tuple[Path, int | None, int]) -> tuple[str, int, int, list[st
     Returns:
         (file stem, tests run, tests failed, up to `show` failure descriptions).
     """
-    global _runner
-    if _runner is None:
-        _runner = singlestep.Runner()
+    runner = _worker_runner()
     path, limit, show = job
     tests = singlestep.load(path)[:limit]
     failed = 0
     samples: list[str] = []
     for t in tests:
-        errors = _runner.run(t)
+        errors = runner.run(t)
         if errors:
             failed += 1
             if len(samples) < show:

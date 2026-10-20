@@ -164,24 +164,53 @@ def parse_config(
         ConfigError: On unknown keys, wrong types or values out of range.
     """
     _check_keys(data, {"machine", "rom", "analysis"}, "")
+    model, unpopulated_rom = _parse_machine(_table(data, "machine", ""))
+    rom = _table(data, "rom", "")
+    _check_keys(rom, {"lower", "upper"}, "rom")
+    lower_rom = None
+    if "lower" in rom:
+        lower_rom = _parse_rom(_table(rom, "lower", "rom"), "lower", "rom.lower", project_dir)
+    return MachineConfig(
+        project_dir=project_dir,
+        model=model,
+        unpopulated_rom=unpopulated_rom,
+        lower_rom=lower_rom,
+        upper_roms=_parse_upper_roms(_table(rom, "upper", "rom"), project_dir),
+        ram_targets=_parse_ram_targets(_table(data, "analysis", "")),
+        source=source,
+    )
 
-    machine = _table(data, "machine", "")
+
+def _parse_machine(machine: Mapping[str, Any]) -> tuple[str, int]:
+    """Validate the `[machine]` table.
+
+    Returns:
+        (model, unpopulated_rom).
+
+    Raises:
+        ConfigError: On unknown keys, an unsupported model or a slot outside 0-15.
+    """
     _check_keys(machine, {"model", "unpopulated_rom"}, "machine")
     model = _get(machine, "model", str, "machine", "464")
     if model not in MODELS:
         raise ConfigError(f"machine.model: unsupported model {model!r}")
-    unpopulated = _get(machine, "unpopulated_rom", int, "machine", 0)
-    if unpopulated not in UPPER_SLOTS:
-        raise ConfigError(f"machine.unpopulated_rom: {unpopulated} not in 0-15")
+    unpopulated_rom = _get(machine, "unpopulated_rom", int, "machine", 0)
+    if unpopulated_rom not in UPPER_SLOTS:
+        raise ConfigError(f"machine.unpopulated_rom: {unpopulated_rom} not in 0-15")
+    return model, unpopulated_rom
 
-    rom = _table(data, "rom", "")
-    _check_keys(rom, {"lower", "upper"}, "rom")
-    lower = None
-    if "lower" in rom:
-        lower = _parse_rom(_table(rom, "lower", "rom"), "lower", "rom.lower", project_dir)
 
-    upper: dict[int, RomConfig] = {}
-    for key, value in _table(rom, "upper", "rom").items():
+def _parse_upper_roms(upper: Mapping[str, Any], project_dir: Path) -> dict[int, RomConfig]:
+    """Validate the `[rom.upper.N]` tables.
+
+    Returns:
+        The upper ROM slots by number.
+
+    Raises:
+        ConfigError: On a slot key that is not a number 0-15 or an invalid slot table.
+    """
+    upper_roms: dict[int, RomConfig] = {}
+    for key, value in upper.items():
         where = f"rom.upper.{key}"
         try:
             slot = int(key)  # TOML table keys are strings
@@ -191,24 +220,21 @@ def parse_config(
             raise ConfigError(f"{where}: slot must be in 0-15")
         if not isinstance(value, dict):
             raise ConfigError(f"{where}: expected a table")
-        upper[slot] = _parse_rom(value, slot, where, project_dir)
+        upper_roms[slot] = _parse_rom(value, slot, where, project_dir)
+    return upper_roms
 
-    analysis = _table(data, "analysis", "")
+
+def _parse_ram_targets(analysis: Mapping[str, Any]) -> tuple[RamTargetConfig, ...]:
+    """Validate the `[analysis]` table and its `[[analysis.ram]]` entries.
+
+    Raises:
+        ConfigError: On unknown keys or invalid RAM targets.
+    """
     _check_keys(analysis, {"ram"}, "analysis")
-    ram_list = analysis.get("ram", [])
-    if not isinstance(ram_list, list):
+    entries = analysis.get("ram", [])
+    if not isinstance(entries, list):
         raise ConfigError("analysis.ram: expected an array of tables")
-    ram_targets = tuple(_parse_ram(t, f"analysis.ram[{i}]") for i, t in enumerate(ram_list))
-
-    return MachineConfig(
-        project_dir=project_dir,
-        model=model,
-        unpopulated_rom=unpopulated,
-        lower_rom=lower,
-        upper_roms=upper,
-        ram_targets=ram_targets,
-        source=source,
-    )
+    return tuple(_parse_ram(entry, f"analysis.ram[{i}]") for i, entry in enumerate(entries))
 
 
 def read_rom_image(path: str | Path) -> bytes:

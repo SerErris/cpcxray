@@ -58,43 +58,57 @@ class _TestBus(FlatBus):
         self.on_in = lambda port: self.port_values.pop(0) if self.port_values else 0xFF
 
 
+def _refresh_address(initial_state: dict[str, Any], m1_fetches_so_far: int) -> int:
+    """Return the refresh address I:R that the CPU puts on the bus after an M1 fetch.
+
+    R counts M1 fetches in bits 0-6; the value shown is R before the current fetch counted.
+    """
+    refresh_register = initial_state["r"]
+    counted = (refresh_register & 0x80) | ((refresh_register + m1_fetches_so_far) & 0x7F)
+    return (initial_state["i"] << 8) | counted
+
+
 def expected_accesses(test: dict[str, Any]) -> list[ExpectedAccess]:
     """Derive the expected bus accesses from a test's per-half-T-state `cycles` samples.
+
+    Each sample is [address, data, pins]; pins is a 4-character string "rwmi" (read, write,
+    memory request, I/O request) with "-" for inactive pins.
 
     Returns:
         (kind, address, value) per access in order. kind is None where an M1 fetch and an
         ordinary read cannot be told apart (the read address equals the refresh address).
     """
-    init = test["initial"]
-    i, r = init["i"], init["r"]
-    m1_count = 0
-    cycles = test["cycles"]
-    out: list[ExpectedAccess] = []
-    for n, (addr, data, pins) in enumerate(cycles):
-        if pins[0] == "r":
-            nxt_addr, nxt_data = cycles[n + 1][0], cycles[n + 1][1]
-            value = data if data is not None else nxt_data
-            if pins[3] == "i":
-                out.append((Cycle.IO_RD, addr, value))
-                continue
-            refresh = (i << 8) | (r & 0x80) | ((r + m1_count) & 0x7F)
-            kind: Cycle | None
-            if addr == refresh:
-                kind = None  # address equals the refresh address: cannot tell
-                if nxt_addr == refresh:
-                    m1_count += 1  # assume M1; keeps the count right in the common case
-            elif nxt_addr == refresh:
-                kind = Cycle.M1
-                m1_count += 1
-            else:
-                kind = Cycle.MEM_RD
-            out.append((kind, addr, value))
-        elif pins[1] == "w":
-            out.append((Cycle.MEM_WR if pins[2] == "m" else Cycle.IO_WR, addr, data))
-    return out
+    samples = test["cycles"]
+    m1_fetches = 0
+    accesses: list[ExpectedAccess] = []
+    for index, (address, data, pins) in enumerate(samples):
+        is_io = pins[3] == "i"
+        if pins[1] == "w":
+            accesses.append((Cycle.IO_WR if is_io else Cycle.MEM_WR, address, data))
+            continue
+        if pins[0] != "r":  # neither read nor write: idle or refresh sample
+            continue
+        next_address, next_data = samples[index + 1][:2]  # read data appears one sample later
+        value = data if data is not None else next_data
+        if is_io:
+            accesses.append((Cycle.IO_RD, address, value))
+            continue
+        refresh = _refresh_address(test["initial"], m1_fetches)
+        kind: Cycle | None
+        if address == refresh:
+            kind = None  # the read address equals the refresh address: cannot tell
+            if next_address == refresh:
+                m1_fetches += 1  # assume M1; keeps the count right in the common case
+        elif next_address == refresh:
+            kind = Cycle.M1  # the refresh address follows only an M1 fetch
+            m1_fetches += 1
+        else:
+            kind = Cycle.MEM_RD
+        accesses.append((kind, address, value))
+    return accesses
 
 
-class Runner:
+class Runner:  # pylint: disable=too-few-public-methods  # one job: run tests
     """Runs tests on one reused CPU and bus (building a CPU is the expensive part)."""
 
     def __init__(self) -> None:

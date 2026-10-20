@@ -1,7 +1,7 @@
 """Phase 1 milestone: SingleStepTests/z80 per-opcode tests (state and bus-cycle sequence).
 
 Runs the first 25 tests of each of the 1604 opcode files by default; set CPCXRAY_SST=all for
-all 1.6 M tests (or use tools/run_singlestep.py, which runs them in parallel).
+all 1.6 M tests (or use `python -m tools.run_singlestep`, which runs them in parallel).
 """
 
 from __future__ import annotations
@@ -9,7 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from singlestep import Runner, data_files, limit_per_file, load
+
+from tests.cpu.singlestep import Runner, data_files, limit_per_file, load
 
 FILES = data_files()
 

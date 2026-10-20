@@ -363,7 +363,7 @@ def test_registers_roundtrip() -> None:
         cpu.set_registers({"xx": 1})
 
 
-def test_rebind_bus() -> None:
+def test_replacing_the_bus() -> None:
     """Assigning a new bus makes the CPU use it."""
     cpu, _ = make(bytes([0x3E, 0x11]))
     other = FlatBus(bytes([0x3E, 0x22]))

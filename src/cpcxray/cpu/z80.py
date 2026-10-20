@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines  # one implementation of every Z80 instruction, kept together
 """Z80 CPU core (design.md §6.2): instruction-level, software compatible (FR-CPU-01..07).
 
 Each `Z80.step()` executes one instruction (or accepts one interrupt) atomically and returns its
@@ -125,7 +126,8 @@ def _register_pair_property(high_index: int, low_index: int) -> property:
     return property(get_pair, set_pair)
 
 
-class Z80:
+# A CPU has about 30 registers and state flags; each is an attribute on purpose.
+class Z80:  # pylint: disable=too-many-instance-attributes
     """A Zilog Z80 (NMOS), executed one instruction per `step()`.
 
     Register storage: the 8-bit registers B C D E H L F A IXH IXL IYH IYL live in the list
@@ -148,10 +150,15 @@ class Z80:
         iff1: Interrupt enable flip-flop 1 (interrupts accepted when set).
         iff2: Interrupt enable flip-flop 2 (copy kept during NMI; read by LD A,I/R).
         im: Interrupt mode 0, 1 or 2.
+        bus: The bus all accesses go to. It may be replaced at any time; the handlers look
+            its methods up on every access, so a bus that swaps in observed variants of its
+            methods (D-12) needs no notification.
         flags_written_by_last_instruction: The value the last instruction wrote to F, or 0
             if it did not change the flags. Not a programmer-visible register: an internal
             latch of the Z80, called "Q" in emulator research and in the SingleStepTests.
             SCF and CCF compute their undocumented X/Y flags from it.
+        flags_written_by_previous_instruction: `flags_written_by_last_instruction` of the
+            instruction before the current one, saved by `step()` for SCF/CCF.
         last_instruction_was_ld_a_i_or_r: True right after LD A,I or LD A,R. Also internal
             state ("P" in the SingleStepTests): if an interrupt is accepted right after one of
             these instructions, the NMOS Z80 clears the P/V flag they just set.
@@ -208,38 +215,11 @@ class Z80:
         self.int_line = False
         self.nmi_pending = False
         self._nmi_line = False
-        self._flags_written_by_previous_instruction = 0  # read by SCF/CCF
+        self.flags_written_by_previous_instruction = 0
         self.bus = bus
         tables = _TableBuilder(self)
         self._unprefixed_table = tables.unprefixed
         self.reset()
-
-    # -- bus binding -------------------------------------------------------------------------
-
-    @property
-    def bus(self) -> CpuBus:
-        """The bus the CPU is connected to; assigning a new bus re-caches its methods."""
-        return self._bus
-
-    @bus.setter
-    def bus(self, bus: CpuBus) -> None:
-        """Connect the CPU to `bus` and cache its methods."""
-        self._bus = bus
-        self.rebind_bus()
-
-    def rebind_bus(self) -> None:
-        """Re-cache the bus methods; call after the bus swaps its fast/observed variants (D-12).
-
-        The handlers call these cached bound methods (`bus_fetch`, `bus_read`, ...). A bus that
-        replaces its methods later (e.g. when observers are attached) must be re-bound.
-        """
-        bus = self._bus
-        self.bus_fetch = bus.fetch
-        self.bus_read = bus.read
-        self.bus_write = bus.write
-        self.bus_io_in = bus.io_in
-        self.bus_io_out = bus.io_out
-        self.bus_int_ack = bus.int_ack
 
     # -- control -------------------------------------------------------------------------------
 
@@ -295,23 +275,23 @@ class Z80:
             self.ei_delay = False
         elif self.int_line and self.iff1:
             return self._accept_interrupt()
-        self._flags_written_by_previous_instruction = self.flags_written_by_last_instruction
+        self.flags_written_by_previous_instruction = self.flags_written_by_last_instruction
         self.flags_written_by_last_instruction = 0
         self.last_instruction_was_ld_a_i_or_r = False
         self.increment_refresh()
         if self.halted:
-            self.bus_fetch(self.pc)  # the CPU keeps fetching (and ignoring) the next opcode
+            self.bus.fetch(self.pc)  # the CPU keeps fetching (and ignoring) the next opcode
             return timing.HALT_IDLE
-        opcode = self.bus_fetch(self.pc)
+        opcode = self.bus.fetch(self.pc)
         self.pc = (self.pc + 1) & 0xFFFF
         return self._unprefixed_table[opcode]()
 
     def push_word(self, value: int) -> None:
         """Push a 16-bit value: write the high byte to SP-1, then the low byte to SP-2."""
         stack_pointer = (self.sp - 1) & 0xFFFF
-        self.bus_write(stack_pointer, value >> 8)
+        self.bus.write(stack_pointer, value >> 8)
         stack_pointer = (stack_pointer - 1) & 0xFFFF
-        self.bus_write(stack_pointer, value & 0xFF)
+        self.bus.write(stack_pointer, value & 0xFF)
         self.sp = stack_pointer
 
     def _accept_interrupt(self) -> int:
@@ -334,12 +314,12 @@ class Z80:
         self.last_instruction_was_ld_a_i_or_r = False
         self.flags_written_by_last_instruction = 0
         self.increment_refresh()
-        data_bus = self.bus_int_ack()
+        data_bus = self.bus.int_ack()
         if self.im == 2:
             self.push_word(self.pc)
             vector_address = (self.i << 8) | data_bus
-            low_byte = self.bus_read(vector_address)
-            high_byte = self.bus_read((vector_address + 1) & 0xFFFF)
+            low_byte = self.bus.read(vector_address)
+            high_byte = self.bus.read((vector_address + 1) & 0xFFFF)
             self.pc = self.wz = high_byte << 8 | low_byte
             return timing.INT_IM2
         if self.im == 1:
@@ -413,7 +393,11 @@ _CONDITIONS = (
 )
 
 
-class _TableBuilder:
+# Each factory method is one decision tree over the opcode bits that defines and returns one
+# small handler closure per case; pylint counts every closure as a local and every case as a
+# return/branch. Splitting the trees would scatter the instruction set without making any
+# single instruction easier to read, so these size checks are disabled for this class only.
+class _TableBuilder:  # pylint: disable=too-many-locals,too-many-return-statements,too-many-branches,too-many-statements,too-many-instance-attributes
     """Builds the opcode handler tables for one CPU instance.
 
     Tables (each a list of 256 handlers, indexed by opcode):
@@ -458,7 +442,7 @@ class _TableBuilder:
     def read_immediate_byte(self) -> int:
         """Read the byte at PC as an operand (no M1) and advance PC."""
         cpu = self.cpu
-        value = cpu.bus_read(cpu.pc)
+        value = cpu.bus.read(cpu.pc)
         cpu.pc = (cpu.pc + 1) & 0xFFFF
         return value
 
@@ -471,7 +455,7 @@ class _TableBuilder:
     def fetch_opcode(self) -> int:
         """Fetch the opcode byte after a prefix with M1, advance PC and increment R."""
         cpu = self.cpu
-        opcode = cpu.bus_fetch(cpu.pc)
+        opcode = cpu.bus.fetch(cpu.pc)
         cpu.pc = (cpu.pc + 1) & 0xFFFF
         cpu.increment_refresh()
         return opcode
@@ -479,8 +463,8 @@ class _TableBuilder:
     def pop_word(self) -> int:
         """Pop a 16-bit value: read the low byte at SP, then the high byte at SP+1."""
         cpu = self.cpu
-        low_byte = cpu.bus_read(cpu.sp)
-        high_byte = cpu.bus_read((cpu.sp + 1) & 0xFFFF)
+        low_byte = cpu.bus.read(cpu.sp)
+        high_byte = cpu.bus.read((cpu.sp + 1) & 0xFFFF)
         cpu.sp = (cpu.sp + 2) & 0xFFFF
         return high_byte << 8 | low_byte
 
@@ -855,7 +839,7 @@ class _TableBuilder:
                             """LD (BC),A / LD (DE),A: MEMPTR = A:(address+1 low byte)."""
                             address = registers[address_high] << 8 | registers[address_low]
                             accumulator = registers[A]
-                            cpu.bus_write(address, accumulator)
+                            cpu.bus.write(address, accumulator)
                             cpu.wz = (accumulator << 8) | ((address + 1) & 0xFF)
                             return nops
 
@@ -864,7 +848,7 @@ class _TableBuilder:
                     def load_a_indirect() -> int:
                         """LD A,(BC) / LD A,(DE): MEMPTR = address + 1."""
                         address = registers[address_high] << 8 | registers[address_low]
-                        registers[A] = cpu.bus_read(address)
+                        registers[A] = cpu.bus.read(address)
                         cpu.wz = (address + 1) & 0xFFFF
                         return nops
 
@@ -875,9 +859,9 @@ class _TableBuilder:
                         def store_hl_direct() -> int:
                             """LD (nn),HL/IX/IY: write low byte, then high; MEMPTR = nn + 1."""
                             address = read_immediate_word()
-                            cpu.bus_write(address, registers[pair_low])
+                            cpu.bus.write(address, registers[pair_low])
                             address = (address + 1) & 0xFFFF
-                            cpu.bus_write(address, registers[pair_high])
+                            cpu.bus.write(address, registers[pair_high])
                             cpu.wz = address
                             return nops
 
@@ -886,9 +870,9 @@ class _TableBuilder:
                     def load_hl_direct() -> int:
                         """LD HL/IX/IY,(nn): read low byte, then high; MEMPTR = nn + 1."""
                         address = read_immediate_word()
-                        registers[pair_low] = cpu.bus_read(address)
+                        registers[pair_low] = cpu.bus.read(address)
                         address = (address + 1) & 0xFFFF
-                        registers[pair_high] = cpu.bus_read(address)
+                        registers[pair_high] = cpu.bus.read(address)
                         cpu.wz = address
                         return nops
 
@@ -899,7 +883,7 @@ class _TableBuilder:
                         """LD (nn),A: MEMPTR = A:(nn+1 low byte)."""
                         address = read_immediate_word()
                         accumulator = registers[A]
-                        cpu.bus_write(address, accumulator)
+                        cpu.bus.write(address, accumulator)
                         cpu.wz = (accumulator << 8) | ((address + 1) & 0xFF)
                         return nops
 
@@ -908,7 +892,7 @@ class _TableBuilder:
                 def load_a_direct() -> int:
                     """LD A,(nn): MEMPTR = nn + 1."""
                     address = read_immediate_word()
-                    registers[A] = cpu.bus_read(address)
+                    registers[A] = cpu.bus.read(address)
                     cpu.wz = (address + 1) & 0xFFFF
                     return nops
 
@@ -931,7 +915,7 @@ class _TableBuilder:
                     def increment_or_decrement_memory() -> int:
                         """INC/DEC (HL) or (IX+d): read, modify, write back."""
                         address = memory_operand_address()
-                        cpu.bus_write(address, change_value(cpu.bus_read(address)))
+                        cpu.bus.write(address, change_value(cpu.bus.read(address)))
                         return nops
 
                     return increment_or_decrement_memory
@@ -949,7 +933,7 @@ class _TableBuilder:
                     def load_memory_immediate() -> int:
                         """LD (HL),n / LD (IX+d),n: d is read before n."""
                         address = memory_operand_address()
-                        cpu.bus_write(address, read_immediate_byte())
+                        cpu.bus.write(address, read_immediate_byte())
                         return nops
 
                     return load_memory_immediate
@@ -977,7 +961,7 @@ class _TableBuilder:
 
                 def load_register_from_memory() -> int:
                     """LD r,(HL) / LD r,(IX+d): the destination is always the real register."""
-                    registers[destination_field] = cpu.bus_read(memory_operand_address())
+                    registers[destination_field] = cpu.bus.read(memory_operand_address())
                     return nops
 
                 return load_register_from_memory
@@ -985,7 +969,7 @@ class _TableBuilder:
 
                 def store_register_to_memory() -> int:
                     """LD (HL),r / LD (IX+d),r: the source is always the real register."""
-                    cpu.bus_write(memory_operand_address(), registers[source_field])
+                    cpu.bus.write(memory_operand_address(), registers[source_field])
                     return nops
 
                 return store_register_to_memory
@@ -1005,7 +989,7 @@ class _TableBuilder:
 
                 def alu_with_memory() -> int:
                     """ALU op with (HL) / (IX+d): ADD ADC SUB SBC AND XOR OR CP."""
-                    alu(cpu.bus_read(memory_operand_address()))
+                    alu(cpu.bus.read(memory_operand_address()))
                     return nops
 
                 return alu_with_memory
@@ -1127,7 +1111,7 @@ class _TableBuilder:
                     """OUT (n),A: port = A:n; MEMPTR = A:(n+1 low byte)."""
                     port_low = read_immediate_byte()
                     accumulator = registers[A]
-                    cpu.bus_io_out(accumulator << 8 | port_low, accumulator)
+                    cpu.bus.io_out(accumulator << 8 | port_low, accumulator)
                     cpu.wz = (accumulator << 8) | ((port_low + 1) & 0xFF)
                     return nops
 
@@ -1137,7 +1121,7 @@ class _TableBuilder:
                 def input_a_from_port() -> int:
                     """IN A,(n): port = A:n, no flags; MEMPTR = port + 1."""
                     port = registers[A] << 8 | read_immediate_byte()
-                    registers[A] = cpu.bus_io_in(port)
+                    registers[A] = cpu.bus.io_in(port)
                     cpu.wz = (port + 1) & 0xFFFF
                     return nops
 
@@ -1148,10 +1132,10 @@ class _TableBuilder:
                     """EX (SP),HL/IX/IY: read low, high; write high, low; MEMPTR = new value."""
                     stack_low_address = cpu.sp
                     stack_high_address = (cpu.sp + 1) & 0xFFFF
-                    stack_low_byte = cpu.bus_read(stack_low_address)
-                    stack_high_byte = cpu.bus_read(stack_high_address)
-                    cpu.bus_write(stack_high_address, registers[pair_high])
-                    cpu.bus_write(stack_low_address, registers[pair_low])
+                    stack_low_byte = cpu.bus.read(stack_low_address)
+                    stack_high_byte = cpu.bus.read(stack_high_address)
+                    cpu.bus.write(stack_high_address, registers[pair_high])
+                    cpu.bus.write(stack_low_address, registers[pair_low])
                     registers[pair_high] = stack_high_byte
                     registers[pair_low] = stack_low_byte
                     cpu.wz = stack_high_byte << 8 | stack_low_byte
@@ -1246,7 +1230,7 @@ class _TableBuilder:
                 unprefixed table is being built. A DD/FD prefix after another one replaces it.
                 """
                 # the prefix acts as an instruction of its own that does not change the flags
-                cpu._flags_written_by_previous_instruction = 0
+                cpu.flags_written_by_previous_instruction = 0
                 index_table = getattr(self, table_attribute)
                 return index_table[fetch_opcode()]() + extra_prefix_nops
 
@@ -1385,7 +1369,7 @@ class _TableBuilder:
             X/Y = ((flags written by the previous instruction XOR F) OR A): taken from A if
             the previous instruction changed the flags, otherwise from F OR A.
             """
-            return ((cpu._flags_written_by_previous_instruction ^ flags) | registers[A]) & FLAGS_XY
+            return ((cpu.flags_written_by_previous_instruction ^ flags) | registers[A]) & FLAGS_XY
 
         if operation == 6:
 
@@ -1436,7 +1420,7 @@ class _TableBuilder:
                 def rotate_or_shift_memory() -> int:
                     """Rotate/shift (HL): read, modify, write back."""
                     address = hl_address()
-                    cpu.bus_write(address, rotate_or_shift(cpu.bus_read(address)))
+                    cpu.bus.write(address, rotate_or_shift(cpu.bus.read(address)))
                     return nops
 
                 return rotate_or_shift_memory
@@ -1454,7 +1438,7 @@ class _TableBuilder:
 
                 def test_bit_in_memory() -> int:
                     """BIT n,(HL): X/Y come from the high byte of MEMPTR."""
-                    set_bit_test_flags(cpu.bus_read(hl_address()), bit_number, cpu.wz >> 8)
+                    set_bit_test_flags(cpu.bus.read(hl_address()), bit_number, cpu.wz >> 8)
                     return nops
 
                 return test_bit_in_memory
@@ -1472,7 +1456,7 @@ class _TableBuilder:
             def change_bit_in_memory() -> int:
                 """RES/SET n,(HL): read, modify, write back; no flags."""
                 address = hl_address()
-                cpu.bus_write(address, change_bit(cpu.bus_read(address)))
+                cpu.bus.write(address, change_bit(cpu.bus.read(address)))
                 return nops
 
             return change_bit_in_memory
@@ -1537,7 +1521,7 @@ class _TableBuilder:
 
             def test_bit_indexed(address: int) -> int:
                 """BIT n,(IX+d): X/Y come from the high byte of the address."""
-                set_bit_test_flags(cpu.bus_read(address), bit_number, address >> 8)
+                set_bit_test_flags(cpu.bus.read(address), bit_number, address >> 8)
                 return nops
 
             return test_bit_indexed
@@ -1550,15 +1534,15 @@ class _TableBuilder:
 
             def modify_indexed(address: int) -> int:
                 """Rotate/shift/RES/SET (IX+d): read, modify, write back."""
-                cpu.bus_write(address, modify(cpu.bus_read(address)))
+                cpu.bus.write(address, modify(cpu.bus.read(address)))
                 return nops
 
             return modify_indexed
 
         def modify_indexed_and_copy(address: int) -> int:
             """As `modify_indexed`, and the result is also stored in a register (undocumented)."""
-            result = modify(cpu.bus_read(address))
-            cpu.bus_write(address, result)
+            result = modify(cpu.bus.read(address))
+            cpu.bus.write(address, result)
             registers[copy_register_field] = result
             return nops
 
@@ -1614,7 +1598,7 @@ class _TableBuilder:
             def input_from_port_c() -> int:
                 """IN r,(C): port = BC; S Z X Y P from the value, H = N = 0; MEMPTR = BC+1."""
                 port = bc_value()
-                value = cpu.bus_io_in(port)
+                value = cpu.bus.io_in(port)
                 cpu.wz = (port + 1) & 0xFFFF
                 set_flags((registers[F] & FLAG_C) | SIGN_ZERO_XY_PARITY[value])
                 if destination_field != MEMORY_OPERAND:  # ED 70: IN F,(C) only sets the flags
@@ -1629,7 +1613,7 @@ class _TableBuilder:
                 """OUT (C),r: port = BC; MEMPTR = BC + 1. ED 71 outputs 0 (NMOS)."""
                 port = bc_value()
                 value = registers[source_field] if source_field != MEMORY_OPERAND else 0
-                cpu.bus_io_out(port, value)
+                cpu.bus.io_out(port, value)
                 cpu.wz = (port + 1) & 0xFFFF
                 return nops
 
@@ -1691,9 +1675,9 @@ class _TableBuilder:
                     def store_sp_direct() -> int:
                         """LD (nn),SP: write low, then high byte; MEMPTR = nn + 1."""
                         address = read_immediate_word()
-                        cpu.bus_write(address, cpu.sp & 0xFF)
+                        cpu.bus.write(address, cpu.sp & 0xFF)
                         address = (address + 1) & 0xFFFF
-                        cpu.bus_write(address, cpu.sp >> 8)
+                        cpu.bus.write(address, cpu.sp >> 8)
                         cpu.wz = address
                         return nops
 
@@ -1702,9 +1686,9 @@ class _TableBuilder:
                 def load_sp_direct() -> int:
                     """LD SP,(nn): read low, then high byte; MEMPTR = nn + 1."""
                     address = read_immediate_word()
-                    low_byte = cpu.bus_read(address)
+                    low_byte = cpu.bus.read(address)
                     address = (address + 1) & 0xFFFF
-                    cpu.sp = cpu.bus_read(address) << 8 | low_byte
+                    cpu.sp = cpu.bus.read(address) << 8 | low_byte
                     cpu.wz = address
                     return nops
 
@@ -1715,9 +1699,9 @@ class _TableBuilder:
                 def store_pair_direct() -> int:
                     """LD (nn),BC/DE/HL (ED 63 is the non-canonical HL form); MEMPTR = nn+1."""
                     address = read_immediate_word()
-                    cpu.bus_write(address, registers[pair_low])
+                    cpu.bus.write(address, registers[pair_low])
                     address = (address + 1) & 0xFFFF
-                    cpu.bus_write(address, registers[pair_high])
+                    cpu.bus.write(address, registers[pair_high])
                     cpu.wz = address
                     return nops
 
@@ -1726,9 +1710,9 @@ class _TableBuilder:
             def load_pair_direct() -> int:
                 """LD BC/DE/HL,(nn) (ED 6B is the non-canonical HL form); MEMPTR = nn+1."""
                 address = read_immediate_word()
-                registers[pair_low] = cpu.bus_read(address)
+                registers[pair_low] = cpu.bus.read(address)
                 address = (address + 1) & 0xFFFF
-                registers[pair_high] = cpu.bus_read(address)
+                registers[pair_high] = cpu.bus.read(address)
                 cpu.wz = address
                 return nops
 
@@ -1806,7 +1790,7 @@ class _TableBuilder:
                 S Z X Y P from A, H = N = 0, C kept; MEMPTR = HL + 1.
                 """
                 address = registers[H] << 8 | registers[L]
-                memory_value = cpu.bus_read(address)
+                memory_value = cpu.bus.read(address)
                 accumulator = registers[A]
                 if rotate_left:  # RLD: (HL) high ← (HL) low ← A low ← (HL) high
                     new_memory_value = ((memory_value << 4) | (accumulator & 0x0F)) & 0xFF
@@ -1814,7 +1798,7 @@ class _TableBuilder:
                 else:  # RRD: A low ← (HL) low ← (HL) high ← A low
                     new_memory_value = ((accumulator << 4) | (memory_value >> 4)) & 0xFF
                     accumulator = (accumulator & 0xF0) | (memory_value & 0x0F)
-                cpu.bus_write(address, new_memory_value)
+                cpu.bus.write(address, new_memory_value)
                 registers[A] = accumulator
                 cpu.wz = (address + 1) & 0xFFFF
                 set_flags((registers[F] & FLAG_C) | SIGN_ZERO_XY_PARITY[accumulator])
@@ -1874,8 +1858,8 @@ class _TableBuilder:
                 """
                 source_address = get_pair(H, L)
                 destination_address = get_pair(D, E)
-                value = cpu.bus_read(source_address)
-                cpu.bus_write(destination_address, value)
+                value = cpu.bus.read(source_address)
+                cpu.bus.write(destination_address, value)
                 set_pair(H, L, source_address + address_step)
                 set_pair(D, E, destination_address + address_step)
                 remaining_count = (get_pair(B, C) - 1) & 0xFFFF
@@ -1900,7 +1884,7 @@ class _TableBuilder:
                 A - (HL) - H. The repeating forms stop when BC = 0 or a match is found.
                 """
                 address = get_pair(H, L)
-                value = cpu.bus_read(address)
+                value = cpu.bus.read(address)
                 accumulator = registers[A]
                 difference = (accumulator - value) & 0xFF
                 set_pair(H, L, address + address_step)
@@ -1953,12 +1937,12 @@ class _TableBuilder:
             def block_input() -> int:
                 """INI/IND/INIR/INDR: (HL) = IN (BC), B-1, HL steps; MEMPTR = BC±1 (old B)."""
                 port = get_pair(B, C)
-                value = cpu.bus_io_in(port)
+                value = cpu.bus.io_in(port)
                 cpu.wz = (port + address_step) & 0xFFFF
                 new_b = (registers[B] - 1) & 0xFF
                 registers[B] = new_b
                 address = get_pair(H, L)
-                cpu.bus_write(address, value)
+                cpu.bus.write(address, value)
                 set_pair(H, L, address + address_step)
                 carry_sum = value + ((registers[C] + address_step) & 0xFF)
                 return finish_io(value, carry_sum, new_b)
@@ -1968,11 +1952,11 @@ class _TableBuilder:
         def block_output() -> int:
             """OUTI/OUTD/OTIR/OTDR: B-1, OUT (BC) = (HL), HL steps; MEMPTR = BC±1 (new B)."""
             address = get_pair(H, L)
-            value = cpu.bus_read(address)
+            value = cpu.bus.read(address)
             new_b = (registers[B] - 1) & 0xFF
             registers[B] = new_b
             port = get_pair(B, C)
-            cpu.bus_io_out(port, value)
+            cpu.bus.io_out(port, value)
             cpu.wz = (port + address_step) & 0xFFFF
             set_pair(H, L, address + address_step)
             carry_sum = value + registers[L]

@@ -72,33 +72,34 @@ def index_cb(op: int) -> int:
     return 6 if op >> 6 == 1 else 7
 
 
-def _ed(op: int) -> int:
+# ED &40-&7F by bits 2-0 of the opcode: IN r,(C), OUT (C),r, ADC/SBC HL,rr, LD (nn),rr /
+# LD rr,(nn), NEG, RETN/RETI, IM; bits 2-0 = 7 is split by bits 5-3 (_ED_GROUP1_COLUMN7).
+_ED_GROUP1_BY_BITS_2_0 = (4, 4, 4, 6, 2, 4, 2)
+# ED &47-&7F with bits 2-0 = 7, by bits 5-3: LD I,A, LD R,A, LD A,I, LD A,R, RRD, RLD, NOP, NOP
+_ED_GROUP1_COLUMN7 = (3, 3, 3, 3, 5, 5, 2, 2)
+
+
+def _ed(opcode: int) -> int:
     """Return the cost of an ED-prefixed opcode (used to build `ED`).
 
     Args:
-        op: The opcode byte after ED.
+        opcode: The opcode byte after ED.
 
     Returns:
         The cost in NOPs; block instructions give the cost of their final iteration.
+        Undefined ED opcodes act as 2-NOP no-ops.
     """
-    if 0x40 <= op < 0x80:
-        z = op & 7
-        if z in (0, 1, 2):  # IN r,(C) / OUT (C),r / ADC/SBC HL,rr
-            return 4
-        if z == 3:  # LD (nn),rr / LD rr,(nn)
-            return 6
-        if z == 5:  # RETN / RETI
-            return 4
-        if z == 7:
-            y = (op >> 3) & 7
-            return (3, 3, 3, 3, 5, 5, 2, 2)[y]  # LD I,A .. LD A,R, RRD, RLD, NOP
-        return 2  # NEG, IM
-    if 0xA0 <= op <= 0xBB and op & 7 <= 3:
+    bits_5_3, bits_2_0 = (opcode >> 3) & 7, opcode & 7
+    if 0x40 <= opcode < 0x80:
+        if bits_2_0 == 7:
+            return _ED_GROUP1_COLUMN7[bits_5_3]
+        return _ED_GROUP1_BY_BITS_2_0[bits_2_0]
+    if 0xA0 <= opcode <= 0xBB and bits_2_0 <= 3:
         return 5  # LDI CPI INI OUTI, D variants, IR/DR forms on their last iteration
-    return 2  # undefined ED opcodes act as 2-NOP no-ops
+    return 2
 
 
-ED: tuple[int, ...] = tuple(_ed(op) for op in range(256))
+ED: tuple[int, ...] = tuple(_ed(opcode) for opcode in range(256))
 ED_REPEAT = 6  # LDIR, CPIR, INIR, OTIR and decrementing variants while repeating
 
 # Opcodes whose (HL) operand becomes (IX+d)/(IY+d) under a DD/FD prefix.
