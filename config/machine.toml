@@ -18,6 +18,14 @@ analyse = true               # analysis target (D-16)
 [rom.upper.7]
 file = "roms/amsdos.rom"
 
+# Disk images inserted at power-on (phase 10); read-only unless writable = true.
+# A: 3" drive (40 tracks, 1 side), B: Vortex 5.25" drive (80 tracks, 2 sides).
+[drive.A]
+file = "disk/cpm22.dsk"
+
+[drive.B]
+file = "disk/Vortex_init.dsk"
+
 # Optional RAM-range analysis targets (D-23)
 # [[analysis.ram]]
 # name    = "loader"

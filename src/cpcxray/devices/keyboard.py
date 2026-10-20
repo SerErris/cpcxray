@@ -13,6 +13,11 @@ it ignores a held key until it has been released. `schedule_typing` therefore ho
 character's keys for `hold_us` and releases them for `gap_us` (default 40 ms each, i.e. about
 12 characters per emulated second); the machine calls `tick(clock_us)` after each instruction to
 apply the events that are due.
+
+SHIFT and CONTROL are pressed `MODIFIER_LEAD_US` before the character key and released the same
+time after it. The firmware reads the ten rows one after another during its scan; if SHIFT and
+the letter changed together while a scan is running, the scan could see the letter (row 4-8)
+without SHIFT (row 2) and type a lower-case letter ("NexT" instead of "NEXT").
 """
 
 from __future__ import annotations
@@ -23,6 +28,8 @@ from collections.abc import Iterable
 ROWS = 10
 DEFAULT_HOLD_US = 40_000
 DEFAULT_GAP_US = 40_000
+MODIFIER_LEAD_US = 20_000  # one frame: a complete scan sees SHIFT/CONTROL before the key
+MODIFIER_KEYS = frozenset({21, 23})  # SHIFT (row 2 bit 5), CONTROL (row 2 bit 7)
 
 
 class Keyboard:
@@ -110,8 +117,15 @@ class Keyboard:
         """
         time_us = max(start_us, self._events[-1][0] if self._events else start_us)
         for keys in key_groups:
+            modifiers = frozenset(keys) & MODIFIER_KEYS
+            if modifiers:  # SHIFT/CONTROL first and last (see the module docstring)
+                self._events.append((time_us, modifiers))
+                time_us += MODIFIER_LEAD_US
             self._events.append((time_us, frozenset(keys)))
             time_us += hold_us
+            if modifiers:
+                self._events.append((time_us, modifiers))
+                time_us += MODIFIER_LEAD_US
             self._events.append((time_us, frozenset()))
             time_us += gap_us
         return time_us - gap_us

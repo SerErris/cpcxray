@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from cpcxray.devices.key_map import CONTROL, SHIFT, KeyMap, KeyMapError
-from cpcxray.devices.keyboard import DEFAULT_GAP_US, DEFAULT_HOLD_US, Keyboard
+from cpcxray.devices.keyboard import (
+    DEFAULT_GAP_US,
+    DEFAULT_HOLD_US,
+    MODIFIER_LEAD_US,
+    Keyboard,
+)
 
 OS_ROM = Path(__file__).resolve().parents[2] / "roms" / "os464.rom"
 needs_rom = pytest.mark.skipif(not OS_ROM.exists(), reason="OS ROM missing")
@@ -27,16 +32,21 @@ def test_sources_combine() -> None:
 
 
 def test_typing_schedule() -> None:
-    """Each key group is held for 40 ms, then released for 40 ms; new typing queues behind."""
+    """Each key is held 40 ms, then released 40 ms; SHIFT comes 20 ms before and after the key."""
     keyboard = Keyboard()
     end = keyboard.schedule_typing([(SHIFT, 27), (27,)], start_us=1000)
-    assert end == 1000 + 2 * DEFAULT_HOLD_US + DEFAULT_GAP_US
-    keyboard.tick(1000)
-    assert keyboard.held_keys() == [SHIFT, 27]
-    keyboard.tick(1000 + DEFAULT_HOLD_US)
-    assert keyboard.held_keys() == []
-    keyboard.tick(1000 + DEFAULT_HOLD_US + DEFAULT_GAP_US)
-    assert keyboard.held_keys() == [27]
+    lead = MODIFIER_LEAD_US
+    assert end == 1000 + 2 * DEFAULT_HOLD_US + DEFAULT_GAP_US + 2 * lead
+    timeline = [
+        (1000, [SHIFT]),  # SHIFT alone first
+        (1000 + lead, [SHIFT, 27]),
+        (1000 + lead + DEFAULT_HOLD_US, [SHIFT]),  # the key goes before SHIFT
+        (1000 + 2 * lead + DEFAULT_HOLD_US, []),
+        (1000 + 2 * lead + DEFAULT_HOLD_US + DEFAULT_GAP_US, [27]),  # no modifier: no lead
+    ]
+    for time_us, held in timeline:
+        keyboard.tick(time_us)
+        assert keyboard.held_keys() == held, time_us
     more = keyboard.schedule_typing([(18,)], start_us=0)
     assert more > end  # follows the pending typing
     keyboard.tick(10**9)

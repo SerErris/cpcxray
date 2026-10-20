@@ -18,9 +18,12 @@ from cpcxray.debugger.symbols import (
 def test_firmware_preset() -> None:
     """The 464 jumpblocks are preloaded: complete main jumpblock, unique labels."""
     table = SymbolTable()
-    assert table.label_at(0xBB5A) == "txt_output"
-    assert table.label_at(0xBC0E) == "scr_set_mode"
-    assert table.label_at(0x0008) == "low_jump"
+    assert table.label_at(0xBB5A) == "TXT_OUTPUT"
+    assert table.label_at(0xBC0E) == "SCR_SET_MODE"
+    assert table.label_at(0x0008) == "LOW_JUMP"
+    assert [table.label_at(a) for a in (0x000E, 0x0016, 0x001E)] == ["JP_BC", "JP_DE", "JP_HL"]
+    assert table.comment_at(0x001E) == "PCHL INSTRUCTION"
+    assert table.find("txt_output") is table.at(0xBB5A)  # case-insensitive fallback
     assert table.comment_at(0xBB5A) == "TXT OUTPUT"
     main_jumpblock = {entry.address for entry in FIRMWARE_464 if 0xBB00 <= entry.address <= 0xBD37}
     assert main_jumpblock == set(range(0xBB00, 0xBD38, 3))
@@ -45,13 +48,13 @@ def test_add_keeps_existing_parts() -> None:
     table.add(0xBB5A, comment="print A")
     symbol = table.at(0xBB5A)
     assert symbol is not None
-    assert (symbol.label, symbol.comment, symbol.source) == ("txt_output", "print A", "user")
+    assert (symbol.label, symbol.comment, symbol.source) == ("TXT_OUTPUT", "print A", "user")
 
 
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [({"address": 0x8000, "label": "9bad"}, "invalid label"),
-     ({"address": 0x8000, "label": "txt_output"}, "already used"),
+     ({"address": 0x8000, "label": "txt_output"}, "already used"),  # case-insensitive
      ({"address": 0x8000, "label": "x", "scope": "rom16"}, "invalid scope"),
      ({"address": 0x8000}, "needs a label"),
      ({"address": 0x10000, "label": "x"}, "out of range")],
@@ -121,5 +124,5 @@ def test_search() -> None:
     """symbols() filters by text in label or comment, scope and source."""
     table = SymbolTable()
     names = [symbol.label for symbol in table.symbols("scr set mode")]
-    assert names == ["scr_set_mode"]
-    assert all(symbol.label.startswith("km_") for symbol in table.symbols("km_") if symbol.label)
+    assert names == ["SCR_SET_MODE"]
+    assert all(symbol.label.startswith("KM_") for symbol in table.symbols("km_") if symbol.label)

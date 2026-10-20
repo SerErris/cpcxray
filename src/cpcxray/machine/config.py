@@ -7,11 +7,14 @@ The configuration is a TOML file, normally `config/machine.toml`:
   decode switch for scrambled ROMs (D-11), `analyse` to make the slot an analysis target
   (D-16).
 * `[[analysis.ram]]`: RAM-range analysis targets (D-23).
+* `[drive.A]`, `[drive.B]`: disk image inserted at power-on (`file`), read-only unless
+  `writable = true` (real images are never written, phase 10).
 
 Loading validates everything strictly (unknown keys are errors, to catch typos such as
 `analyze`) and resolves ROM paths. Missing ROM files are not an error: ROM images are not in
 git (NFR-07), so a fresh checkout must still load its config; `MachineConfig.missing_roms()`
-reports them and `read_rom_image()` fails when one is actually needed.
+reports them and `read_rom_image()` fails when one is actually needed. Disk images are handled
+the same way (`missing_disks()`).
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ MEMORY_SIZE = 0x10000
 DECODERS = frozenset({"vortex"})  # known decoders for scrambled ROMs (§5.5)
 CAPTURE_MODES = frozenset({"first_m1", "manual"})  # RAM-target capture moments (D-23)
 MODELS = frozenset({"464"})  # 6128 is later scope (FR-MCH-10)
+DRIVES = ("A", "B")  # A: 3" (unit 0), B: Vortex 5.25" (unit 1), FR-FDC-02/03
 
 type Slot = Literal["lower"] | int
 """A ROM slot: "lower" for the OS ROM, or an upper ROM number 0-15."""
@@ -86,6 +90,26 @@ class RamTargetConfig:
 
 
 @dataclass(frozen=True)
+class DriveConfig:
+    """A disk image inserted at power-on.
+
+    Attributes:
+        drive: "A" or "B".
+        file: Absolute path of the image.
+        writable: Allow the emulated CPC to write to it (in memory; saved only on request).
+    """
+
+    drive: str
+    file: Path
+    writable: bool = False
+
+    @property
+    def exists(self) -> bool:
+        """True if the image file exists."""
+        return self.file.is_file()
+
+
+@dataclass(frozen=True)
 class MachineConfig:
     """A loaded and validated machine configuration.
 
@@ -96,6 +120,7 @@ class MachineConfig:
         lower_rom: The OS ROM, or None if not configured.
         upper_roms: Upper ROM slots by number.
         ram_targets: RAM-range analysis targets.
+        drives: Disk images inserted at power-on, by drive letter.
         source: Path of the config file this was loaded from, if any.
     """
 
@@ -105,6 +130,7 @@ class MachineConfig:
     lower_rom: RomConfig | None = None
     upper_roms: dict[int, RomConfig] = field(default_factory=dict)
     ram_targets: tuple[RamTargetConfig, ...] = ()
+    drives: dict[str, DriveConfig] = field(default_factory=dict)
     source: Path | None = None
 
     def roms(self) -> list[RomConfig]:
@@ -119,6 +145,10 @@ class MachineConfig:
     def missing_roms(self) -> list[RomConfig]:
         """Return the configured ROMs whose file does not exist (ROMs are not in git, NFR-07)."""
         return [rom for rom in self.roms() if not rom.exists]
+
+    def missing_disks(self) -> list[DriveConfig]:
+        """Return the configured disk images whose file does not exist (not in git either)."""
+        return [drive for drive in self.drives.values() if not drive.exists]
 
 
 def load_config(path: str | Path, project_dir: str | Path | None = None) -> MachineConfig:
@@ -163,7 +193,7 @@ def parse_config(
     Raises:
         ConfigError: On unknown keys, wrong types or values out of range.
     """
-    _check_keys(data, {"machine", "rom", "analysis"}, "")
+    _check_keys(data, {"machine", "rom", "analysis", "drive"}, "")
     model, unpopulated_rom = _parse_machine(_table(data, "machine", ""))
     rom = _table(data, "rom", "")
     _check_keys(rom, {"lower", "upper"}, "rom")
@@ -177,6 +207,7 @@ def parse_config(
         lower_rom=lower_rom,
         upper_roms=_parse_upper_roms(_table(rom, "upper", "rom"), project_dir),
         ram_targets=_parse_ram_targets(_table(data, "analysis", "")),
+        drives=_parse_drives(_table(data, "drive", ""), project_dir),
         source=source,
     )
 
@@ -235,6 +266,30 @@ def _parse_ram_targets(analysis: Mapping[str, Any]) -> tuple[RamTargetConfig, ..
     if not isinstance(entries, list):
         raise ConfigError("analysis.ram: expected an array of tables")
     return tuple(_parse_ram(entry, f"analysis.ram[{i}]") for i, entry in enumerate(entries))
+
+
+def _parse_drives(drives: Mapping[str, Any], project_dir: Path) -> dict[str, DriveConfig]:
+    """Validate the `[drive.A]` / `[drive.B]` tables.
+
+    Raises:
+        ConfigError: On an unknown drive letter, unknown keys or a missing `file`.
+    """
+    result = {}
+    for letter, table in drives.items():
+        where = f"drive.{letter}"
+        if letter not in DRIVES:
+            raise ConfigError(f"{where}: drive must be one of {', '.join(DRIVES)}")
+        if not isinstance(table, dict):
+            raise ConfigError(f"{where}: expected a table")
+        _check_keys(table, {"file", "writable"}, where)
+        if "file" not in table:
+            raise ConfigError(f"{where}.file: missing")
+        file = Path(_get(table, "file", str, where, ""))
+        result[letter] = DriveConfig(
+            letter, file if file.is_absolute() else project_dir / file,
+            _get(table, "writable", bool, where, False),
+        )  # fmt: skip
+    return result
 
 
 def read_rom_image(path: str | Path) -> bytes:

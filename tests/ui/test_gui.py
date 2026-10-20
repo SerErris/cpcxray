@@ -38,8 +38,10 @@ def test_window_keyboard_type_box_and_panels(tmp_path: Path) -> None:
         key_map = machine.key_map()
         for cpc_name in set(app._host_keys.values()):  # pylint: disable=protected-access
             key_map.key_number(cpc_name)  # raises for an unknown name
-        for _ in range(100):  # boot at max speed
+        for _ in range(400):  # boot at max speed (VDOS looks for HELLO.BAS on A:)
             app.render_frame()
+            if "Ready" in app.session.screen_text()["lines"]:
+                break
         assert machine.clock_us > 0
         assert machine.keyboard.held_keys() == []  # no PC key is falsely reported as down
         app._type_text(0, "PRINT 6*7")  # pylint: disable=protected-access  # the box's callback
@@ -82,3 +84,6 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     panels._call("cpu_message", panels._set_registers)  # pylint: disable=protected-access
     assert dpg.get_value(panels.items["cpu_message"]).startswith("error:")
     assert not panels.typing()
+    panels.refresh(force=True)
+    assert "read-only" in dpg.get_value(panels.items["drives"])  # the owner's real images
+    assert "format" in dpg.get_value(panels.items["catalog"])

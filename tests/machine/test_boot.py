@@ -14,6 +14,7 @@ import pytest
 from cpcxray.machine.config import load_config
 from cpcxray.machine.cpc464 import CPC464
 from cpcxray.session.session import Session
+from tests.vdos import run_until_ready
 
 CONFIG = Path(__file__).resolve().parents[2] / "config" / "machine.toml"
 _config = load_config(CONFIG)
@@ -25,9 +26,9 @@ needs_roms = pytest.mark.skipif(
 
 @needs_roms
 def test_boots_to_basic_ready() -> None:
-    """After 3 emulated seconds the screen shows the 464 sign-on, BASIC 1.0 and Ready."""
+    """Within a few emulated seconds the screen shows the 464 sign-on, BASIC 1.0 and Ready."""
     session = Session(CPC464(_config))
-    session.run(max_us=3_000_000, timeout_s=60)
+    assert run_until_ready(session) < 5_000_000
     lines = session.screen_text()["lines"]
     assert " Amstrad 64K Microcomputer  (v1)" in lines
     assert " ©1984 Amstrad Consumer Electronics plc" in lines

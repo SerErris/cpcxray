@@ -19,6 +19,7 @@ from cpcxray.machine.cpc464 import CPC464
 from cpcxray.session.session import Session
 from cpcxray.ui.palette import HARDWARE_RGB
 from cpcxray.ui.renderer import HEIGHT, WIDTH, render
+from tests.vdos import run_until_ready
 
 REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / "tests" / "data" / "asm" / "screen_test.asm"
@@ -45,7 +46,7 @@ def fixture_program(tmp_path_factory: pytest.TempPathFactory) -> bytes:
 def run_screen_test(program: bytes, mode: int, pens: int, lines: int) -> Session:
     """Boot, then call the program with A = mode, B = pens, C = scroll lines."""
     session = Session(CPC464(CONFIG))
-    session.run(max_us=3_000_000, timeout_s=60)
+    run_until_ready(session)
     session.memory_write("4000", program.hex())
     session.memory_write("4100", "18FE")  # return target: JR $
     stack = session.registers_get()["sp"] - 2

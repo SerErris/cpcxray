@@ -580,7 +580,17 @@ Responsible for reset, configuration and wiring; provides `snapshot()` for rende
 - `RawImage` for Vortex: 80 tracks × 2 sides × 9 sectors × 512 bytes = 737,280 bytes; sector IDs
   &01–&09; sides interleaved per track, so sector *id* of track *t*, side *s* is at offset
   `((t * 2 + s) * 9 + (id - 1)) * 512`.
-- Until implemented, a stub reports "no drive ready", so AMSDOS does not hang.
+- Vortex format, confirmed on a real VDOS disk (phase 10): sector IDs carry the head number;
+  physical interleave 1,6,2,7,3,8,4,9,5; CP/M layout with cylinder 0 (both heads) reserved,
+  4 KB blocks with 8-bit block numbers, 128 directory entries in block 0 at cylinder 1, logical
+  order cylinder → head 0 → head 1.
+- The CPC has no terminal count: a read/write ends after sector EOT with ST0 &40, ST1 &80 ("end of
+  cylinder"), which AMSDOS and VDOS expect.
+- Real images are inserted read-only (the FDC reports write protection; VDOS: "Diskette hat
+  Schreibschutz"); writes go to drafts (`disk_new`) and reach a file only via `disk_save`, never
+  over a read-only image's file.
+- VDOS's turnkey function reads the directory of A: at boot (looking for HELLO.BAS/HELLO.BIN), so
+  the boot takes about 1 s longer with a disk in A:.
 
 ### 6.12 Renderer (`ui/renderer.py`)
 
@@ -669,13 +679,13 @@ file = "roms/amsdos.rom"
         rst #10             ; SIDE CALL
         defw 04150h         ;   to #C150 [slot 1]  (observed: ROM 6)
         rst #18             ; FAR CALL
-        defw far_c7f3       ;   to scr_set_mode [ROM 7]
+        defw far_c7f3       ;   to SCR_SET_MODE [ROM 7]
         rst #20             ; RAM LAM
         rst #28             ; FIRM JUMP
         defw sub_0038       ;   to #0038
 
 far_c7f3:
-        defw 0bb5ah         ; far address: to scr_set_mode
+        defw 0bb5ah         ; far address: to SCR_SET_MODE
         defb 007h           ;   ROM 7
 ```
 
@@ -761,7 +771,7 @@ source generator.
 | Screen | `screen_image()` (PNG as MCP image content), `screen_text()` (characters recognised by matching screen cells against the firmware font) |
 | Devices | `devices_get` |
 | Symbols | `symbol_add`, `symbol_remove`, `symbol_list`, `comment_add` |
-| Disk (later) | `disk_insert(drive, path)`, `disk_eject`, `disk_save` |
+| Disk | `disk_list`, `disk_insert(drive, path, writable)`, `disk_eject`, `disk_new(drive, format)`, `disk_save(drive, path)`, `disk_catalog`, `disk_read_file` |
 
 **Rules:**
 

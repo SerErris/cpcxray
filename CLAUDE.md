@@ -21,6 +21,7 @@ not cycle-exact.
 ```
 config/machine.toml     machine configuration (§6.14); ROM paths relative to the project root
 roms/                   ROM images — local only, never committed
+disk/                   disk images (owner's real images, read-only) — local only, never committed
 output/                 generated dumps, maps, sources, traces — local only
 src/cpcxray/
   cli.py                console script `cpcxray`
@@ -97,16 +98,36 @@ Implement strictly one phase of design.md §9 at a time. A phase is finished onl
 milestone tests pass together with the full suite, `ruff check` and `ruff format --check`.
 Do not start the next phase without the owner's go-ahead.
 
-**Status:** Phases 0-9 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
+**Status:** Phases 0-10 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
 pass); CPU validation (ZEXDOC/ZEXALL, z80test); disassembler, CPC RST profile, symbols, Session,
 MCP server; CPC 464 booting to BASIC; renderer and GUI (real time, MCP over HTTP); keyboard;
 decoding and analysis (VDOS decoded and initialised); analysis database, classifier, sjasmplus
 source generator and round-trip check (VDOS source reassembles byte-identically); full debugger
-(all breakpoint kinds with location qualifiers, bus trace, memory views, `.sna`, GUI panels).
-Next: Phase 10 (FDC µPD765 and disk images, drive A: 3", drive B: Vortex 80T DS).
+(breakpoints with location qualifiers, bus trace, memory views, `.sna`, GUI panels); µPD765 FDC
+with DSK/EDSK/raw images (VDOS reads the 3" CP/M disk in A: and the Vortex disk in B:).
+Next: Phase 11 (later scope: 6128 banking; restart on PyPy) - only with the owner's go-ahead.
 
 Validation runtimes on CPython (8 cores): z80test ~1 min for all variants; ZEXDOC+ZEXALL ~30 min,
 dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on one core).
+
+## Disk notes (phase 10)
+
+- disk/: cpm22.dsk (3" CP/M 2.2 SYSTEM disk, A:), Vortex_init.dsk (VDOS system disk, B:),
+  464_CPM_2.2_work.dsk (for later). Real images: **never write to them** - they are inserted
+  read-only (`[drive.X] writable = false`, the default); use `disk_new` drafts for writes and
+  `disk_save` to another file.
+- disk/dsk.py: `DiskImage` (tracks → sectors with C,H,R,N, ST1/ST2, data), EDSK/DSK/raw Vortex
+  loading, EDSK saving, blank formats vortex/data/system. disk/cpm.py: host-side CP/M reader
+  (formats system/data/vortex, extents, AMSDOS header) - the reference for what VDOS reads.
+- devices/fdc765.py: full µPD765 (read/write/format/read id/seek/...; sectors found by ID; MT;
+  CPC end of cylinder ST0 &40/ST1 &80 after EOT; read-only → ST1 NW). A: 40 tracks 1 side
+  (head select ignored), B: 80 tracks 2 sides; US0 only (units 2/3 alias 0/1). Log collapses
+  repeats (VDOS sends SPECIFY constantly).
+- VDOS turnkey: at boot it reads A:'s directory looking for HELLO.BAS/BIN: boot to Ready ~3.8 s
+  with a disk in A:. Tests boot with `tests.vdos.run_until_ready`, never a fixed time.
+- Typing: SHIFT/CONTROL are pressed 20 ms before and released 20 ms after the key, otherwise a
+  keyboard scan in progress can see the letter without SHIFT.
+- session/disks.py `DiskMixin`: disk_list/insert/eject/new/save/catalog/read_file; GUI Disks tab.
 
 ## Debugger notes (phase 9)
 

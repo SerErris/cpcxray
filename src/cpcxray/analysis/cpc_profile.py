@@ -10,7 +10,7 @@ follow, how the RST affects the program flow, and how to explain the operand:
     rst #10             ; SIDE CALL
     defw 04150h         ;   to #C150 [slot 1]
     rst #18             ; FAR CALL
-    defw far_c7f3       ;   to scr_set_mode [ROM 7]
+    defw far_c7f3       ;   to SCR_SET_MODE [ROM 7]
     rst #28             ; FIRM JUMP
     defw sub_0038       ;   to #0038
 

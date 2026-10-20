@@ -51,9 +51,9 @@ def test_rst_rendering(tmp_path: Path) -> None:
     assert (
         "defw 04150h                     ;   to #C150 [slot 1]  (observed: reached rom6)" in lines
     )
-    assert "defw far_c010                   ;   to txt_output [ROM 7]" in lines  # firmware name
+    assert "defw far_c010                   ;   to TXT_OUTPUT [ROM 7]" in lines  # firmware name
     assert "far_c010:" in lines
-    assert "defw txt_output                 ; far address: to txt_output" in lines
+    assert "defw TXT_OUTPUT                 ; far address: to TXT_OUTPUT" in lines
     assert "defb #07                        ;   ROM 7" in lines
     assert any(line.startswith("rst #28") for line in lines)
 
@@ -69,9 +69,9 @@ def test_labels_and_externals(tmp_path: Path) -> None:
         fill_policy="static",
     )  # fmt: skip
     lines = code_lines(generated.text)
-    assert "txt_output              EQU #BB5A" in lines
+    assert "TXT_OUTPUT              EQU #BB5A" in lines
     assert "call sub_c006" in lines and "sub_c006:" in lines
-    assert "jp txt_output                   ; [static]" in lines
+    assert "jp TXT_OUTPUT                   ; [static]" in lines
     _, result = round_trip(tmp_path, view, database)
     assert result.identical
 
@@ -198,3 +198,34 @@ def test_overlay_blocks_share_a_ram_range(tmp_path: Path) -> None:
     assert lines.count("DISP #8000") == 2
     assert "ram_8000_c004:" in lines and "jr ram_8000_c004" in lines
     assert "ram_8000_c007:" in lines and "jr ram_8000_c007" in lines
+
+
+def test_immediates_labels_only_for_addresses(tmp_path: Path) -> None:
+    """LDIR's HL/DE become labels, its BC stays a number; low firmware addresses stay hex."""
+    image = (
+        bytes.fromhex(
+            "21 15 C0"  # ld hl,&C015: source of the copy, the "DATA" bytes
+            "11 00 BF"  # ld de,&BF00: destination
+            "01 16 00"  # ld bc,&0016: length - also the address of the firmware's JP_DE
+            "ED B0"  # ldir
+            "11 0E 00"  # ld de,&000E: no evidence, low: a number, not JP_BC
+            "21 5A BB"  # ld hl,&BB5A: no evidence, firmware jumpblock: TXT_OUTPUT
+            "C9"
+        )
+        + bytes(3)
+        + b"DATA"
+    )
+    view = plain_view(image)
+    database = classified(view, starts=[0, 3, 6, 9, 11, 14, 17])
+    generated, result = round_trip(tmp_path, view, database)
+    assert result.identical, result.differences
+    lines = code_lines(generated.text)
+    assert "ld hl,d_c015" in lines and "d_c015:" in lines
+    assert "ld de,#BF00" in lines  # an address, but no label known there (outside the image)
+    assert "ld bc,#0016" in lines and "ld de,#000E" in lines
+    assert "ld hl,TXT_OUTPUT" in lines
+    reference = "JP_DE                   EQU #0016       ; PCDE INSTRUCTION"
+    assert reference in lines  # the reference block names every restart ...
+    assert "ld bc,#0016" in lines  # ... but a number stays a number
+    assert "; firmware restarts and low kernel entries (464/664/6128), for reference" in lines
+    assert lines.count("TXT_OUTPUT              EQU #BB5A") == 1  # used entries: own block

@@ -12,6 +12,8 @@ A tab bar next to the screen:
 | Trace       | instruction trace on/off and its last lines                                |
 | Bus trace   | bus access trace on/off (kinds filter) and its last lines                  |
 | Symbols     | search; add "address label ; comment"                                      |
+| Disks       | drives A:/B:, insert (read-only unless ticked), eject, blank draft, save,  |
+|             | catalogue read directly from the image                                     |
 | Files       | .sna save/load, analysis save, source generate + verify                    |
 
 Every action is a `Session` call (the same as the MCP tool); errors show in the panel's message
@@ -102,6 +104,7 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
                 ("Trace", self._build_trace, self._refresh_trace),
                 ("Bus trace", self._build_bus_trace, self._refresh_bus_trace),
                 ("Symbols", self._build_symbols, self._refresh_symbols),
+                ("Disks", self._build_disks, self._refresh_disks),
                 ("Files", self._build_files, lambda: None),
             ):
                 with dpg.tab(label=title) as tab:
@@ -196,6 +199,29 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
                         self._add_symbol)  # fmt: skip
         self._text("symbol_message")
         self._text("symbols")
+
+    def _build_disks(self) -> None:
+        """Drive state, insert/eject/draft/save, and the catalogue of a drive."""
+        session = self.session
+        self._text("drives")
+        with dpg.group(horizontal=True):
+            self.items["disk_drive"] = dpg.add_combo(("A", "B"), default_value="A", width=50)
+            self._input("disk_path", "disk/image.dsk", 220)
+            self.items["disk_writable"] = dpg.add_checkbox(label="writable")
+            self._button("Insert", "disk_message", lambda: session.disk_insert(
+                self._value("disk_drive"), self._value("disk_path"),
+                bool(self._value("disk_writable"))))  # fmt: skip
+            self._button("Eject", "disk_message",
+                         lambda: session.disk_eject(self._value("disk_drive")))  # fmt: skip
+        with dpg.group(horizontal=True):
+            self.items["disk_format"] = dpg.add_combo(("vortex", "data", "system"),
+                                                      default_value="vortex", width=80)  # fmt: skip
+            self._button("New draft", "disk_message", lambda: session.disk_new(
+                self._value("disk_drive"), self._value("disk_format")))  # fmt: skip
+            self._button("Save as", "disk_message", lambda: session.disk_save(
+                self._value("disk_drive"), self._value("disk_path")))  # fmt: skip
+        self._text("disk_message")
+        self._text("catalog")
 
     def _build_files(self) -> None:
         """Snapshots, analysis and source files."""
@@ -347,6 +373,26 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
     def _refresh_bus_trace(self) -> None:
         """Last bus trace lines."""
         self._set_lines("bus_trace", self.session.bus_trace_read(TRACE_LINES)["lines"])
+
+    def _refresh_disks(self) -> None:
+        """Drives and the catalogue of the selected drive (read directly from the image)."""
+        lines = []
+        for drive in self.session.disk_list()["drives"]:
+            state = "empty"
+            if drive["disk"] is not None:
+                mode = "writable" if drive["writable"] else "read-only"
+                changed = ", modified" if drive["modified"] else ""
+                state = f"{drive['disk']} ({mode}{changed})"
+            lines.append(f"{drive['drive']}: cyl {drive['head_cylinder']:2}  {state}")
+        self._set_lines("drives", lines)
+        try:
+            catalog = self.session.disk_catalog(self._value("disk_drive"))
+            files = [f"{f['user']:2} {f['name']:<13}{f['size']:7}{'  SYS' if f['system'] else ''}"
+                     for f in catalog["files"]]  # fmt: skip
+            files.append(f"{catalog['format']} format, {catalog['used_kb']}K used")
+        except SessionError as error:
+            files = [str(error)]
+        self._set_lines("catalog", files)
 
     def _refresh_symbols(self) -> None:
         """Symbols matching the search text."""

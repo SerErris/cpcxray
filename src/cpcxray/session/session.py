@@ -7,7 +7,8 @@ plain JSON-compatible dicts and lists, so the MCP layer passes them through unch
 Conventions for clients:
 
 * Addresses may be given as int, as hex string ("BB5A", "&BB5A", "#BB5A", "0xBB5A") or as a
-  symbol label ("txt_output"). Addresses in results are 4-digit hex strings.
+  symbol label ("TXT_OUTPUT"; case-insensitive if unique). Addresses in results are 4-digit
+  hex strings.
 * Every run-type method is bounded (FR-MCP-04): by an instruction limit, an emulated-time
   limit and a wall-clock timeout (default 10 s). It returns why it stopped:
   "steps_done", "breakpoint", "address_reached", "returned", "instruction_limit",
@@ -38,6 +39,7 @@ from cpcxray.machine.flat import FlatMachine, Machine
 from cpcxray.machine.screen import FONT_ADDRESS, screen_text
 from cpcxray.session.analysis import AnalysisMixin
 from cpcxray.session.debugger import DebuggerMixin
+from cpcxray.session.disks import DiskMixin
 from cpcxray.session.errors import SessionError
 from cpcxray.ui.png import encode_png
 from cpcxray.ui.renderer import double_lines, render
@@ -69,7 +71,7 @@ class _RunLimits:
 
 
 # The façade owns all debugger state and offers one public method per MCP tool (D-27).
-class Session(AnalysisMixin, DebuggerMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
+class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
     """Owns a machine and offers every debugger operation (D-27).
 
     Attributes:

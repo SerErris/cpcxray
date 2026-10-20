@@ -17,6 +17,8 @@ roms/*
 !roms/.gitignore
 output/*
 !output/.gitignore
+project/*
+!project/.gitignore
 
 # External test vectors (tools/fetch_test_data.sh)
 tests/data/external/
@@ -26,3 +28,6 @@ docs/*.pdf
 
 # Assembled test programs (built by the tests with sjasmplus)
 tests/data/asm/*.bin
+
+# Disk images (real images are local only, like ROMs)
+/disk/

@@ -1,0 +1,3 @@
+# Project files (access maps, analysis databases, annotations) stay local; only the folder is in git
+*
+!.gitignore

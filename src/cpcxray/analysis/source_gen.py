@@ -27,6 +27,17 @@ to an address that is not a line start is written in hex; a reference to an addr
 the source that has a global (firmware or owner) symbol uses it, defined by an `EQU`. A label
 always has the value of the number it replaces, so the bytes stay the same.
 
+Immediate loads `ld rr,nn` get a label only where the value is an address (analysis/operands.py):
+the code after the load uses it as one (LDIR's HL/DE, `(hl)`, ...), or - without evidence - it
+is a line start of the source, lies in the target's own address range, or is a firmware
+jumpblock entry (&B900 and up). Counters (LDIR's BC, DJNZ, `dec bc` loops) and other plain
+numbers stay hex: `ld bc,#0016`, not `ld bc,JP_DE`.
+
+The file starts with a reference block of all low-kernel firmware entries (the restarts
+RESET_ENTRY … EXT_INTERRUPT at &0000-&003B, the same on 464, 664 and 6128), whether the code
+uses them or not, so the names are at hand when the source is edited; then the EQUs of the
+other firmware entries the code refers to. Reference names are never used for plain numbers.
+
 `GeneratedSource.line_of_offset` maps every target byte to its source line, for the
 round-trip report (D-33).
 """
@@ -44,8 +55,10 @@ from cpcxray.analysis.classifier import (
 )
 from cpcxray.analysis.cpc_profile import CpcProfile, rom_select_text
 from cpcxray.analysis.database import Kind, Source, TargetDatabase
+from cpcxray.analysis.operands import Role, immediate_role, loaded_pair
 from cpcxray.analysis.provenance import RelocatedBlock
 from cpcxray.cpu.disasm import Flow, Instruction, hex_byte, hex_word
+from cpcxray.debugger.firmware_symbols import FIRMWARE_464
 from cpcxray.debugger.symbols import GLOBAL, SymbolTable
 from cpcxray.decoding.shadow_rom import ERROR, UNKNOWN
 
@@ -60,6 +73,8 @@ _CALL_FLOWS = frozenset({Flow.CALL, Flow.CONDITIONAL_CALL})
 _JUMP_FLOWS = frozenset({Flow.JUMP, Flow.CONDITIONAL_JUMP})
 _PREFIX_BY_USE = {"ram": "ram_", "far": "far_", "call": "sub_", "jump": "l_", "data": "d_"}
 _USE_PRIORITY = ("ram", "far", "call", "jump", "data")
+FIRMWARE_JUMPBLOCKS = 0xB900  # high kernel, key manager, ... jumpblocks up to &BDFF
+LOW_KERNEL = tuple(entry for entry in FIRMWARE_464 if entry.section == "low kernel")
 STATISTICS = ("instructions_observed", "instructions_static", "instructions_owner",
               "non_canonical", "data_bytes", "labels", "externals")  # fmt: skip
 
@@ -229,6 +244,8 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         self.externals: dict[int, str] = {}
         self._boundaries: set[int] = set()
         self._far_starts: set[int] = set()
+        self._roles: dict[int, Role] = {}  # immediate loads: offset → address or number
+        self.references: dict[int, tuple[str, str]] = {}  # unused low-kernel EQUs: label, name
         self._access_edges: set[int] = set()
         self._in_never_read = False
         self._lines: list[str] = []
@@ -340,6 +357,33 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
 
     # -- pass 2: references and labels -----------------------------------------------------------
 
+    def _judge_immediates(self) -> None:
+        """Decide for every `ld rr,nn` whether nn is an address or a number."""
+        view = self.view
+        for item in self.items:
+            if item.instruction is None or loaded_pair(item.instruction) is None:
+                continue
+            block = view.block_at(item.offset)
+
+            def following(address: int, block: RelocatedBlock | None = block) -> Instruction:
+                """Decode the instruction at an address in the load's coordinates."""
+                offset = view.offset_for_read(address, block)
+                if offset is None:
+                    return Instruction(address, b"\x76", "halt", Flow.HALT)  # outside: stop
+                return view.disassemble(offset, self.profile)
+
+            self._roles[item.offset] = immediate_role(item.instruction, following)
+
+    def _wants_label(self, item: _Item, word: int) -> bool:
+        """True if the word operand of an item should be shown as a label (module docstring)."""
+        role = self._roles.get(item.offset)
+        if role is None or role == Role.ADDRESS:
+            return True
+        if role == Role.NUMBER:
+            return False
+        context = self.view.block_at(item.offset)
+        return self.view.offset_of_target(word, context) is not None or word >= FIRMWARE_JUMPBLOCKS
+
     def _item_references(self, item: _Item) -> list[tuple[int, str]]:
         """Addresses an item refers to, with their use ("call", "jump", "far", "data")."""
         references = []
@@ -352,8 +396,9 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             references.append((instruction.target, "call"))
         elif instruction.target is not None and instruction.flow in _JUMP_FLOWS:
             references.append((instruction.target, "jump"))
-        if instruction.word_operand is not None and instruction.word_operand != instruction.target:
-            references.append((instruction.word_operand, "data"))
+        word = instruction.word_operand
+        if word is not None and word != instruction.target and self._wants_label(item, word):
+            references.append((word, "data"))
         for line in instruction.extra_lines:
             if line.word is not None:
                 references.append((line.word, "far" if instruction.raw[0] == 0xDF else "jump"))
@@ -454,6 +499,14 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             if symbol is not None and symbol.label and symbol.label not in used_names:
                 self.externals[address] = symbol.label
                 used_names.add(symbol.label)
+        for entry in LOW_KERNEL:  # the reference block (module docstring)
+            symbol = self.symbols.at(entry.address, GLOBAL)
+            label = symbol.label if symbol is not None and symbol.label else entry.label
+            if self._inside_source(entry.address) or entry.address in self.externals:
+                continue
+            if label not in used_names:
+                self.references[entry.address] = (label, entry.name)
+                used_names.add(label)
 
     def _lookup(self, address: int) -> str | None:
         """Label for an operand (in the coordinates of the line being emitted), or None."""
@@ -472,6 +525,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         self._collect_boundaries()
         self._far_starts = self._far_object_starts()
         self._build_items()
+        self._judge_immediates()
         self._assign_labels()
         self._lines = self._file_header()
         self._line_of_offset = [0] * self.view.length
@@ -571,9 +625,22 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
                 ] += 1
             lines.append("; access: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
         lines.append("")
-        for address, label in sorted(self.externals.items()):
+        low_kernel = {e.address: e.name for e in LOW_KERNEL if not self._inside_source(e.address)}
+        if low_kernel:
+            lines.append("; firmware restarts and low kernel entries (464/664/6128), for reference")
+            for address, name in sorted(low_kernel.items()):
+                label = self.externals.get(address) or self.references.get(address, ("",))[0]
+                if label:
+                    lines.append(
+                        f"{f'{label:<24}EQU {hex_word(address)}':<{COMMENT_COLUMN}}; {name}"
+                    )
+            lines.append("")
+        used = {a: label for a, label in self.externals.items() if a not in low_kernel}
+        if used:
+            lines.append("; firmware entries used by this code")
+        for address, label in sorted(used.items()):
             lines.append(f"{label:<24}EQU {hex_word(address)}")
-        if self.externals:
+        if used:
             lines.append("")
         lines += [f'{INDENT}OUTPUT "{self.output_name}"', f"{INDENT}ORG {hex_word(view.start)}", ""]
         return lines
@@ -631,7 +698,11 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
 
     def _instruction_lines(self, item: _Item, label: str | None) -> list[str]:
         """Lines of an instruction (defb for non-canonical encodings, D-32)."""
-        instruction = self.view.disassemble(item.offset, self.profile, self._lookup)
+        lookup = self._lookup
+        word = item.instruction.word_operand if item.instruction else None
+        if word is not None and not self._wants_label(item, word):
+            lookup = _no_label
+        instruction = self.view.disassemble(item.offset, self.profile, lookup)
         self._statistics[f"instructions_{item.source.name.lower()}"] = (
             self._statistics.get(f"instructions_{item.source.name.lower()}", 0) + 1
         )
@@ -639,11 +710,11 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         if instruction.non_canonical:
             self._statistics["non_canonical"] += 1
             data = ",".join(hex_byte(value) for value in instruction.raw)
-            comment = "; ".join([instruction.text(self._lookup), *notes])
+            comment = "; ".join([instruction.text(lookup), *notes])
             return _format_line(f"defb {data}", comment, label)
         result: list[str] = []
         observed = self._observed_comment(item.offset)
-        for number, (text, comment) in enumerate(instruction.lines(self._lookup)):
+        for number, (text, comment) in enumerate(instruction.lines(lookup)):
             if number == 0:
                 comment = "; ".join(c for c in (comment.strip(), *notes) if c)
                 result += _format_line(text, comment, label)
@@ -720,6 +791,10 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
                 operands = string_operands(chunk) if is_string else ",".join(map(hex_byte, chunk))
                 pieces.append((first + start, length, f"defb {operands}"))
         return pieces
+
+
+def _no_label(_address: int) -> None:
+    """Symbol lookup that never finds a label (numbers stay hex)."""
 
 
 def generate_source(  # pylint: disable=too-many-arguments  # forwards the generator inputs

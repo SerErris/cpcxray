@@ -45,6 +45,19 @@ def test_repo_config_loads() -> None:
         rom = cfg.upper_roms[slot]
         assert (rom.decoder, rom.analyse) == (None, False)
     assert not cfg.ram_targets
+    assert cfg.drives["A"].file == REPO / "disk" / "cpm22.dsk"
+    assert cfg.drives["B"].file == REPO / "disk" / "Vortex_init.dsk"
+    assert not cfg.drives["A"].writable and not cfg.drives["B"].writable  # real images
+
+
+def test_drives(tmp_path: Path) -> None:
+    """Drive tables: relative paths, writable flag, missing images reported."""
+    cfg = load_config(
+        write_config(tmp_path, '[drive.B]\nfile = "disk/draft.dsk"\nwritable = true\n')
+    )
+    drive = cfg.drives["B"]
+    assert drive.file == tmp_path / "disk" / "draft.dsk" and drive.writable
+    assert cfg.missing_disks() == [drive]
 
 
 def test_only_marked_targets_are_analysed() -> None:
@@ -149,6 +162,9 @@ capture = "manual"
             r"capture",
         ),
         ("[[analysis.ram]]\nstart = 0\nlength = 1\n", r"analysis\.ram\[0\]\.name"),
+        ('[drive.C]\nfile = "x.dsk"\n', r"drive\.C"),
+        ("[drive.A]\nwritable = true\n", r"drive\.A\.file"),
+        ('[drive.A]\nfile = "x.dsk"\nprotect = true\n', r"unknown key.*protect"),
     ],
 )
 def test_validation_errors(tmp_path: Path, text: str, match: str) -> None:

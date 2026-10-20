@@ -10,8 +10,15 @@ Corrections of transcription errors in the source (checked against the Firmware 
 * "&BCS0 SCR SW ROLL" (S for 5) → &BC50.
 * "SCR FLOOD BOX" is listed at &BC17 (the address of SCR CHAR LIMITS) → &BC47.
 * A leading "*" (CAS entries redirected by AMSDOS) is dropped.
-* The undocumented "INTERNAL SUBROUTINE" maths entries get the label maths_internal_xxxx.
+* The undocumented "INTERNAL SUBROUTINE" maths entries get the label MATHS_INTERNAL_xxxx.
 * KM SCAN KEYS (&BDF4) is dropped: it is 664/6128-only (verified on a booted 464, phase 4).
+
+Labels (owner's convention): firmware entries are upper-case snake case (KM_WAIT_CHAR), so
+they stand out from the labels of analysed ROMs and RAM, which stay lower case. The restarts
+that jump through a register pair get labels saying what they do, as an assembler-valid
+resemblance of the instruction (same addresses on 464, 664 and 6128):
+PCBC INSTRUCTION (&000E) → JP_BC, PCDE INSTRUCTION (&0016) → JP_DE,
+PCHL INSTRUCTION (&001E) → JP_HL. The Firmware Guide name stays the comment.
 
 Usage (from the project root): python -m tools.extract_firmware_symbols
 """
@@ -53,6 +60,11 @@ ADDRESS_FIXES = {"SCR FLOOD BOX": 0xBC47}
 # Listed in the source without a 664/6128 note, but absent on the 464: after a 464 boot the
 # RAM at &BDF4 is empty while &BDCD-&BDF1 hold JP instructions (checked in phase 4).
 NOT_ON_464 = frozenset({"KM SCAN KEYS"})
+LABEL_RENAMES = {
+    "PCBC INSTRUCTION": "JP_BC",  # &000E: JP (BC)
+    "PCDE INSTRUCTION": "JP_DE",  # &0016: JP (DE)
+    "PCHL INSTRUCTION": "JP_HL",  # &001E: JP (HL)
+}
 
 
 def page_lines(page: str) -> list[str]:
@@ -64,11 +76,13 @@ def page_lines(page: str) -> list[str]:
 
 
 def label_for(name: str, address: int) -> str:
-    """Turn a firmware name into a label: "KM WAIT CHAR" → km_wait_char."""
+    """Turn a firmware name into a label: "KM WAIT CHAR" → KM_WAIT_CHAR (see LABEL_RENAMES)."""
+    if name in LABEL_RENAMES:
+        return LABEL_RENAMES[name]
     if name == "INTERNAL SUBROUTINE":
-        return f"maths_internal_{address:04x}"
+        return f"MATHS_INTERNAL_{address:04X}"
     name = re.sub(r"\(RST \d\)", "", name)
-    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    return re.sub(r"[^A-Z0-9]+", "_", name.upper()).strip("_")
 
 
 def extract() -> list[tuple[int, str, str, str]]:
@@ -110,7 +124,7 @@ def render(entries: list[tuple[int, str, str, str]]) -> str:
         "",
         "    Attributes:",
         "        address: Address of the entry on the CPC 464.",
-        "        label: Label used in listings, e.g. txt_output.",
+        "        label: Label used in listings, e.g. TXT_OUTPUT.",
         "        section: Firmware pack, e.g. text VDU.",
         "        name: Name in the Firmware Guide, e.g. TXT OUTPUT.",
         "        note: Remark, e.g. that the entry still needs checking on a real 464.",

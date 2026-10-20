@@ -10,13 +10,14 @@ A lookup for an address in a scope first checks that scope, then the global symb
 scope applies to an address at run time (ROM paged in or not) is decided by the caller; the
 memory map provides it from phase 4.
 
-The firmware jumpblock names of the CPC 464 are preloaded (source "firmware"); everything the
-owner or the tools add has source "user" and is what the annotation file stores.
+The firmware jumpblock names of the CPC 464 are preloaded (source "firmware") as upper-case
+labels (TXT_OUTPUT, JP_HL); everything the owner or the tools add has source "user" and is what
+the annotation file stores. Label lookups by name fall back to a case-insensitive match.
 
 Annotation file format (plain text, one entry per line, `#` starts a comment line):
 
     # [scope:]address  label  [; comment]
-    BB5A        txt_output      ; print char in A
+    BB5A        my_output       ; print char in A
     rom5:C000   vdos_header
     8000        -               ; a comment only, no label
 
@@ -173,11 +174,17 @@ class SymbolTable:
         return symbol.comment if symbol is not None else None
 
     def find(self, label: str, scope: str = GLOBAL) -> Symbol | None:
-        """Return the symbol with this label in `scope` or globally, or None."""
-        for symbol in self._symbols.values():
-            if symbol.label == label and symbol.scope in (scope, GLOBAL):
+        """Return the symbol with this label in `scope` or globally, or None.
+
+        An exact match wins; otherwise a label that differs only in case is accepted if it is
+        unique, so "txt_output" still finds the firmware's TXT_OUTPUT.
+        """
+        candidates = [s for s in self._symbols.values() if s.scope in (scope, GLOBAL) and s.label]
+        for symbol in candidates:
+            if symbol.label == label:
                 return symbol
-        return None
+        folded = [s for s in candidates if (s.label or "").lower() == label.lower()]
+        return folded[0] if len(folded) == 1 else None
 
     def symbols(
         self, text: str = "", scope: str | None = None, source: str | None = None

@@ -29,12 +29,13 @@ from cpcxray.debugger.symbols import GLOBAL
 from cpcxray.decoding.shadow_rom import ShadowRom
 from cpcxray.decoding.vortex import DECODERS
 from cpcxray.devices.crtc import Crtc
-from cpcxray.devices.fdc765 import FdcStub
+from cpcxray.devices.fdc765 import Fdc765
 from cpcxray.devices.gate_array import GateArray
 from cpcxray.devices.key_map import KeyMap, KeyMapError
 from cpcxray.devices.keyboard import Keyboard
 from cpcxray.devices.rom_select import RomSelect
 from cpcxray.devices.system_io import DEFAULT_PORT_B, SystemIO
+from cpcxray.disk.dsk import DiskImage, load_image
 from cpcxray.machine.bus import CpcBus
 from cpcxray.machine.config import ConfigError, MachineConfig, RomConfig, read_rom_image
 from cpcxray.machine.memory import MemoryMap, RomSlot
@@ -57,7 +58,7 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
         fdc: µPD765 stub with no drive ready (full controller in phase 10).
         bus: Connects CPU, memory and devices.
         cpu: The Z80.
-        skipped_roms: Configured ROMs that were not installed, with the reason.
+        skipped_roms: Configured ROMs and disk images that were not installed, with the reason.
     """
 
     model = "cpc464"
@@ -78,7 +79,7 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
         self.crtc = Crtc()
         self.rom_select = RomSelect(self.memory.select_upper)
         self.system_io = SystemIO(self.keyboard, self._clock, port_b_constant)
-        self.fdc = FdcStub()
+        self.fdc = Fdc765()
         self.bus = CpcBus(
             self.memory, [self.gate_array, self.crtc, self.rom_select, self.system_io, self.fdc],
             self.gate_array,
@@ -106,6 +107,15 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
         self.skipped_roms = []
         for rom in config.roms():
             self._install_configured(rom)
+        for drive in config.drives.values():
+            if drive.exists:
+                self.insert_disk(drive.drive, load_image(drive.file, drive.writable))
+            else:
+                self.skipped_roms.append(f"drive {drive.drive}: file missing ({drive.file})")
+
+    def insert_disk(self, drive: str, image: DiskImage | None) -> None:
+        """Insert a disk image into drive "A" or "B" (None ejects)."""
+        self.fdc.drives["AB".index(drive.upper())].image = image
 
     def _install_configured(self, rom: RomConfig) -> None:
         """Install one configured ROM (with its decoder), or record why it is skipped."""

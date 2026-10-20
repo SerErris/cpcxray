@@ -12,6 +12,7 @@ import pytest
 from cpcxray.machine.config import load_config
 from cpcxray.machine.cpc464 import CPC464
 from cpcxray.session.session import Session, SessionError
+from tests.vdos import run_until_ready
 
 CONFIG = load_config(Path(__file__).resolve().parents[2] / "config" / "machine.toml")
 pytestmark = pytest.mark.skipif(
@@ -23,7 +24,7 @@ pytestmark = pytest.mark.skipif(
 def fixture_session() -> Session:
     """A CPC 464 booted to BASIC."""
     session = Session(CPC464(CONFIG))
-    session.run(max_us=3_000_000, timeout_s=60)
+    run_until_ready(session)
     return session
 
 
