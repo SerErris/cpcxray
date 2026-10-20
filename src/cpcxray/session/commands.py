@@ -71,17 +71,17 @@ def _execute(command: Callable[[], Any], future: Future[Any]) -> None:
         future.set_exception(error)
 
 
-class SessionWorker:
-    """Runs a session in its own thread and executes commands for other threads."""
+class SessionClient:  # pylint: disable=too-few-public-methods  # one job: call methods
+    """Calls session methods from any thread through a command queue.
 
-    def __init__(self, session: Session) -> None:
-        """Start the worker thread for `session`."""
+    The commands run in whichever thread drains `queue`: the worker thread of `SessionWorker`
+    (headless) or the GUI thread calling `queue.run_pending()` between frames (GUI mode).
+    """
+
+    def __init__(self, session: Session, commands: CommandQueue | None = None) -> None:
+        """Create a client for `session` using `commands` (a new queue by default)."""
         self.session = session
-        self.queue = CommandQueue()
-        self._thread = threading.Thread(
-            target=self.queue.run_until_closed, name="cpcxray-session", daemon=True
-        )
-        self._thread.start()
+        self.queue = commands if commands is not None else CommandQueue()
 
     def call(self, method: str, **arguments: Any) -> Any:
         """Call a public session method with keyword arguments and wait for its result.
@@ -96,6 +96,18 @@ class SessionWorker:
         if method in IMMEDIATE_METHODS:
             return bound(**arguments)
         return self.queue.submit(lambda: bound(**arguments)).result()
+
+
+class SessionWorker(SessionClient):
+    """A `SessionClient` with its own thread that executes the queued commands (headless)."""
+
+    def __init__(self, session: Session) -> None:
+        """Start the worker thread for `session`."""
+        super().__init__(session)
+        self._thread = threading.Thread(
+            target=self.queue.run_until_closed, name="cpcxray-session", daemon=True
+        )
+        self._thread.start()
 
     def close(self) -> None:
         """Stop the worker thread after the queued commands."""

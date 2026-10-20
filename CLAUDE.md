@@ -52,6 +52,7 @@ ruff format                       # format (Markdown is excluded)
 pylint src tests tools            # must rate 10/10; disables only with a stated reason
 cpcxray config                    # show parsed config/machine.toml, missing ROMs, sjasmplus
 cpcxray mcp                       # headless MCP server on stdio (Claude Code: .mcp.json)
+cpcxray gui                       # emulator window; MCP over HTTP on 127.0.0.1:8765 (--mcp-port 0: off)
 CPCXRAY_UPDATE_GOLDEN=1 pytest tests/disasm   # regenerate the disassembler golden listing
 python -m tools.extract_firmware_symbols      # regenerate the 464 firmware jumpblock names
 ```
@@ -94,13 +95,28 @@ Implement strictly one phase of design.md §9 at a time. A phase is finished onl
 milestone tests pass together with the full suite, `ruff check` and `ruff format --check`.
 Do not start the next phase without the owner's go-ahead.
 
-**Status:** Phases 0-4 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
+**Status:** Phases 0-5 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
 pass); CPU validation (ZEXDOC/ZEXALL, z80test); disassembler, CPC RST profile, symbols, Session,
-MCP server; CPC 464 machine booting to "BASIC 1.0 / Ready" (OS, BASIC, AMSDOS). Next: Phase 5
-(renderer and Dear PyGui shell). VDOS (decoder slot) is skipped until phase 7 (owner decision).
+MCP server; CPC 464 booting to "BASIC 1.0 / Ready"; renderer and Dear PyGui window (real time,
+MCP over HTTP). Next: Phase 6 (keyboard: host key mapping, type-text helper). VDOS (decoder
+slot) is skipped until phase 7 (owner decision).
 
 Validation runtimes on CPython (8 cores): z80test ~1 min for all variants; ZEXDOC+ZEXALL ~30 min,
 dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on one core).
+
+## Renderer and GUI notes (phase 5)
+
+- ui/renderer.py: snapshot → RGBA 768 x 272 (mode 2 pixels x scan lines, border included),
+  numpy, no GUI dependency; `double_lines` for the 768 x 544 display. ui/palette.py computes
+  RGB from firmware colour numbers; the firmware→hardware table is checked against the OS ROM.
+- ui/emulation.py `EmulationLoop` (no Dear PyGui): per frame it runs queued commands (MCP over
+  HTTP, D-29) and a real-time slice (or max-speed slices). A breakpoint or an MCP `pause` stops
+  the free run (`Session.pause_generation`).
+- ui/app.py: Dear PyGui window. Never call a dpg function before `dpg.create_context()` - it
+  crashes the process (segfault). Tests open a real window under WSLg (skipped without display).
+- Claude attaches to a running GUI with
+  `claude mcp add --transport http cpcxray-gui http://127.0.0.1:8765/mcp` (not in .mcp.json,
+  because it fails while no GUI is running). `screen_image` returns MCP image content.
 
 ## CPC 464 notes (phase 4)
 

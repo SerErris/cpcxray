@@ -10,9 +10,11 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]
-gui = ["dearpygui", "numpy"]
+gui = ["dearpygui>=2.3,<3", "numpy>=2"]
 mcp = ["mcp>=2.3,<3"]  # MCP 2.x API (MCPServer)
-dev = ["pytest", "ruff", "pylint", "mcp>=2.3,<3"]  # tests cover the MCP server
+dev = [  # tests cover the MCP server, the renderer and the GUI
+    "pytest", "ruff", "pylint", "mcp>=2.3,<3", "dearpygui>=2.3,<3", "numpy>=2",
+]
 
 [project.scripts]
 cpcxray = "cpcxray.cli:main"

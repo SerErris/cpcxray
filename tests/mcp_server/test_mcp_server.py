@@ -194,3 +194,71 @@ def test_milestone_cpcxray_mcp_over_stdio(tmp_path: Path) -> None:
             assert " ".join(lines[0].split()) == "800A 06 03 ld b,#03"
 
     anyio.run(main)
+
+
+def test_screen_image_is_image_content(tmp_path: Path) -> None:
+    """screen_image returns MCP image content (PNG) plus its details as text."""
+    from cpcxray.machine.cpc464 import CPC464  # pylint: disable=import-outside-toplevel
+
+    worker = SessionWorker(Session(CPC464(), project_dir=tmp_path))
+
+    async def main() -> None:
+        """Request a screen image."""
+        async with Client(build_server(worker)) as client:
+            result = await client.call_tool("screen_image", {"path": "shot.png"})
+        assert not result.is_error
+        image, details = result.content
+        assert (image.type, image.mime_type) == ("image", "image/png")
+        assert json.loads(details.text)["width"] == 768
+        assert (tmp_path / "shot.png").read_bytes()[:4] == b"\x89PNG"
+
+    try:
+        anyio.run(main)
+    finally:
+        worker.close()
+
+
+def test_http_transport(tmp_path: Path) -> None:
+    """GUI mode: tools over streamable HTTP, executed by the thread that drains the queue."""
+    import socket  # pylint: disable=import-outside-toplevel
+    import threading  # pylint: disable=import-outside-toplevel
+
+    from cpcxray.mcp_server.server import (  # pylint: disable=import-outside-toplevel
+        serve_http_in_background,
+    )
+    from cpcxray.session.commands import SessionClient  # pylint: disable=import-outside-toplevel
+
+    with socket.socket() as probe:  # find a free port
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    client = SessionClient(Session(project_dir=tmp_path))
+    serve_http_in_background(client, port)
+    stop = threading.Event()
+
+    def drain() -> None:
+        """Stand-in for the GUI thread: execute queued commands between 'frames'."""
+        while not stop.is_set():
+            client.queue.run_pending()
+            stop.wait(0.01)
+
+    threading.Thread(target=drain, daemon=True).start()
+
+    async def main() -> None:
+        """Connect over HTTP and call tools."""
+        for _ in range(50):  # wait for the server to listen
+            try:
+                async with Client(f"http://127.0.0.1:{port}/mcp") as mcp_client:
+                    await mcp_client.call_tool("memory_write", {"address": "8000", "data": "3E05"})
+                    result = await mcp_client.call_tool(
+                        "memory_read", {"address": "8000", "length": 2}
+                    )
+                    assert json.loads(result.content[0].text)["hex"] == "3E05"
+                    return
+            except OSError:
+                await anyio.sleep(0.1)
+        raise AssertionError("HTTP server did not start")
+
+    try:
+        anyio.run(main)
+    finally:
+        stop.set()

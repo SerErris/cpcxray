@@ -7,7 +7,8 @@ Subcommands:
   from the project's .mcp.json. By default it drives a CPC 464 with the ROMs of
   config/machine.toml (`--machine flat` for the bare Z80). Needs the optional dependency `mcp`.
 
-The `gui` subcommand (Dear PyGui frontend) follows in phase 5.
+* `gui`: the Dear PyGui window with a CPC 464 from the configuration; by default it also serves
+  MCP over HTTP on 127.0.0.1:8765 so Claude can attach (`--mcp-port 0` turns that off).
 """
 
 from __future__ import annotations
@@ -47,9 +48,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     )  # fmt: skip
     p_mcp.add_argument("--config", default=DEFAULT_CONFIG, help="machine.toml for cpc464")
 
+    p_gui = sub.add_parser("gui", help="open the emulator window (optionally with MCP over HTTP)")
+    p_gui.add_argument("--project-dir", default=".", help="base directory for relative paths")
+    p_gui.add_argument("--config", default=DEFAULT_CONFIG, help="machine.toml")
+    p_gui.add_argument(
+        "--mcp-port", type=int, default=8765, help="MCP over HTTP on 127.0.0.1 (0: off)"
+    )
+
     args = parser.parse_args(argv)
     if args.command == "config":
         return _cmd_config(args.config)
+    if args.command == "gui":
+        return _cmd_gui(args.project_dir, args.config, args.mcp_port)
     if args.command == "mcp":
         return _cmd_mcp(args.project_dir, args.machine, args.config)
     parser.print_help()
@@ -81,6 +91,28 @@ def _cmd_mcp(project_dir: str, machine_kind: str, config: str) -> int:
             print(f"error: {error}", file=sys.stderr)
             return 1
     run_stdio(project_dir, machine)
+    return 0
+
+
+def _cmd_gui(project_dir: str, config: str, mcp_port: int) -> int:
+    """Run `cpcxray gui`: the emulator window with a CPC 464 from the configuration.
+
+    Returns:
+        0 when the window is closed, 1 if the GUI packages are missing or the config is bad.
+    """
+    try:
+        from cpcxray.session.session import Session  # pylint: disable=import-outside-toplevel
+        from cpcxray.ui.app import App  # pylint: disable=import-outside-toplevel
+    except ImportError as error:
+        print(f"error: {error}; install with: pip install -e '.[gui,mcp]'", file=sys.stderr)
+        return 1
+    config_path = Path(config) if Path(config).is_absolute() else Path(project_dir) / config
+    try:
+        machine = build_cpc464(config_path)
+    except ConfigError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    App(Session(machine, project_dir=project_dir), mcp_port or None).run()
     return 0
 
 

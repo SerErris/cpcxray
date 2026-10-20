@@ -36,6 +36,8 @@ from cpcxray.machine.config import ConfigError
 from cpcxray.machine.cpc464 import CPC464, build_cpc464
 from cpcxray.machine.flat import FlatMachine, Machine
 from cpcxray.machine.screen import FONT_ADDRESS, screen_text
+from cpcxray.ui.png import encode_png
+from cpcxray.ui.renderer import double_lines, render
 
 DEFAULT_TIMEOUT_S = 10.0
 MAX_TIMEOUT_S = 600.0
@@ -92,6 +94,7 @@ class Session:  # pylint: disable=too-many-public-methods  # one method per MCP 
         self.breakpoints = Breakpoints()
         self.trace = Trace()
         self._pause_requested = threading.Event()
+        self.pause_generation = 0  # counts pause() calls; the GUI stops free-running on change
         annotations = self.project_dir / ANNOTATIONS_FILE
         if annotations.exists():
             self.symbols.load(annotations)
@@ -339,6 +342,22 @@ class Session:  # pylint: disable=too-many-public-methods  # one method per MCP 
             raise SessionError(f"slot must be 'lower' or 0-15, got {slot!r}")
         return number
 
+    def screen_image(self, path: str | None = None) -> dict[str, Any]:
+        """Render the CPC screen (with border, scan lines doubled: 768 x 544) as PNG.
+
+        Over MCP the image is returned as image content. With `path` (relative to the project
+        directory, e.g. "output/screen.png") it is also written to that file.
+        """
+        image = double_lines(render(self._cpc().snapshot()))
+        png = encode_png(image)
+        file = None
+        if path:
+            file = self._path(path)
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_bytes(png)
+        height, width = image.shape[:2]
+        return {"width": width, "height": height, "path": str(file) if file else None, "png": png}
+
     def devices_get(self) -> dict[str, Any]:
         """Return the state of Gate Array, CRTC, ROM select, SystemIO and keyboard."""
         return self._cpc().devices()
@@ -456,6 +475,7 @@ class Session:  # pylint: disable=too-many-public-methods  # one method per MCP 
         Safe to call from another thread; has no effect when nothing is running.
         """
         self._pause_requested.set()
+        self.pause_generation += 1
         return {"pause_requested": True}
 
     # == CPU ===================================================================================

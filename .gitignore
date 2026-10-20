@@ -23,3 +23,6 @@ tests/data/external/
 
 # Third-party reference documents kept locally only (linked from docs/design.md §10)
 docs/*.pdf
+
+# Assembled test programs (built by the tests with sjasmplus)
+tests/data/asm/*.bin

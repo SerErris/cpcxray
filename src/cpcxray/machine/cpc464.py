@@ -34,6 +34,7 @@ from cpcxray.devices.system_io import DEFAULT_PORT_B, SystemIO
 from cpcxray.machine.bus import CpcBus
 from cpcxray.machine.config import ConfigError, MachineConfig, RomConfig, read_rom_image
 from cpcxray.machine.memory import MemoryMap, RomSlot
+from cpcxray.ui.renderer import ScreenSnapshot
 
 type SlotName = str | int  # "lower" or an upper slot number 0-15
 
@@ -200,6 +201,15 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
             "screen_mode": self.gate_array.mode,
             "skipped_roms": list(self.skipped_roms),
         }
+
+    def snapshot(self) -> ScreenSnapshot:
+        """Copy RAM, mode, inks and CRTC registers for the renderer (D-13, §6.10)."""
+        return ScreenSnapshot(
+            ram=bytes(self.memory.ram),
+            mode=self.gate_array.mode,
+            inks=tuple(self.gate_array.inks),
+            crtc=tuple(self.crtc.registers),
+        )
 
     def devices(self) -> dict[str, Any]:
         """Return the state of every device (FR-DBG-05)."""

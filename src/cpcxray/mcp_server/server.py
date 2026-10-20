@@ -2,12 +2,15 @@
 
 Tools are generated from the public methods of `Session`: same name, same parameters (with
 their type hints, so the MCP client sees a JSON schema), the method docstring as description.
-Each tool runs its method through the `SessionWorker` command queue in a worker thread, so the
-server stays responsive and `pause` can interrupt a running `run`. Feature parity with the
-session (FR-MCP-02) therefore holds by construction; tests/mcp checks it anyway.
+Each tool runs its method through a `SessionClient` command queue (drained by a worker thread
+headless, by the GUI thread between frames in GUI mode), so the server stays responsive and
+`pause` can interrupt a running `run`. Feature parity with the session (FR-MCP-02) therefore
+holds by construction; tests/mcp_server checks it anyway. Results with PNG data become MCP
+image content.
 
 Transports: stdio for headless mode (`cpcxray mcp`, started by Claude Code from .mcp.json);
-streamable HTTP on 127.0.0.1 for GUI mode follows with the GUI (phase 5).
+streamable HTTP on 127.0.0.1 in GUI mode (`cpcxray gui --mcp-port 8765`), so Claude can attach
+to the instance the owner is using.
 
 Requires the optional dependency `mcp` (`pip install -e ".[mcp]"`).
 """
@@ -16,18 +19,20 @@ from __future__ import annotations
 
 import functools
 import inspect
+import json
+import threading
 import typing
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
 import anyio.to_thread
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from cpcxray import __version__
 from cpcxray.machine.flat import Machine
-from cpcxray.session.commands import SessionWorker
+from cpcxray.session.commands import SessionClient, SessionWorker
 from cpcxray.session.session import Session, SessionError
 
 SERVER_NAME = "cpcxray"
@@ -61,7 +66,7 @@ def _tool_signature(method: Callable[..., Any]) -> inspect.Signature:
     return inspect.Signature(parameters, return_annotation=hints.get("return", Any))
 
 
-def make_tool(worker: SessionWorker, name: str) -> Callable[..., Coroutine[Any, Any, Any]]:
+def make_tool(client: SessionClient, name: str) -> Callable[..., Coroutine[Any, Any, Any]]:
     """Create the async tool function for the session method `name`."""
     method = getattr(Session, name)
 
@@ -72,9 +77,12 @@ def make_tool(worker: SessionWorker, name: str) -> Callable[..., Coroutine[Any, 
         client sees its message; any other exception is reported as an internal error.
         """
         try:
-            return await anyio.to_thread.run_sync(functools.partial(worker.call, name, **arguments))
+            result = await anyio.to_thread.run_sync(
+                functools.partial(client.call, name, **arguments)
+            )
         except SessionError as error:
             raise ToolError(str(error)) from error
+        return to_mcp_content(result)
 
     tool.__name__ = name
     tool.__doc__ = inspect.getdoc(method)
@@ -82,12 +90,23 @@ def make_tool(worker: SessionWorker, name: str) -> Callable[..., Coroutine[Any, 
     return tool
 
 
-def build_server(worker: SessionWorker) -> MCPServer:
-    """Create the MCP server with one tool per session method."""
+def to_mcp_content(result: Any) -> Any:
+    """Convert a session result for MCP: a "png" entry becomes image content (FR-MCP-05).
+
+    Other results are returned unchanged (the SDK serialises them as JSON text).
+    """
+    if isinstance(result, dict) and isinstance(result.get("png"), bytes):
+        details = {key: value for key, value in result.items() if key != "png"}
+        return [Image(data=result["png"], format="png"), json.dumps(details)]
+    return result
+
+
+def build_server(client: SessionClient) -> MCPServer:
+    """Create the MCP server with one tool per session method, executed through `client`."""
     server = MCPServer(SERVER_NAME, instructions=INSTRUCTIONS, version=__version__)
     for name in session_methods():
         server.add_tool(
-            make_tool(worker, name),
+            make_tool(client, name),
             name=name,
             description=inspect.getdoc(getattr(Session, name)),
             structured_output=False,
@@ -107,3 +126,24 @@ def run_stdio(project_dir: str | Path = ".", machine: Machine | None = None) -> 
         build_server(worker).run("stdio")
     finally:
         worker.close()
+
+
+def serve_http_in_background(
+    client: SessionClient, port: int, host: str = "127.0.0.1"
+) -> threading.Thread:
+    """Serve MCP over streamable HTTP in a daemon thread (GUI mode, D-28).
+
+    The tools run through `client`, whose queue the GUI thread drains between frames (D-29).
+    Only localhost is offered: the server can load files and run code.
+
+    Returns:
+        The server thread (it ends with the process).
+    """
+    server = build_server(client)
+    thread = threading.Thread(
+        target=lambda: server.run("streamable-http", host=host, port=port),
+        name="cpcxray-mcp-http",
+        daemon=True,
+    )
+    thread.start()
+    return thread
