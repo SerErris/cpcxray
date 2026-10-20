@@ -88,6 +88,8 @@ SingleStepTests pass) done. Next: Phase 2 (ZEXDOC/ZEXALL, raxoft z80test).
 
 ## Z80 core notes (`src/cpcxray/cpu/`)
 
+- **CPython only** until the final phase: PyPy is deferred to phase 11 (design.md §7, §9), so
+  don't add PyPy environments or PyPy-specific code before then.
 - **Readability over speed**: the Python code is the reference for a later Rust port. Use long,
   descriptive names that say what a variable holds (`displacement`, `target_address`), no
   cryptic micro-optimisations. Hardware register names (`a`, `hl`, `wz`, `i`, `r`) stay.

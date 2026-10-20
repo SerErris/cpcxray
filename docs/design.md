@@ -766,12 +766,13 @@ source generator.
 | Option | Pros | Cons | Verdict |
 |---|---|---|---|
 | Python (CPython) | Owner's preference; fastest development; strong for scripting and analysis; pytest; Dear PyGui | Slowest; CPU between a fraction of and about real CPC speed | **Chosen** |
-| Python on PyPy | Same code, often several times faster for interpreter loops | Dear PyGui not available | For headless CPU test runs (z80test, ZEXALL) |
+| Python on PyPy | Same code, measured ~15× faster on the Z80 core (PyPy 8.0, 2026-10-20) | Dear PyGui not available; second interpreter to maintain | **Deferred to the final phase** (owner decision 2026-10-20): development runs on CPython only; PyPy is taken up again in phase 11 |
 | Python + native CPU core (Rust/PyO3, C++/pybind11, mypyc/Cython) | Native speed where it matters | Second toolchain; harder debugging | Fallback, enabled by the CPU interface (D-01) |
 | C++ / Rust / C# / Go | Speed or safety | Slower development, no owner experience (Rust), no advantage for this tool | Not chosen |
 
 Speed is not critical: most work is stepping and tracing; booting to BASIC takes about 1–2 emulated
-seconds; z80test (minutes on real hardware) runs under PyPy or occasionally in CI.
+seconds; z80test and ZEXALL run on CPython as long background runs until PyPy is taken up in
+phase 11.
 
 **Tooling:** `pyproject.toml` (uv or pip), `pytest`, `ruff`, optionally `mypy`, `dearpygui`,
 `numpy` (renderer), `tomllib`, `mcp` (MCP server), **sjasmplus** (external, on the Linux host, for
@@ -817,7 +818,7 @@ next phase.
 | 8 | Analysis database (save/merge), RST-operand and far-address observers, sjasmplus source generator, round-trip check | **Generated VDOS source reassembles byte-identically** | `source_verify` lists differing addresses |
 | 9 | Full debugger UI: all panels and breakpoint types; `.sna` snapshots | All FR-DBG requirements met | — |
 | 10 | FDC µPD765 and disk images (DSK/EDSK/raw, read/write), drive A: 3", drive B: Vortex 80T DS | AMSDOS `CAT` on A:; Vortex format on B:; VDOS disk code paths reached and decoded | FDC command log in the device view |
-| 11 | Later scope: 6128 RAM banking; PyPy/native CPU if needed | — | — |
+| 11 | Later scope: 6128 RAM banking; **restart on PyPy** (headless runs, CPU validation; GUI stays on CPython), then the native CPU / Rust port if needed | Full test suite and CPU validation pass under PyPy | Compare CPython and PyPy results |
 
 ### 9.1 Repository layout
 
