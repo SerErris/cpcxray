@@ -138,3 +138,21 @@ def test_rom_header() -> None:
     assert header.jumpblock == (6, 9, 12)
     assert header.table_end == 0x28
     assert find_rom_header(plain_view(bytes(image), start=0x4000)) is None
+
+
+def test_static_code_over_operands_read_as_data() -> None:
+    """Operand bytes read as data do not block static code; opcode bytes read as data do."""
+    view = scrambled_view()
+    access = bytearray(view.access or b"")
+    access[0x15] = DATA  # the operand of ld a,#05 was read (e.g. by a catalogue command)
+    image = bytearray(view.image)
+    image[0x15] = 0x05
+    operand_read = TargetView(view.name, view.start, bytes(image), view.raw, bytes(access),
+                              view.decode)  # fmt: skip
+    database = classified(operand_read, starts=[0])
+    assert database.kind_at(0x14) == Kind.INSN_START and database.kind_at(0x15) == Kind.INSN_BODY
+    access[0x14] = DATA  # the opcode byte itself read as data: not code
+    opcode_read = TargetView(view.name, view.start, bytes(image), view.raw, bytes(access),
+                             view.decode)  # fmt: skip
+    database = classified(opcode_read, starts=[0])
+    assert database.kind_at(0x14) == Kind.BYTE_DATA

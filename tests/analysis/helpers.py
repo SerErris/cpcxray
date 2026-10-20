@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-from cpcxray.analysis.classifier import TargetView, build_observed, classify_static
+from cpcxray.analysis.classifier import TargetView, classify_target
 from cpcxray.analysis.cpc_profile import CpcProfile
 from cpcxray.analysis.database import TargetDatabase
 from cpcxray.analysis.provenance import RelocatedBlock
@@ -37,9 +37,7 @@ def classified(
     for offset in starts:
         flags[offset] |= INSN_START
     profile = CpcProfile(image_range=(view.start, view.start + view.length - 1))
-    build_observed(database, view, bytes(flags), profile)
-    if static:
-        classify_static(database, view, profile)
+    classify_target(database, view, bytes(flags), profile, static)
     return database
 
 

@@ -151,7 +151,8 @@ def test_rom_header_rendering(tmp_path: Path) -> None:
     assert result.identical, result.differences
     lines = code_lines(generated.text)
     expected_lines = (
-        "rom_type:", "rom_name_table:", "rom_jumpblock:", "rom_init:", "rsx_cmd:", "rsx_81:",
+        "rom_type:", "rom_name_pointer:", "rom_name_table:", "rom_jumpblock:", "rom_init:",
+        "rsx_cmd:", "rsx_81:",
         'defb "TES","T"+#80', "defw rom_name_table             ; name table",
         'jp rsx_cmd                      ; RSX "CMD"; [static]',
     )  # fmt: skip

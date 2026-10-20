@@ -16,13 +16,17 @@ Classification, in order of strength (owner > observed > static, `Source`):
    kinds mark every byte;
 2. observed (`build_observed`): instruction starts from the target flags (executed directly or
    via a RAM copy), their bodies by disassembly, the inline bytes of RST 1/2/3/5 as
-   RST_OPERAND, recorded far address objects as FAR_ADDR, all other bytes read as data as
-   BYTE_DATA;
+   RST_OPERAND, recorded far address objects as FAR_ADDR;
 3. static (`classify_static`): recursive descent from the observed code and the jumpblock of a
    ROM header, following the control flow incl. the CPC RST flow kinds (D-30). It never
    enters a classified byte, a &FF opcode (§6.15: never code in unknown areas), or a
    non-canonical encoding (unlikely in real code), and stays inside the target and the
-   relocated block it started in.
+   relocated block it started in. Opcode and prefix bytes must be unread (or M1); operand
+   bytes may have been read as data, because operands always are (e.g. a jumpblock whose
+   targets a catalogue command read);
+4. data reads (`mark_data_reads`): all remaining bytes read as data become BYTE_DATA.
+
+`classify_target` runs all steps in this order.
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ from cpcxray.analysis.provenance import RelocatedBlock
 from cpcxray.analysis.targets import INSN_START
 from cpcxray.cpu.disasm import Flow, Instruction, SymbolLookup, disassemble
 from cpcxray.decoding.m1map import FILL_POLICIES
-from cpcxray.decoding.shadow_rom import DATA, UNKNOWN
+from cpcxray.decoding.shadow_rom import DATA, M1, UNKNOWN
 
 PREFIXES = frozenset({0xCB, 0xDD, 0xED, 0xFD})
 RST_OPCODES_WITH_OPERAND = frozenset({0xCF, 0xD7, 0xDF, 0xEF})
@@ -270,10 +274,28 @@ def build_observed(
         if facts.get("far_object") and 0 <= offset <= view.length - 3:
             for index in range(3):
                 database.classify(offset + index, Kind.FAR_ADDR, Source.OBSERVED)
+
+
+def mark_data_reads(database: TargetDatabase, view: TargetView) -> None:
+    """Classify the still unclassified bytes that were read as data as BYTE_DATA (observed)."""
     if view.access is not None:
         for offset, access_class in enumerate(view.access):
             if access_class == DATA and database.sources[offset] == Source.NONE:
                 database.classify(offset, Kind.BYTE_DATA, Source.OBSERVED)
+
+
+def classify_target(
+    database: TargetDatabase,
+    view: TargetView,
+    flags: bytes,
+    profile: CpcProfile,
+    static: bool = True,
+) -> None:
+    """Rebuild the whole classification: owner, observed, static (optional), data reads."""
+    build_observed(database, view, flags, profile)
+    if static:
+        classify_static(database, view, profile)
+    mark_data_reads(database, view)
 
 
 # -- static ----------------------------------------------------------------------------------
@@ -405,9 +427,9 @@ def classify_static(
         if database.kinds[offset] != Kind.UNKNOWN or view.value(offset, as_opcode=True) == 0xFF:
             continue
         instruction = view.disassemble(offset, profile)
-        if instruction.non_canonical or not view.fits(offset, instruction.length):
-            continue
-        if any(database.kinds[offset + i] != Kind.UNKNOWN for i in range(instruction.length)):
+        if instruction.non_canonical or not _static_code_possible(
+            database, view, offset, instruction
+        ):
             continue
         mark_instruction(database, offset, instruction, Source.STATIC)
         found += 1
@@ -422,3 +444,27 @@ def _mark_far_object(database: TargetDatabase, view: TargetView, instruction: In
     if far is not None and all(database.kinds[far + i] == Kind.UNKNOWN for i in range(3)):
         for index in range(3):
             database.classify(far + index, Kind.FAR_ADDR, Source.STATIC)
+
+
+def _static_code_possible(
+    database: TargetDatabase, view: TargetView, offset: int, instruction: Instruction
+) -> bool:
+    """True if a guessed instruction fits: unclassified bytes, opcode bytes not read as data.
+
+    An opcode byte read as data would have to hold two values (§5.5); an operand byte read
+    as data is what executing the instruction does anyway.
+    """
+    if not view.fits(offset, instruction.length):
+        return False
+    opcode_bytes = opcode_byte_count(instruction)
+    for index in range(instruction.length):
+        if database.kinds[offset + index] != Kind.UNKNOWN:
+            return False
+        opcode_read_as_data = (
+            index < opcode_bytes
+            and view.access is not None
+            and view.access[offset + index] not in (UNKNOWN, M1)
+        )
+        if opcode_read_as_data:
+            return False
+    return True

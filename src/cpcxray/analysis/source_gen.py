@@ -229,6 +229,8 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         self.externals: dict[int, str] = {}
         self._boundaries: set[int] = set()
         self._far_starts: set[int] = set()
+        self._access_edges: set[int] = set()
+        self._in_never_read = False
         self._lines: list[str] = []
         self._line_of_offset: list[int] = []
         self._statistics: dict[str, int] = {}
@@ -242,14 +244,18 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         return self.view.name
 
     def _collect_boundaries(self) -> None:
-        """Offsets no item may span: block edges, never-read run edges, header fields."""
+        """Collect the offsets no item may span: block edges and header fields.
+
+        Data lines also split at the edges between read and never-read bytes; instructions
+        may span them (an operand read as data, the opcode never fetched).
+        """
         view = self.view
         for block in view.blocks:
             self._boundaries |= {block.rom_start, block.rom_start + block.length}
         if view.access is not None:
             for offset in range(1, view.length):
                 if (view.access[offset] == UNKNOWN) != (view.access[offset - 1] == UNKNOWN):
-                    self._boundaries.add(offset)
+                    self._access_edges.add(offset)
         if self.header is not None:
             self._boundaries |= {0, 1, 2, 3, 4, 6, self.header.table_end}
             self._boundaries |= {offset for offset, _, _ in self.header.names}
@@ -326,7 +332,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         if self.header is None or offset > 4:
             return None
         if offset == 4:
-            return _Item(4, 2, "header", comment="name table")
+            return _Item(4, 2, "header", comment="name table", forced_label="rom_name_pointer")
         comment = ROM_TYPES.get(self.header.rom_type & 0x7F, "") if offset == 0 else ""
         if offset == 0 and self.header.rom_type & 0x80:
             comment += " (built in)"
@@ -473,6 +479,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         """Emit the item at `index` (a whole data run for data); return the next index."""
         item = self.items[index]
         self._lines += self._before(item.offset)
+        self._lines += self._open_never_read(index)
         if item.kind == "data":
             end = index
             while end + 1 < len(self.items) and self._continues_data(self.items[end + 1], item):
@@ -486,8 +493,50 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
                 self._line_of_offset[offset] = start_line
             following = index + 1
         last = self.items[following - 1]
+        self._lines += self._close_never_read(following)
         self._lines += self._after(last.offset + last.length)
         return following
+
+    def _never_read_item(self, index: int) -> bool:
+        """True if every byte of the item at `index` was never read (scrambled ROMs)."""
+        item = self.items[index]
+        return all(self.view.never_read(o) for o in range(item.offset, item.offset + item.length))
+
+    def _starts_block_section(self, offset: int) -> bool:
+        """True at the start or end of a relocated block (markers do not cross them)."""
+        return any(offset in (b.rom_start, b.rom_start + b.length) for b in self.view.blocks)
+
+    def _open_never_read(self, index: int) -> list[str]:
+        """Open a never-accessed marker before a run of items whose bytes were all unread."""
+        if self._in_never_read or not self._never_read_item(index):
+            return []
+        end = index + 1
+        while (
+            end < len(self.items)
+            and self._never_read_item(end)
+            and not self._starts_block_section(self.items[end].offset)
+        ):
+            end += 1
+        first = self.items[index].offset
+        last = self.items[end - 1].offset + self.items[end - 1].length
+        self._in_never_read = True
+        start, stop = self.view.start + first, self.view.start + last - 1
+        return ["", f"; ---- never accessed: {hex_word(start)}-{hex_word(stop)} "
+                f"({last - first} bytes, fill: {self.fill_policy}) ----"]  # fmt: skip
+
+    def _close_never_read(self, following: int) -> list[str]:
+        """Close the marker when the next item was (partly) read or starts a block section."""
+        if not self._in_never_read:
+            return []
+        at_end = following >= len(self.items)
+        if (
+            at_end
+            or not self._never_read_item(following)
+            or self._starts_block_section(self.items[following].offset)
+        ):
+            self._in_never_read = False
+            return ["; ---- end of never accessed ----", ""]
+        return []
 
     def _continues_data(self, item: _Item, first: _Item) -> bool:
         """True if a data item joins the data run that started with `first`."""
@@ -496,6 +545,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             and item.group == first.group
             and item.offset not in self.labels
             and item.offset not in self._boundaries
+            and item.offset not in self._access_edges
         )
 
     def _file_header(self) -> list[str]:
@@ -520,7 +570,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         return lines
 
     def _before(self, offset: int) -> list[str]:
-        """Markers and directives that open at an offset (block start, never-read run)."""
+        """Directives that open at an offset (start of a relocated block)."""
         lines = []
         view = self.view
         for block in view.blocks:
@@ -533,26 +583,12 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
                     if other.rom_start == block.rom_start and other.ram_start != block.ram_start:
                         lines.append(f"; ---- also copied to RAM {hex_word(other.ram_start)} ----")
                 lines.append(f"{INDENT}DISP {hex_word(block.ram_start)}")
-        if view.never_read(offset) and (offset == 0 or not view.never_read(offset - 1)):
-            end = offset
-            while end < view.length and view.never_read(end):
-                end += 1
-            first, last = view.start + offset, view.start + end - 1
-            lines += ["", f"; ---- never accessed: {hex_word(first)}-{hex_word(last)} "
-                      f"({end - offset} bytes, fill: {self.fill_policy}) ----"]  # fmt: skip
         return lines
 
     def _after(self, end: int) -> list[str]:
-        """Markers and directives that close before offset `end`."""
+        """Directives that close before offset `end` (end of a relocated block)."""
         lines = []
-        view = self.view
-        if (
-            end > 0
-            and view.never_read(end - 1)
-            and (end == view.length or not view.never_read(end))
-        ):
-            lines += ["; ---- end of never accessed ----", ""]
-        for block in view.blocks:
+        for block in self.view.blocks:
             if block.rom_start + block.length == end:
                 lines += [f"{INDENT}ENT", "; ---- end of RAM copy ----", ""]
         return lines

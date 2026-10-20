@@ -22,7 +22,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from cpcxray.analysis.classifier import TargetView, build_observed, classify_static
+from cpcxray.analysis.classifier import TargetView, classify_target
 from cpcxray.analysis.cpc_profile import CpcProfile
 from cpcxray.analysis.database import Kind, TargetDatabase
 from cpcxray.analysis.observers import ExecutionObserver
@@ -523,9 +523,10 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods  # one method pe
         view = self._view(name, conflict)
         database = self.analysis_databases[name]
         profile = CpcProfile(image_range=(view.start, view.start + view.length - 1))
-        build_observed(database, view, bytes(self.analysis_targets[name].flags), profile)
-        if fill_policy == "static" or not view.scrambled:
-            classify_static(database, view, profile)
+        flags = bytes(self.analysis_targets[name].flags)
+        classify_target(
+            database, view, flags, profile, fill_policy == "static" or not view.scrambled
+        )
         return view, database
 
     @staticmethod
@@ -535,8 +536,7 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods  # one method pe
         view = TargetView("rom", 0xC000, image, raw, access_map, vortex_decode)
         database = TargetDatabase("rom", 0xC000, len(raw))
         profile = CpcProfile(image_range=(0xC000, 0xC000 + len(raw) - 1))
-        build_observed(database, view, bytes(len(raw)), profile)
-        classify_static(database, view, profile)
+        classify_target(database, view, bytes(len(raw)), profile)
         return view.final_image(database, "static")
 
     def _merge_database(self, name: str, path: Path) -> None:
