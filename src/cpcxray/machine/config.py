@@ -1,4 +1,18 @@
-"""Machine configuration (design.md §6.14): loading, validation and ROM path handling."""
+"""Machine configuration (design.md §6.14): loading, validation and ROM path handling.
+
+The configuration is a TOML file, normally `config/machine.toml`:
+
+* `[machine]`: model ("464") and the slot that answers for unpopulated ROM numbers (D-10).
+* `[rom.lower]` and `[rom.upper.N]` (N = 0-15): ROM image per slot, optional decoder and
+  decode switch for scrambled ROMs (D-11), `analyse` to make the slot an analysis target
+  (D-16).
+* `[[analysis.ram]]`: RAM-range analysis targets (D-23).
+
+Loading validates everything strictly (unknown keys are errors, to catch typos such as
+`analyze`) and resolves ROM paths. Missing ROM files are not an error: ROM images are not in
+git (NFR-07), so a fresh checkout must still load its config; `MachineConfig.missing_roms()`
+reports them and `read_rom_image()` fails when one is actually needed.
+"""
 
 from __future__ import annotations
 
@@ -8,41 +22,62 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-ROM_SIZE = 0x4000
-UPPER_SLOTS = range(16)
+ROM_SIZE = 0x4000  # every CPC ROM image is 16 KB
+UPPER_SLOTS = range(16)  # upper ROM numbers 0-15 (D-09)
 MEMORY_SIZE = 0x10000
 
-DECODERS = frozenset({"vortex"})
-CAPTURE_MODES = frozenset({"first_m1", "manual"})
-MODELS = frozenset({"464"})
+DECODERS = frozenset({"vortex"})  # known decoders for scrambled ROMs (§5.5)
+CAPTURE_MODES = frozenset({"first_m1", "manual"})  # RAM-target capture moments (D-23)
+MODELS = frozenset({"464"})  # 6128 is later scope (FR-MCH-10)
 
 type Slot = Literal["lower"] | int
+"""A ROM slot: "lower" for the OS ROM, or an upper ROM number 0-15."""
 
 
 class ConfigError(ValueError):
-    """Invalid configuration; the message names the offending key."""
+    """Invalid configuration or unreadable file; the message names the offending key or path."""
 
 
 @dataclass(frozen=True)
 class RomConfig:
+    """Configuration of one ROM slot.
+
+    Attributes:
+        slot: "lower" or the upper ROM number.
+        file: Absolute path of the ROM image (resolved against the project directory).
+        decoder: Name of the decoder for a scrambled ROM (e.g. "vortex"), or None (D-11).
+        decode: Initial state of the decode switch; can be toggled at runtime (D-11).
+        analyse: The slot is an analysis target (D-16).
+    """
+
     slot: Slot
-    file: Path  # absolute, resolved against the project directory
-    decoder: str | None = None  # D-11
-    decode: bool = True  # initial state of the decode switch (D-11)
-    analyse: bool = False  # analysis target (D-16)
+    file: Path
+    decoder: str | None = None
+    decode: bool = True
+    analyse: bool = False
 
     @property
     def exists(self) -> bool:
+        """True if the ROM image file exists."""
         return self.file.is_file()
 
     @property
     def label(self) -> str:
+        """Human-readable slot name: "lower" or "upper N"."""
         return "lower" if self.slot == "lower" else f"upper {self.slot}"
 
 
 @dataclass(frozen=True)
 class RamTargetConfig:
-    """RAM-range analysis target (D-23)."""
+    """A RAM-range analysis target (D-23).
+
+    Attributes:
+        name: Name of the target, used for its analysis files.
+        start: First address of the range.
+        length: Length in bytes; the range ends within 64 KB.
+        capture: When the image is captured: at the first M1 fetch inside the range
+            ("first_m1") or only on command ("manual").
+    """
 
     name: str
     start: int
@@ -52,32 +87,53 @@ class RamTargetConfig:
 
 @dataclass(frozen=True)
 class MachineConfig:
+    """A loaded and validated machine configuration.
+
+    Attributes:
+        project_dir: Directory that relative paths are resolved against.
+        model: Machine model; only "464" for now.
+        unpopulated_rom: Slot that answers when an unpopulated ROM number is selected (D-10).
+        lower_rom: The OS ROM, or None if not configured.
+        upper_roms: Upper ROM slots by number.
+        ram_targets: RAM-range analysis targets.
+        source: Path of the config file this was loaded from, if any.
+    """
+
     project_dir: Path
     model: str = "464"
-    unpopulated_rom: int = 0  # D-10
+    unpopulated_rom: int = 0
     lower_rom: RomConfig | None = None
     upper_roms: dict[int, RomConfig] = field(default_factory=dict)
     ram_targets: tuple[RamTargetConfig, ...] = ()
     source: Path | None = None
 
     def roms(self) -> list[RomConfig]:
+        """Return all configured ROMs: the lower ROM first, then upper slots by number."""
         lower = [self.lower_rom] if self.lower_rom is not None else []
         return lower + [self.upper_roms[n] for n in sorted(self.upper_roms)]
 
     def analysis_targets(self) -> list[RomConfig]:
-        """ROM slots marked `analyse = true`; nothing else is analysed (FR-ANA-01)."""
+        """Return the ROM slots marked `analyse = true`; nothing else is analysed (FR-ANA-01)."""
         return [rom for rom in self.roms() if rom.analyse]
 
     def missing_roms(self) -> list[RomConfig]:
-        """Configured ROMs whose file does not exist (ROMs are not in git, NFR-07)."""
+        """Return the configured ROMs whose file does not exist (ROMs are not in git, NFR-07)."""
         return [rom for rom in self.roms() if not rom.exists]
 
 
 def load_config(path: str | Path, project_dir: str | Path | None = None) -> MachineConfig:
-    """Load a machine.toml.
+    """Load and validate a machine.toml.
 
-    Relative ROM paths resolve against `project_dir`, which defaults to the parent of the
-    config file's directory (the config lives in `<project>/config/`).
+    Args:
+        path: The config file.
+        project_dir: Directory for relative ROM paths. Defaults to the parent of the config
+            file's directory, because the config lives in `<project>/config/`.
+
+    Returns:
+        The validated configuration.
+
+    Raises:
+        ConfigError: If the file cannot be read, is not valid TOML or fails validation.
     """
     path = Path(path).resolve()
     try:
@@ -94,6 +150,19 @@ def load_config(path: str | Path, project_dir: str | Path | None = None) -> Mach
 def parse_config(
     data: Mapping[str, Any], project_dir: Path, source: Path | None = None
 ) -> MachineConfig:
+    """Validate parsed TOML data and build a `MachineConfig`.
+
+    Args:
+        data: The parsed TOML document.
+        project_dir: Directory for relative ROM paths.
+        source: Config file path, recorded in the result for messages.
+
+    Returns:
+        The validated configuration.
+
+    Raises:
+        ConfigError: On unknown keys, wrong types or values out of range.
+    """
     _check_keys(data, {"machine", "rom", "analysis"}, "")
 
     machine = _table(data, "machine", "")
@@ -115,7 +184,7 @@ def parse_config(
     for key, value in _table(rom, "upper", "rom").items():
         where = f"rom.upper.{key}"
         try:
-            slot = int(key)
+            slot = int(key)  # TOML table keys are strings
         except ValueError:
             raise ConfigError(f"{where}: slot must be a number 0-15") from None
         if slot not in UPPER_SLOTS:
@@ -143,7 +212,17 @@ def parse_config(
 
 
 def read_rom_image(path: str | Path) -> bytes:
-    """Read a 16 KB ROM image."""
+    """Read a ROM image and check that it is exactly 16 KB.
+
+    Args:
+        path: The ROM file.
+
+    Returns:
+        The 16,384 bytes of the image.
+
+    Raises:
+        ConfigError: If the file cannot be read or has the wrong size.
+    """
     path = Path(path)
     try:
         data = path.read_bytes()
@@ -155,6 +234,20 @@ def read_rom_image(path: str | Path) -> bytes:
 
 
 def _parse_rom(t: Mapping[str, Any], slot: Slot, where: str, project_dir: Path) -> RomConfig:
+    """Validate one `[rom.*]` table.
+
+    Args:
+        t: The table.
+        slot: The slot it configures.
+        where: Key path for error messages, e.g. "rom.upper.5".
+        project_dir: Directory for a relative `file`.
+
+    Returns:
+        The ROM slot configuration; `decode` defaults to true, `analyse` to false.
+
+    Raises:
+        ConfigError: If `file` is missing, a key is unknown or a value has the wrong type.
+    """
     _check_keys(t, {"file", "decoder", "decode", "analyse"}, where)
     if "file" not in t:
         raise ConfigError(f"{where}.file: missing")
@@ -174,6 +267,18 @@ def _parse_rom(t: Mapping[str, Any], slot: Slot, where: str, project_dir: Path) 
 
 
 def _parse_ram(t: object, where: str) -> RamTargetConfig:
+    """Validate one `[[analysis.ram]]` entry.
+
+    Args:
+        t: The entry (should be a table).
+        where: Key path for error messages, e.g. "analysis.ram[0]".
+
+    Returns:
+        The RAM target; `capture` defaults to "first_m1".
+
+    Raises:
+        ConfigError: On missing keys, wrong types, or a range outside 64 KB.
+    """
     if not isinstance(t, dict):
         raise ConfigError(f"{where}: expected a table")
     _check_keys(t, {"name", "start", "length", "capture"}, where)
@@ -194,6 +299,11 @@ def _parse_ram(t: object, where: str) -> RamTargetConfig:
 
 
 def _table(t: Mapping[str, Any], key: str, where: str) -> Mapping[str, Any]:
+    """Return the sub-table `t[key]`, or an empty table if absent.
+
+    Raises:
+        ConfigError: If the value exists but is not a table.
+    """
     value = t.get(key, {})
     if not isinstance(value, dict):
         raise ConfigError(f"{_join(where, key)}: expected a table")
@@ -201,18 +311,30 @@ def _table(t: Mapping[str, Any], key: str, where: str) -> Mapping[str, Any]:
 
 
 def _get[T](t: Mapping[str, Any], key: str, kind: type[T], where: str, default: T) -> T:
+    """Return `t[key]` (or `default`) after checking that it has type `kind`.
+
+    Booleans are rejected where an int is expected, although bool is a subclass of int.
+
+    Raises:
+        ConfigError: If the value has the wrong type.
+    """
     value = t.get(key, default)
-    # bool is a subclass of int; reject it where an int is expected
     if not isinstance(value, kind) or (kind is int and isinstance(value, bool)):
         raise ConfigError(f"{_join(where, key)}: expected {kind.__name__}, got {value!r}")
     return value
 
 
 def _check_keys(t: Mapping[str, Any], allowed: set[str], where: str) -> None:
+    """Reject keys of `t` that are not in `allowed` (catches typos in the config).
+
+    Raises:
+        ConfigError: Listing the unknown keys.
+    """
     unknown = sorted(set(t) - allowed)
     if unknown:
         raise ConfigError(f"{where or 'top level'}: unknown key(s) {', '.join(unknown)}")
 
 
 def _join(where: str, key: str) -> str:
+    """Join a key path and a key for error messages ("rom" + "lower" → "rom.lower")."""
     return f"{where}.{key}" if where else key

@@ -22,14 +22,17 @@ DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "external" / "singlest
 _KEYS = {
     "a": "a", "f": "f", "b": "b", "c": "c", "d": "d", "e": "e", "h": "h", "l": "l",
     "i": "i", "r": "r", "pc": "pc", "sp": "sp", "wz": "wz", "ix": "ix", "iy": "iy",
-    "af_": "af_", "bc_": "bc_", "de_": "de_", "hl_": "hl_", "im": "im", "q": "q",
-    "iff1": "iff1", "iff2": "iff2", "ei": "ei_delay", "p": "p",
+    "af_": "af_", "bc_": "bc_", "de_": "de_", "hl_": "hl_", "im": "im",
+    "iff1": "iff1", "iff2": "iff2", "ei": "ei_delay",
+    "q": "flags_written_by_last_instruction",  # hidden flag latch "Q"
+    "p": "last_instruction_was_ld_a_i_or_r",  # "P" in the test data
 }  # fmt: skip
 
 type ExpectedAccess = tuple[Cycle | None, int, int]  # kind None: M1 or read, ambiguous
 
 
 def data_files() -> list[Path]:
+    """Return the SingleStepTests JSON files (one per opcode), sorted; empty if not fetched."""
     return sorted(DATA_DIR.glob("*.json"))
 
 
@@ -40,18 +43,28 @@ def limit_per_file() -> int | None:
 
 
 def load(path: Path) -> list[dict[str, Any]]:
+    """Load one SingleStepTests file: 1000 test dicts (name, initial, final, cycles, ports)."""
     with path.open() as f:
         return json.load(f)
 
 
 class _TestBus(FlatBus):
+    """FlatBus with logging whose IN results are the values listed in the test's "ports"."""
+
     def __init__(self) -> None:
+        """Create a logging bus; IN returns `port_values` in order (&FF when empty)."""
         super().__init__(log=True)
         self.port_values: list[int] = []
         self.on_in = lambda port: self.port_values.pop(0) if self.port_values else 0xFF
 
 
 def expected_accesses(test: dict[str, Any]) -> list[ExpectedAccess]:
+    """Derive the expected bus accesses from a test's per-half-T-state `cycles` samples.
+
+    Returns:
+        (kind, address, value) per access in order. kind is None where an M1 fetch and an
+        ordinary read cannot be told apart (the read address equals the refresh address).
+    """
     init = test["initial"]
     i, r = init["i"], init["r"]
     m1_count = 0
@@ -85,6 +98,7 @@ class Runner:
     """Runs tests on one reused CPU and bus (building a CPU is the expensive part)."""
 
     def __init__(self) -> None:
+        """Create the reused bus and CPU."""
         self.bus = _TestBus()
         self.cpu = Z80(self.bus)
 
@@ -102,7 +116,13 @@ class Runner:
         cpu.int_line = False
         for key, attr in _KEYS.items():
             v = init[key]
-            setattr(cpu, attr, bool(v) if attr in ("iff1", "iff2", "ei_delay", "p") else v)
+            setattr(
+                cpu,
+                attr,
+                bool(v)
+                if attr in ("iff1", "iff2", "ei_delay", "last_instruction_was_ld_a_i_or_r")
+                else v,
+            )
         for addr, v in init["ram"]:
             bus.mem[addr] = v
 
@@ -123,6 +143,7 @@ class Runner:
 
 
 def _accesses_match(got: list[Access], want: list[ExpectedAccess]) -> bool:
+    """Compare logged accesses with the expected ones (kind None accepts M1 or MEM_RD)."""
     if len(got) != len(want):
         return False
     for (gk, ga, gv), (wk, wa, wv) in zip(got, want, strict=True):
@@ -137,4 +158,5 @@ def _accesses_match(got: list[Access], want: list[ExpectedAccess]) -> bool:
 
 
 def _fmt(accesses: list[Access] | list[ExpectedAccess]) -> str:
+    """Format accesses compactly for failure messages, e.g. `M1:1234=3E MEM_RD:1235=05`."""
     return " ".join(f"{k.name if k is not None else 'RD?'}:{a:04X}={v:02X}" for k, a, v in accesses)

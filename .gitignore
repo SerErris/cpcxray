@@ -20,3 +20,6 @@ output/*
 
 # External test vectors (tools/fetch_test_data.sh)
 tests/data/external/
+
+# Third-party reference documents kept locally only (linked from docs/design.md §10)
+docs/*.pdf

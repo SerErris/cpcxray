@@ -33,7 +33,10 @@ line-length = 100
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"  # every module, class and function gets a docstring
 
 [tool.ruff.format]
 exclude = ["*.md"]  # design docs contain illustrative, hand-aligned snippets

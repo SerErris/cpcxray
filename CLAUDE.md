@@ -66,6 +66,11 @@ Tests that need external data skip when it is missing.
 ## Conventions
 
 - Python 3.12+, type hints on all functions; dataclasses for plain data.
+- **Every module, class and function has a docstring** (Google style: summary line, then
+  Args/Returns/Raises where useful), including private helpers, test functions and the
+  nested opcode-handler closures. Ruff's `D` rules enforce it for public items; keep the
+  rest documented by hand. Docstrings explain behaviour and the "why" (bus order, flags,
+  MEMPTR, design decision IDs), not the obvious.
 - `ruff check` and `ruff format --check` must be clean; pytest for all tests.
 - Every component testable in isolation and headless (NFR-04, NFR-06).
 - **No ROM images in git** (NFR-07). ROM paths always come from the config; tests that need real
@@ -83,10 +88,16 @@ SingleStepTests pass) done. Next: Phase 2 (ZEXDOC/ZEXALL, raxoft z80test).
 
 ## Z80 core notes (`src/cpcxray/cpu/`)
 
-- `z80.py`: handlers are closures built per CPU instance from the x/y/z opcode decoding; DD/FD
-  tables come from the same factories with IX/IY in place of HL. Registers live in `cpu.r8`
-  (indices B C D E H L F A IXH IXL IYH IYL); named properties (`cpu.hl`, `cpu.ix`, ...) and
-  `registers()` / `set_registers()` for the debugger.
-- `step()` returns the cost in CPC NOPs from `timing.py` (D-04). Building a `Z80` is expensive
-  (~2000 closures): reuse instances in loops.
+- **Readability over speed**: the Python code is the reference for a later Rust port. Use long,
+  descriptive names that say what a variable holds (`displacement`, `target_address`), no
+  cryptic micro-optimisations. Hardware register names (`a`, `hl`, `wz`, `i`, `r`) stay.
+- `z80.py`: handlers are closures built per CPU instance by decoding the opcode bit fields
+  (`group`, `bits_5_3`, `bits_2_0`); DD/FD tables come from the same factories with IX/IY in
+  place of HL. 8-bit registers live in the list `cpu.byte_registers` (indices B C D E H L F A
+  IXH IXL IYH IYL); named properties (`cpu.hl`, `cpu.ix`, ...) and `registers()` /
+  `set_registers()` serve the debugger.
+- `step()` returns the cost in CPC NOPs from `timing.py` (D-04), verified against
+  the CPC timing cheat sheet (https://www.cpcwiki.eu/imgs/b/b4/Z80_CPC_Timings_cheat_sheet.20230709.pdf;
+  third-party, not committed). Building a `Z80` is expensive (~2000 closures): reuse
+  instances in loops.
 - After a bus swaps its methods (observers, D-12) call `cpu.rebind_bus()`.

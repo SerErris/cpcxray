@@ -1,4 +1,8 @@
-"""Command line entry point `cpcxray`."""
+"""Command line entry point `cpcxray` (console script, see pyproject.toml).
+
+Subcommands so far: `config` (load and check a machine configuration). Later phases add `mcp`
+(headless MCP server over stdio) and `gui` (Dear PyGui frontend), see design.md §6.16.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +18,14 @@ DEFAULT_CONFIG = "config/machine.toml"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Parse the command line and run the selected subcommand.
+
+    Args:
+        argv: Arguments without the program name; defaults to `sys.argv[1:]`.
+
+    Returns:
+        The process exit code (0 on success).
+    """
     parser = argparse.ArgumentParser(prog="cpcxray", description=__doc__)
     parser.add_argument("--version", action="version", version=f"cpcxray {__version__}")
     sub = parser.add_subparsers(dest="command")
@@ -28,6 +40,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _cmd_config(path: str) -> int:
+    """Run `cpcxray config`: load the config and print a summary.
+
+    Args:
+        path: The config file.
+
+    Returns:
+        0 on success, 1 if the config is invalid (the error goes to stderr).
+    """
     try:
         cfg = load_config(path)
     except ConfigError as e:
@@ -38,6 +58,7 @@ def _cmd_config(path: str) -> int:
 
 
 def _print_config(cfg: MachineConfig) -> None:
+    """Print the config: slots with file status and flags, RAM targets, sjasmplus location."""
     print(f"config:      {cfg.source}")
     print(f"project dir: {cfg.project_dir}")
     print(f"model:       CPC {cfg.model}, unpopulated ROM -> slot {cfg.unpopulated_rom}")

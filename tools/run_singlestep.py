@@ -19,6 +19,11 @@ _runner: singlestep.Runner | None = None
 
 
 def _run_file(job: tuple[Path, int | None, int]) -> tuple[str, int, int, list[str]]:
+    """Run the tests of one opcode file in a worker process.
+
+    Returns:
+        (file stem, tests run, tests failed, up to `show` failure descriptions).
+    """
     global _runner
     if _runner is None:
         _runner = singlestep.Runner()
@@ -36,6 +41,11 @@ def _run_file(job: tuple[Path, int | None, int]) -> tuple[str, int, int, list[st
 
 
 def main() -> int:
+    """Run the selected files in parallel and print progress and failures.
+
+    Returns:
+        0 if all tests passed, 1 on failures, 2 if the test data is missing.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("patterns", nargs="*", help="file name globs, e.g. 'ed b*'")
     parser.add_argument("--limit", type=int, default=None, help="tests per file")

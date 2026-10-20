@@ -1,3 +1,5 @@
+"""Tests for the machine configuration loader (design.md §6.14)."""
+
 from pathlib import Path
 
 import pytest
@@ -20,6 +22,7 @@ file = "roms/os.rom"
 
 
 def write_config(tmp_path: Path, text: str) -> Path:
+    """Write `text` to `<tmp_path>/config/machine.toml` and return its path."""
     cfg_dir = tmp_path / "config"
     cfg_dir.mkdir(exist_ok=True)
     path = cfg_dir / "machine.toml"
@@ -28,6 +31,7 @@ def write_config(tmp_path: Path, text: str) -> Path:
 
 
 def test_repo_config_loads() -> None:
+    """The repository's config/machine.toml loads with the slots of §6.14."""
     cfg = load_config(REPO_CONFIG)
     assert cfg.model == "464"
     assert cfg.unpopulated_rom == 0
@@ -44,12 +48,13 @@ def test_repo_config_loads() -> None:
 
 
 def test_only_marked_targets_are_analysed() -> None:
-    # FR-ANA-01 / D-16: the default config marks only VDOS
+    """Only slots marked analyse = true are analysis targets (FR-ANA-01, D-16)."""
     cfg = load_config(REPO_CONFIG)
     assert [rom.slot for rom in cfg.analysis_targets()] == [5]
 
 
 def test_defaults(tmp_path: Path) -> None:
+    """Omitted settings get their defaults."""
     cfg = load_config(write_config(tmp_path, MINIMAL))
     assert cfg.model == "464"
     assert cfg.unpopulated_rom == 0
@@ -64,6 +69,7 @@ def test_defaults(tmp_path: Path) -> None:
 
 
 def test_relative_paths_resolve_against_project_dir(tmp_path: Path) -> None:
+    """Relative ROM paths resolve against the parent of the config directory."""
     cfg = load_config(write_config(tmp_path, MINIMAL))
     assert cfg.project_dir == tmp_path
     assert cfg.lower_rom is not None
@@ -71,6 +77,7 @@ def test_relative_paths_resolve_against_project_dir(tmp_path: Path) -> None:
 
 
 def test_project_dir_override(tmp_path: Path) -> None:
+    """An explicit project_dir overrides the default base for ROM paths."""
     other = tmp_path / "elsewhere"
     cfg = load_config(write_config(tmp_path, MINIMAL), project_dir=other)
     assert cfg.lower_rom is not None
@@ -78,12 +85,14 @@ def test_project_dir_override(tmp_path: Path) -> None:
 
 
 def test_absolute_path_kept(tmp_path: Path) -> None:
+    """Absolute ROM paths are used unchanged."""
     rom = tmp_path / "abs.rom"
     cfg = load_config(write_config(tmp_path, f'[rom.upper.3]\nfile = "{rom}"\n'))
     assert cfg.upper_roms[3].file == rom
 
 
 def test_missing_roms_reported_not_raised(tmp_path: Path) -> None:
+    """A missing ROM file does not fail loading; missing_roms() lists it."""
     (tmp_path / "roms").mkdir()
     (tmp_path / "roms" / "basic.rom").write_bytes(bytes(ROM_SIZE))
     text = MINIMAL + '[rom.upper.0]\nfile = "roms/basic.rom"\n'
@@ -93,6 +102,7 @@ def test_missing_roms_reported_not_raised(tmp_path: Path) -> None:
 
 
 def test_ram_target(tmp_path: Path) -> None:
+    """RAM targets parse hex integers and default capture to first_m1."""
     text = """
 [[analysis.ram]]
 name = "loader"
@@ -142,21 +152,25 @@ capture = "manual"
     ],
 )
 def test_validation_errors(tmp_path: Path, text: str, match: str) -> None:
+    """Invalid settings raise ConfigError naming the offending key."""
     with pytest.raises(ConfigError, match=match):
         load_config(write_config(tmp_path, text))
 
 
 def test_invalid_toml(tmp_path: Path) -> None:
+    """A TOML syntax error raises ConfigError."""
     with pytest.raises(ConfigError):
         load_config(write_config(tmp_path, "[machine\n"))
 
 
 def test_missing_config_file(tmp_path: Path) -> None:
+    """A missing config file raises ConfigError."""
     with pytest.raises(ConfigError, match="cannot read config"):
         load_config(tmp_path / "nope.toml")
 
 
 def test_read_rom_image(tmp_path: Path) -> None:
+    """read_rom_image accepts exactly 16 KB and reports wrong sizes and missing files."""
     good = tmp_path / "good.rom"
     good.write_bytes(bytes(range(256)) * (ROM_SIZE // 256))
     assert read_rom_image(good) == good.read_bytes()

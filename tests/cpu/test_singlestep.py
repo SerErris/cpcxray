@@ -22,6 +22,7 @@ _runner = Runner() if FILES else None
 
 @pytest.mark.parametrize("path", FILES, ids=[f.stem for f in FILES])
 def test_opcode_file(path: Path) -> None:
+    """All (or the first CPCXRAY_SST) tests of one opcode file pass: state, RAM, bus accesses."""
     assert _runner is not None
     failures = []
     for test in load(path)[: limit_per_file()]:

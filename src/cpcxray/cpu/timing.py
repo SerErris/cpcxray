@@ -2,13 +2,21 @@
 
 On the CPC the Gate Array stretches every instruction to a whole number of NOPs. These tables
 give that cost per opcode; conditional instructions have a separate cost when the condition is
-taken, repeating block instructions when they repeat. The values follow the commonly published
-CPC timing tables; the emulator only needs them to be good enough for the firmware (NFR-03).
+taken, repeating block instructions when they repeat. The handlers in `cpcxray.cpu.z80` look
+the costs up once, when they are built, and return them from every execution.
+
+Source: "Z80 timings on Amstrad CPC - Cheat sheet" V1.3 (2023-07-09, CPCWiki, measured
+values from cpctech instrtim.html, listed in design.md §10):
+https://www.cpcwiki.eu/imgs/b/b4/Z80_CPC_Timings_cheat_sheet.20230709.pdf
+Every entry was checked against it; `tests/cpu/test_z80.py::test_timing` pins one case per
+sheet entry. Exact values only matter for delay loops and interrupt spacing; the emulator is not
+cycle exact (NFR-03).
 """
 
 from __future__ import annotations
 
-# Unprefixed opcodes; for conditional instructions the not-taken cost.
+# Unprefixed opcodes, indexed by opcode; for conditional instructions the not-taken
+# cost. Prefix bytes (CB, DD, ED, FD) are 0: their cost comes from the prefixed tables.
 # fmt: off
 MAIN: tuple[int, ...] = (
     # 0 1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
@@ -39,18 +47,40 @@ for _op in range(0xC0, 0x100, 8):
 
 
 def cb(op: int) -> int:
-    """CB-prefixed opcodes."""
+    """Return the cost of a CB-prefixed opcode.
+
+    Args:
+        op: The opcode byte after CB.
+
+    Returns:
+        2 for register operands, 3 for BIT n,(HL), 4 for rotate/shift/RES/SET (HL).
+    """
     if op & 7 != 6:
         return 2
     return 3 if op >> 6 == 1 else 4  # BIT b,(HL) / rotate, RES, SET (HL)
 
 
 def index_cb(op: int) -> int:
-    """DD CB d op / FD CB d op."""
+    """Return the cost of DD CB d op / FD CB d op.
+
+    Args:
+        op: The final opcode byte.
+
+    Returns:
+        6 for BIT n,(IX+d), 7 for all other forms.
+    """
     return 6 if op >> 6 == 1 else 7
 
 
 def _ed(op: int) -> int:
+    """Return the cost of an ED-prefixed opcode (used to build `ED`).
+
+    Args:
+        op: The opcode byte after ED.
+
+    Returns:
+        The cost in NOPs; block instructions give the cost of their final iteration.
+    """
     if 0x40 <= op < 0x80:
         z = op & 7
         if z in (0, 1, 2):  # IN r,(C) / OUT (C),r / ADC/SBC HL,rr
@@ -63,10 +93,8 @@ def _ed(op: int) -> int:
             y = (op >> 3) & 7
             return (3, 3, 3, 3, 5, 5, 2, 2)[y]  # LD I,A .. LD A,R, RRD, RLD, NOP
         return 2  # NEG, IM
-    if op in (0xA0, 0xA2, 0xA3, 0xA8, 0xAA, 0xAB, 0xB0, 0xB2, 0xB3, 0xB8, 0xBA, 0xBB):
-        return 5  # LDI/INI/OUTI and variants, block forms when they finish
-    if op in (0xA1, 0xA9, 0xB1, 0xB9):
-        return 4  # CPI/CPD, CPIR/CPDR when they finish
+    if 0xA0 <= op <= 0xBB and op & 7 <= 3:
+        return 5  # LDI CPI INI OUTI, D variants, IR/DR forms on their last iteration
     return 2  # undefined ED opcodes act as 2-NOP no-ops
 
 
@@ -83,13 +111,26 @@ INDEXED_MEMORY: frozenset[int] = frozenset(
 
 
 def index_extra(op: int) -> int:
-    """Extra cost of a DD/FD prefix on top of the unprefixed opcode."""
+    """Return the extra cost of a DD/FD prefix on top of the unprefixed opcode.
+
+    Args:
+        op: The opcode byte after DD/FD.
+
+    Returns:
+        3 when (HL) becomes (IX+d)/(IY+d) (displacement read and address calculation),
+        2 for POP IX/IY (measured: 5 NOPs against 3 for POP HL), otherwise 1 (the prefix).
+    """
+    if op == 0xE1:
+        return 2
     return 3 if op in INDEXED_MEMORY else 1
 
 
 # Interrupt acceptance (instruction boundary only).
-INT_IM0 = 5  # plus nothing: the RST on the data bus is included
-INT_IM1 = 5
-INT_IM2 = 7
-NMI = 4
+INT_IM0 = 5  # acknowledge plus the RST taken from the data bus
+INT_IM1 = 5  # acknowledge plus call to &0038 (the CPC firmware uses IM 1)
+INT_IM2 = 7  # acknowledge, push, read the vector from I:data (see note below)
+# The cheat sheet lists "Mode 2: 19", which matches the 19 T-states of an IM 2 response
+# rather than NOPs; 7 NOPs is an estimate (19 T-states plus wait-state alignment). The CPC
+# firmware runs in IM 1, so this value only matters for programs that switch to IM 2.
+NMI = 4  # call to &0066
 HALT_IDLE = 1  # one NOP per step while halted

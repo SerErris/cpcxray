@@ -863,5 +863,7 @@ cpcxray/
 - CPCWiki: CRTC, 8255 PPI, AY-3-8912, µPD765, I/O port summary
 - CPC Firmware Guide (SOFT 158/968): restarts (LOW JUMP, SIDE CALL, FAR CALL, FIRM JUMP), KL LOW PCHL
 - sjasmplus documentation: https://z00m128.github.io/sjasmplus/documentation.html
+- Z80 timings on Amstrad CPC, cheat sheet V1.3 (CPCWiki, 2023-07-09), basis of the NOP timing
+  table (D-04): https://www.cpcwiki.eu/imgs/b/b4/Z80_CPC_Timings_cheat_sheet.20230709.pdf
 - `docs/vortex_decrypt.md` — VDOS scrambling rule and M1 behaviour (normative parts: §5.5)
 - `docs/cpc_rst.md` — CPC RST instructions and output format (RST 1 bits per §5.6)
