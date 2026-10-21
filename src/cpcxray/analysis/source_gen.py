@@ -20,12 +20,14 @@ from the trace, D-31) and the final clear image (`TargetView.resolve`):
 A ROM header at &C000 gets its own labels (`rom_type` … `rom_name_table`, `rom_jumpblock`)
 and the jumpblock entries the RSX names as comments and labels (`rom_init`, `rsx_<name>`).
 
-Labels exist only where a line starts: owner/firmware symbols of the address, else names by
-use: `ram_xxxx` inside a relocated block, `far_xxxx` for far address objects, `sub_xxxx` for
-call targets, `l_xxxx` for jump targets, `d_xxxx` for other referenced addresses. A reference
-to an address that is not a line start is written in hex; a reference to an address outside
-the source that has a global (firmware or owner) symbol uses it, defined by an `EQU`. A label
-always has the value of the number it replaces, so the bytes stay the same.
+Labels exist only where a line starts: the owner's label of the address first (it replaces an
+`rsx_<name>`; the jumpblock comment keeps the RSX name), then header names and firmware symbols,
+else names by use: `ram_xxxx` inside a relocated block, `far_xxxx` for far address objects,
+`sub_xxxx` for call targets, `l_xxxx` for jump targets, `d_xxxx` for other referenced addresses.
+Owner comments go to the end of the line; a commented data byte starts a new data line. A
+reference to an address that is not a line start is written in hex; a reference to an address
+outside the source that has a global (firmware or owner) symbol uses it, defined by an `EQU`. A
+label always has the value of the number it replaces, so the bytes stay the same.
 
 Immediate loads `ld rr,nn` get a label only where the value is an address (analysis/operands.py):
 the code after the load uses it as one (LDIR's HL/DE, `(hl)`, ...), or - without evidence - it
@@ -64,7 +66,7 @@ from cpcxray.analysis.operands import Role, immediate_role, loaded_pair
 from cpcxray.analysis.provenance import RelocatedBlock
 from cpcxray.cpu.disasm import Flow, Instruction, hex_byte, hex_word
 from cpcxray.debugger.firmware_symbols import FIRMWARE_464
-from cpcxray.debugger.symbols import GLOBAL, SymbolTable
+from cpcxray.debugger.symbols import GLOBAL, Symbol, SymbolTable
 from cpcxray.decoding.shadow_rom import ERROR, UNKNOWN
 
 INDENT = " " * 8
@@ -190,11 +192,14 @@ def _byte_lines(start: int, end: int) -> list[tuple[int, int, bool]]:
 
 
 def _format_line(text: str, comment: str = "", label: str | None = None) -> list[str]:
-    """Format one source line (label on its own line, comment at COMMENT_COLUMN)."""
+    """Format one source line (label on its own line, comment at COMMENT_COLUMN).
+
+    A line longer than the column keeps one space before the comment.
+    """
     lines = [f"{label}:"] if label else []
     line = INDENT + text
     if comment:
-        line = f"{line:<{COMMENT_COLUMN}}; {comment}"
+        line = f"{line:<{COMMENT_COLUMN - 1}} ; {comment}"
     lines.append(line.rstrip())
     return lines
 
@@ -424,8 +429,10 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         names = self._header_names()
         used_names: set[str] = set()
         for item in self.items:
-            name = item.forced_label or names.get(item.offset)
-            name = name or self._symbol_label(item.offset) or self._generated_label(item, uses)
+            owner = self._owner_symbol(item.offset)  # the owner's name wins over RSX names
+            name = item.forced_label or (owner.label if owner is not None else None)
+            name = name or names.get(item.offset) or self._symbol_label(item.offset)
+            name = name or self._generated_label(item, uses)
             if name is None:
                 continue
             unique, number = name, 2
@@ -450,6 +457,16 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
                 if offset is not None and offset in starts:
                     uses.setdefault(offset, set()).add(use)
         return uses
+
+    def _owner_symbol(self, offset: int) -> Symbol | None:
+        """Return the owner's (user) symbol of a byte's address, if any."""
+        symbol = self.symbols.at(self.view.address(offset), self._scope(offset))
+        return symbol if symbol is not None and symbol.source == "user" else None
+
+    def _owner_comment(self, offset: int) -> str:
+        """Return the owner's comment at a byte's address, or ""."""
+        symbol = self._owner_symbol(offset)
+        return symbol.comment or "" if symbol is not None else ""
 
     def _symbol_label(self, offset: int) -> str | None:
         """Return the owner/firmware label of a byte's address, if any."""
@@ -637,6 +654,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             and item.offset not in self.labels
             and item.offset not in self._boundaries
             and item.offset not in self._access_edges
+            and not self._owner_comment(item.offset)  # a commented byte starts a line
         )
 
     def _file_header(self) -> list[str]:
@@ -757,9 +775,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
     def _notes(self, item: _Item) -> list[str]:
         """Comments for an instruction: owner comment, header role, static guess, conflict."""
         notes = []
-        user = self.symbols.comment_at(self.view.address(item.offset), self._scope(item.offset))
-        symbol = self.symbols.at(self.view.address(item.offset), self._scope(item.offset))
-        if user and symbol is not None and symbol.source == "user":
+        if user := self._owner_comment(item.offset):
             notes.append(user)
         if self.header is not None and item.offset in self.header.jumpblock:
             index = self.header.jumpblock.index(item.offset)
@@ -795,8 +811,10 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         label = self.labels.get(first)
         if label:
             self._lines.append(f"{label}:")
+        comment = self._owner_comment(first)
         for start, length, text in self._data_pieces(first, last, group):
-            self._lines += _format_line(text)
+            self._lines += _format_line(text, comment)
+            comment = ""
             for offset in range(start, start + length):
                 self._line_of_offset[offset] = len(self._lines)
 

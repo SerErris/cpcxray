@@ -163,6 +163,31 @@ def test_rom_header_rendering(tmp_path: Path) -> None:
     assert "defb #01                        ; background ROM" in lines
 
 
+def test_owner_labels_and_comments(tmp_path: Path) -> None:
+    """Owner labels replace RSX names; owner comments end code lines and start data lines."""
+    image = bytearray(0x40)
+    image[0:6] = bytes.fromhex("01 01 02 03 20 C0")
+    image[6:15] = bytes.fromhex("C3 30 C0 C3 31 C0 C3 32 C0")
+    image[0x20:0x29] = b"TES\xd4CM\xc4\x81\x00"
+    image[0x30:0x33] = bytes.fromhex("C9 C9 C9")
+    view = plain_view(bytes(image))
+    database = classified(view)
+    symbols = SymbolTable()
+    symbols.add(0xC031, "run_command", "the CMD routine", "rom1")
+    symbols.add(0xC038, "table", None, "rom1")
+    symbols.add(0xC03C, None, "second half", "rom1")
+    generated = generate_source(
+        view.resolve(database, "static"), database, symbols, title="t", output_name="t.bin",
+        fill_policy="static",
+    )  # fmt: skip
+    lines = code_lines(generated.text)
+    assert "run_command:" in lines and "rsx_cmd:" not in lines
+    assert 'jp run_command                  ; RSX "CMD"; [static]' in lines
+    assert "ret                             ; the CMD routine; [static]" in lines
+    assert "table:" in lines
+    assert "defb #00,#00,#00,#00            ; second half" in lines
+
+
 def test_compare_reports_lines() -> None:
     """Differences carry both values and the source line."""
     result = compare(b"\x01\x02", b"\x01\x03\x04", 0xC000, ["a", "defb 2,3"], [1, 2, 2])

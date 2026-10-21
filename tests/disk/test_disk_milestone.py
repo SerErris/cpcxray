@@ -20,7 +20,7 @@ pytestmark = [requires_roms, requires_disks]
 
 @pytest.fixture(name="session")
 def fixture_session(tmp_path: Path) -> Session:
-    """A booted CPC 464 with VDOS, 464_cpm_22_vdos.dsk in A:, Vortex_init.dsk in B: (read-only)."""
+    """A booted CPC 464 with VDOS, 464_cpm_22_vdos.dsk in A:, vortex_test.dsk in B: (read-only)."""
     return boot_vdos(tmp_path)
 
 
@@ -42,8 +42,8 @@ def test_catalogue_of_both_drives(session: Session) -> None:
     type_and_run(session, "|B\r")
     lines = type_and_run(session, "CAT\r")
     assert "Laufwerk B: User  0" in lines
-    assert "F1Z     .BAS   1K   STAT    .COM   6K" in lines
-    assert "152K in  25 Files, 552K frei" in lines
+    assert "F1Z     .BAS   1K   SYS     .COM   2K" in lines
+    assert "172K in  28 Files, 532K frei" in lines
     assert session.shadow_status()["classes"]["unknown"] < unknown_before  # more VDOS decoded
 
 

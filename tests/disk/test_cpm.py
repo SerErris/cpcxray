@@ -85,6 +85,6 @@ def test_real_disks() -> None:
     assert cpm.read_file("DUMP.ASM").startswith(b";\tFILE DUMP PROGRAM, READS AN INPUT FILE")
     assert amsdos_header(cpm.read_file("EX1.BAS")) is None  # an ASCII BASIC file
     vortex = CpmDisk(load_image(VORTEX_DISK))
-    assert vortex.format.name == "vortex" and len(vortex.files()) == 25
+    assert vortex.format.name == "vortex" and len(vortex.files()) == 28
     assert vortex.read_file("READ.ME").startswith(b"\r\nDa das X-Laufwerk auch ohne das X-Module")
     assert vortex.read_file("F1Z.BAS").startswith(b'10 CLS\r\n20 LOAD "f1z.bin":CALL &BF2D\r\n')
