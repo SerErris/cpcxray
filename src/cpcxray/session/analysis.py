@@ -52,7 +52,8 @@ if TYPE_CHECKING:
     from cpcxray.machine.cpc464 import CPC464
 
 
-class AnalysisMixin:  # pylint: disable=too-many-public-methods  # one method per MCP tool (D-27)
+# One public method per MCP tool (D-27); the state of targets, databases and observers.
+class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instance-attributes
     """Scrambled-ROM and analysis-target methods of `Session` (see the module docstring)."""
 
     analysis_targets: dict[str, AnalysisTarget]

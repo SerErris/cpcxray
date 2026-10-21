@@ -140,9 +140,8 @@ class DiskImage:
             return None
         want_c, want_h, want_r, want_n = id_field
         for sector in track.sectors:
-            if (sector.cylinder, sector.head, sector.sector_id) == (want_c, want_h, want_r) and (
-                want_n == 0xFF or sector.size_code == want_n
-            ):
+            same_id = (sector.cylinder, sector.head, sector.sector_id) == (want_c, want_h, want_r)
+            if same_id and want_n in (0xFF, sector.size_code):
                 return sector
         return None
 

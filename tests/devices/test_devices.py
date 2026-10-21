@@ -71,23 +71,26 @@ def test_gate_array_is_not_decoded_on_other_ports(machine: CPC464) -> None:
 
 def test_interrupt_timer_and_acknowledge(machine: CPC464) -> None:
     """INT is latched every 3,328 µs and cleared by the acknowledge (D-05)."""
-    machine.gate_array.tick(INTERRUPT_PERIOD_US - 1)
-    assert not machine.gate_array.interrupt_pending
-    machine.gate_array.tick(INTERRUPT_PERIOD_US)
-    assert machine.gate_array.interrupt_pending
-    assert machine.gate_array.next_interrupt_us == 2 * INTERRUPT_PERIOD_US
+    gate_array = machine.gate_array
+    assert gate_array.interrupt_in_us == INTERRUPT_PERIOD_US and gate_array.line_counter == 0
+    gate_array.tick(INTERRUPT_PERIOD_US - 1)  # counts down ...
+    assert not gate_array.interrupt_pending
+    assert gate_array.interrupt_in_us == 1 and gate_array.line_counter == 51
+    gate_array.tick(1)  # ... reaches 0: interrupt, reload
+    assert gate_array.interrupt_pending
+    assert gate_array.interrupt_in_us == INTERRUPT_PERIOD_US
+    assert gate_array.state()["interrupt_in_us"] == INTERRUPT_PERIOD_US
     assert machine.bus.int_ack() == 0xFF
     assert not machine.gate_array.interrupt_pending
 
 
 def test_rmr_bit4_clears_interrupt_and_restarts_period(machine: CPC464) -> None:
     """RMR bit 4 clears a pending interrupt and restarts the 300 Hz period."""
-    machine.clock_us = 5000
     machine.gate_array.tick(5000)
     assert machine.gate_array.interrupt_pending
     machine.bus.io_out(0x7F00, 0x99)  # RMR with bit 4
     assert not machine.gate_array.interrupt_pending
-    assert machine.gate_array.next_interrupt_us == 5000 + INTERRUPT_PERIOD_US
+    assert machine.gate_array.interrupt_in_us == INTERRUPT_PERIOD_US
 
 
 # -- CRTC, ROM select ----------------------------------------------------------------------

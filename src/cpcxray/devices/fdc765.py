@@ -112,7 +112,7 @@ class Drive:
 
 
 @dataclass
-class _Transfer:
+class _Transfer:  # pylint: disable=too-many-instance-attributes  # one field per command byte
     """State of a READ/WRITE DATA command in its execution phase.
 
     Attributes:

@@ -12,10 +12,13 @@ function:
 |          | the interrupt counter and clears a pending interrupt                        |
 | 11       | RAM configuration (6128, later scope)                                       |
 
-Interrupts (D-05): INT is latched every 3,328 µs (300 Hz, 52 scan lines) and stays pending
-until the CPU acknowledges it, so one interrupt survives a long DI phase. RMR bit 4 clears a
-pending interrupt and restarts the period. The line counter and its resynchronisation at VSYNC
-are not modelled.
+Interrupts (D-05): INT is latched every 3,328 µs (300 Hz: 52 scan lines of 64 µs) and stays
+pending until the CPU acknowledges it, so one interrupt survives a long DI phase. A down-counter
+`interrupt_in_us` holds the time left: it starts at 3,328, the machine subtracts the time of
+every instruction (`tick`), and at 0 the interrupt is latched and the counter reloads. RMR bit 4
+clears a pending interrupt and reloads the counter. The device view also shows the equivalent
+of the real Gate Array's line counter R52 (scan lines since the last interrupt, 0-51); its
+resynchronisation at VSYNC is not modelled.
 
 Reset state (researched for phase 4: MAME writes &89 on reset; the 464 OS ROM's first
 instruction writes &89 as well): mode 1, lower ROM enabled, upper ROM disabled, interrupt
@@ -29,7 +32,8 @@ from typing import Any
 
 from cpcxray.devices import NOT_DRIVEN
 
-INTERRUPT_PERIOD_US = 3328  # 52 lines of 64 µs: 300 Hz (§5.3)
+LINE_US = 64  # one scan line
+INTERRUPT_PERIOD_US = 52 * LINE_US  # 3,328 µs: 300 Hz (§5.3)
 BORDER_PEN = 16
 
 
@@ -44,22 +48,16 @@ class GateArray:  # pylint: disable=too-many-instance-attributes  # the device's
         upper_rom_enabled: RMR bit 3 clear.
         ram_config: Last RAM configuration value (function 11; used by the 6128 only).
         interrupt_pending: An interrupt is waiting for the CPU.
-        next_interrupt_us: Clock time at which the next interrupt is latched.
+        interrupt_in_us: µs left until the next interrupt (counts down from 3,328).
     """
 
-    def __init__(
-        self,
-        set_rom_enables: Callable[[bool, bool], None],
-        clock_us: Callable[[], int],
-    ) -> None:
+    def __init__(self, set_rom_enables: Callable[[bool, bool], None]) -> None:
         """Create the Gate Array.
 
         Args:
             set_rom_enables: Called with (lower enabled, upper enabled) when RMR changes them.
-            clock_us: Returns the machine's clock in µs (for restarting the interrupt period).
         """
         self._set_rom_enables = set_rom_enables
-        self._clock_us = clock_us
         self.pen = 0
         self.inks = [0] * 17
         self.mode = 1
@@ -67,7 +65,7 @@ class GateArray:  # pylint: disable=too-many-instance-attributes  # the device's
         self.upper_rom_enabled = False
         self.ram_config = 0
         self.interrupt_pending = False
-        self.next_interrupt_us = INTERRUPT_PERIOD_US
+        self.interrupt_in_us = INTERRUPT_PERIOD_US
 
     def reset(self) -> None:
         """Hardware reset: mode 1, lower ROM on, upper ROM off, interrupt timer restarted."""
@@ -76,7 +74,7 @@ class GateArray:  # pylint: disable=too-many-instance-attributes  # the device's
         self.ram_config = 0
         self.write_rmr(0x89 & 0x1F)  # same state the OS ROM sets with its first instruction
         self.interrupt_pending = False
-        self.next_interrupt_us = self._clock_us() + INTERRUPT_PERIOD_US
+        self.interrupt_in_us = INTERRUPT_PERIOD_US
 
     @staticmethod
     def decodes(port: int) -> bool:
@@ -109,13 +107,19 @@ class GateArray:  # pylint: disable=too-many-instance-attributes  # the device's
         self._set_rom_enables(self.lower_rom_enabled, self.upper_rom_enabled)
         if rmr & 0x10:  # clear a pending interrupt, restart the 300 Hz period (D-05)
             self.interrupt_pending = False
-            self.next_interrupt_us = self._clock_us() + INTERRUPT_PERIOD_US
+            self.interrupt_in_us = INTERRUPT_PERIOD_US
 
-    def tick(self, clock_us: int) -> None:
-        """Latch an interrupt when its time has come (called after every instruction)."""
-        if clock_us >= self.next_interrupt_us:
+    def tick(self, elapsed_us: int) -> None:
+        """Count down by the time an instruction took; at 0 latch an interrupt and reload."""
+        self.interrupt_in_us -= elapsed_us
+        while self.interrupt_in_us <= 0:
             self.interrupt_pending = True
-            self.next_interrupt_us += INTERRUPT_PERIOD_US
+            self.interrupt_in_us += INTERRUPT_PERIOD_US
+
+    @property
+    def line_counter(self) -> int:
+        """Scan lines since the last interrupt, 0-51 (the real Gate Array's counter R52)."""
+        return (INTERRUPT_PERIOD_US - self.interrupt_in_us) // LINE_US
 
     def acknowledge_interrupt(self) -> None:
         """The CPU accepted the interrupt (M1 + IORQ): clear the request."""
@@ -131,5 +135,6 @@ class GateArray:  # pylint: disable=too-many-instance-attributes  # the device's
             "lower_rom_enabled": self.lower_rom_enabled,
             "upper_rom_enabled": self.upper_rom_enabled,
             "interrupt_pending": self.interrupt_pending,
-            "next_interrupt_us": self.next_interrupt_us,
+            "interrupt_in_us": self.interrupt_in_us,
+            "line_counter_r52": self.line_counter,
         }

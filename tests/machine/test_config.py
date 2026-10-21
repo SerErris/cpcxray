@@ -45,7 +45,7 @@ def test_repo_config_loads() -> None:
         rom = cfg.upper_roms[slot]
         assert (rom.decoder, rom.analyse) == (None, False)
     assert not cfg.ram_targets
-    assert cfg.drives["A"].file == REPO / "disk" / "cpm22.dsk"
+    assert cfg.drives["A"].file == REPO / "disk" / "464_cpm_22_vdos.dsk"
     assert cfg.drives["B"].file == REPO / "disk" / "Vortex_init.dsk"
     assert not cfg.drives["A"].writable and not cfg.drives["B"].writable  # real images
 

@@ -75,7 +75,7 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
         self.clock_us = 0
         self.memory = MemoryMap(config.unpopulated_rom if config else 0)
         self.keyboard = Keyboard()
-        self.gate_array = GateArray(self.memory.set_rom_enables, self._clock)
+        self.gate_array = GateArray(self.memory.set_rom_enables)
         self.crtc = Crtc()
         self.rom_select = RomSelect(self.memory.select_upper)
         self.system_io = SystemIO(self.keyboard, self._clock, port_b_constant)
@@ -196,7 +196,7 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
             shadow.instruction_pc = cpu.pc
         cost = cpu.step()
         self.clock_us += cost
-        self.gate_array.tick(self.clock_us)
+        self.gate_array.tick(cost)
         if self.keyboard.typing:
             self.keyboard.tick(self.clock_us)
         return cost

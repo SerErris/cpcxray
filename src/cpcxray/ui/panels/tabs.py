@@ -12,13 +12,15 @@ A tab bar next to the screen:
 | Trace       | instruction trace on/off and its last lines                                |
 | Bus trace   | bus access trace on/off (kinds filter) and its last lines                  |
 | Symbols     | search; add "address label ; comment"                                      |
-| Disks       | drives A:/B:, insert (read-only unless ticked), eject, blank draft, save,  |
+| Disks       | drives A:/B:, insert (read-only unless ticked), eject, blank draft, save   |
+|             | (back to its file if writable), save as,                                   |
 |             | catalogue read directly from the image                                     |
 | Files       | .sna save/load, analysis save, source generate + verify                    |
 
 Every action is a `Session` call (the same as the MCP tool); errors show in the panel's message
-line. While the machine runs freely the panels stay frozen; they are refreshed (the visible tab)
-when it stops - pause, breakpoint, step - and after every panel action.
+line. While the machine runs freely the panels stay frozen; they are filled once when the window
+opens and when a tab is opened, refreshed (the visible tab) when the machine stops - pause,
+breakpoint, step - and after every panel action.
 
 The instruction trace is off for free runs unless switched on with its toggle button (it costs
 about 5x speed); stepping is always recorded into its buffer. A file is written only when
@@ -70,7 +72,7 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
         """Run a session action; show its error (or "ok") in a message line."""
         try:
             result = action()
-        except (SessionError, ValueError, KeyError) as error:
+        except (SessionError, ValueError, KeyError, OSError) as error:
             dpg.set_value(self.items[message_item], f"error: {error}")
             return None
         dpg.set_value(self.items[message_item], "ok")
@@ -98,7 +100,7 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
 
     def build(self) -> None:
         """Create the tab bar in the current container."""
-        with dpg.tab_bar() as tab_bar:
+        with dpg.tab_bar(callback=self._tab_changed) as tab_bar:
             self.items["tab_bar"] = tab_bar
             for title, builder, refresher in (
                 ("CPU", self._build_cpu, self._refresh_cpu),
@@ -230,6 +232,8 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
                                                       default_value="vortex", width=80)  # fmt: skip
             self._button("New draft", "disk_message", lambda: session.disk_new(
                 self._value("disk_drive"), self._value("disk_format")))  # fmt: skip
+            self._button("Save", "disk_message",
+                         lambda: session.disk_save(self._value("disk_drive")))  # fmt: skip
             self._button("Save as", "disk_message", lambda: session.disk_save(
                 self._value("disk_drive"), self._value("disk_path")))  # fmt: skip
         self._text("disk_message")
@@ -335,6 +339,12 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
         return views
 
     # -- refreshing ------------------------------------------------------------------------------
+
+    def _tab_changed(self) -> None:
+        """Fill a tab when it is opened, also while running (a one-off: no running cost)."""
+        refresher = self._refreshers.get(dpg.get_value(self.items["tab_bar"]))
+        if refresher is not None:
+            refresher()
 
     def refresh(self, force: bool = False) -> None:
         """Refresh the visible tab while stopped (all tabs with force=True after an action)."""

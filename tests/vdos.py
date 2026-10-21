@@ -1,8 +1,8 @@
 """Shared setup of the tests that use the real ROMs and disk images (phases 7-10).
 
 The ROMs come from config/machine.toml, the disk images from disk/ (the owner's real images:
-cpm22.dsk, a 3" CP/M 2.2 SYSTEM disk; Vortex_init.dsk, a VDOS system disk). `requires_roms` and
-`requires_disks` skip when files are missing (NFR-07: no ROM or disk images in git).
+464_cpm_22_vdos.dsk, a 3" CP/M 2.2 SYSTEM disk; Vortex_init.dsk, a VDOS system disk).
+`requires_roms` and `requires_disks` skip when files are missing (NFR-07: no images in git).
 """
 
 from __future__ import annotations
@@ -30,10 +30,10 @@ def boot_vdos(project_dir: Path) -> Session:
 
 
 DISKS = REPO / "disk"
-CPM22_DISK = DISKS / "cpm22.dsk"
+CPM_DISK = DISKS / "464_cpm_22_vdos.dsk"
 VORTEX_DISK = DISKS / "Vortex_init.dsk"
 requires_disks = pytest.mark.skipif(
-    not (CPM22_DISK.is_file() and VORTEX_DISK.is_file()), reason="disk images missing"
+    not (CPM_DISK.is_file() and VORTEX_DISK.is_file()), reason="disk images missing"
 )
 
 

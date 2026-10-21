@@ -19,7 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from cpcxray.devices.gate_array import INTERRUPT_PERIOD_US
+from cpcxray.devices.gate_array import INTERRUPT_PERIOD_US, LINE_US
 
 if TYPE_CHECKING:
     from cpcxray.machine.cpc464 import CPC464
@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 SIGNATURE = b"MV - SNA"
 HEADER_SIZE = 0x100
 RAM_SIZE = 0x10000
-LINE_US = 64
 SAVE_VERSION = 3
 CPC_TYPE_464 = 0
 
@@ -93,9 +92,7 @@ def _save_devices(machine: CPC464, header: bytearray) -> None:
     header[OFFSET_PPI : OFFSET_PPI + 4] = bytes([system_io.port_a, port_b, system_io.port_c, 0x82])
     header[OFFSET_PSG_SELECTED] = system_io.psg_register
     header[OFFSET_PSG : OFFSET_PSG + 16] = bytes(system_io.psg_registers)
-    until_next = max(0, gate_array.next_interrupt_us - machine.clock_us)
-    lines_since = (INTERRUPT_PERIOD_US - min(until_next, INTERRUPT_PERIOD_US)) // LINE_US
-    header[OFFSET_INTERRUPT_LINES] = min(lines_since, 51)
+    header[OFFSET_INTERRUPT_LINES] = min(gate_array.line_counter, 51)
     header[OFFSET_INTERRUPT_REQUEST] = 1 if gate_array.interrupt_pending else 0
 
 
@@ -188,5 +185,5 @@ def _load_devices(machine: CPC464, data: bytes, version: int) -> None:
     system_io.psg_register = data[OFFSET_PSG_SELECTED] & 0x0F
     system_io.psg_registers = list(data[OFFSET_PSG : OFFSET_PSG + 16])
     lines_since = data[OFFSET_INTERRUPT_LINES] if version >= 3 else 0
-    gate_array.next_interrupt_us = machine.clock_us + (52 - min(lines_since, 51)) * LINE_US
+    gate_array.interrupt_in_us = INTERRUPT_PERIOD_US - min(lines_since, 51) * LINE_US
     gate_array.interrupt_pending = version >= 3 and bool(data[OFFSET_INTERRUPT_REQUEST] & 1)

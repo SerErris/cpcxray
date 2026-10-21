@@ -6,7 +6,7 @@ import pytest
 
 from cpcxray.disk.cpm import FORMATS, CpmDisk, CpmError, amsdos_header, detect_format
 from cpcxray.disk.dsk import blank_image, load_image
-from tests.vdos import CPM22_DISK, VORTEX_DISK, requires_disks
+from tests.vdos import CPM_DISK, VORTEX_DISK, requires_disks
 
 
 def write_file(
@@ -79,11 +79,11 @@ def test_unknown_format() -> None:
 @requires_disks
 def test_real_disks() -> None:
     """The owner's disks: catalogue, a text file and BASIC files read directly."""
-    cpm = CpmDisk(load_image(CPM22_DISK))
+    cpm = CpmDisk(load_image(CPM_DISK))
     assert cpm.format.name == "system" and len(cpm.files()) == 26
-    system = {f.name for f in cpm.files() if f.system}
-    assert system == {"D2.BAS", "SCHLOGO."}  # hidden by CAT
-    assert amsdos_header(cpm.read_file("DISC.BAS"))["type"] == "BASIC (protected)"  # type: ignore[index]
+    assert not [f.name for f in cpm.files() if f.system]
+    assert cpm.read_file("DUMP.ASM").startswith(b";\tFILE DUMP PROGRAM, READS AN INPUT FILE")
+    assert amsdos_header(cpm.read_file("EX1.BAS")) is None  # an ASCII BASIC file
     vortex = CpmDisk(load_image(VORTEX_DISK))
     assert vortex.format.name == "vortex" and len(vortex.files()) == 25
     assert vortex.read_file("READ.ME").startswith(b"\r\nDa das X-Laufwerk auch ohne das X-Module")

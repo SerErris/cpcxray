@@ -110,7 +110,7 @@ class DriveConfig:
 
 
 @dataclass(frozen=True)
-class MachineConfig:
+class MachineConfig:  # pylint: disable=too-many-instance-attributes  # one per config table
     """A loaded and validated machine configuration.
 
     Attributes:

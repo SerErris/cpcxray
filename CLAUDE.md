@@ -112,7 +112,7 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
 
 ## Disk notes (phase 10)
 
-- disk/: cpm22.dsk (3" CP/M 2.2 SYSTEM disk, A:), Vortex_init.dsk (VDOS system disk, B:),
+- disk/: 464_cpm_22_vdos.dsk (3" CP/M 2.2 SYSTEM disk, A:), Vortex_init.dsk (VDOS system disk, B:),
   464_CPM_2.2_work.dsk (for later). Real images: **never write to them** - they are inserted
   read-only (`[drive.X] writable = false`, the default); use `disk_new` drafts for writes and
   `disk_save` to another file.

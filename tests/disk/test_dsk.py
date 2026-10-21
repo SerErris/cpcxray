@@ -14,7 +14,7 @@ from cpcxray.disk.dsk import (
     save_image,
     to_edsk,
 )
-from tests.vdos import CPM22_DISK, VORTEX_DISK, requires_disks
+from tests.vdos import CPM_DISK, VORTEX_DISK, requires_disks
 
 
 def standard_dsk() -> bytes:
@@ -90,8 +90,8 @@ def test_not_an_image(tmp_path: Path) -> None:
 @requires_disks
 def test_real_images() -> None:
     """The owner's images: 3" SYSTEM (IDs &41-&49) and Vortex (IDs 1-9, 2 heads, interleaved)."""
-    cpm = load_image(CPM22_DISK)
-    assert (cpm.cylinders, cpm.heads) == (40, 1)
+    cpm = load_image(CPM_DISK)
+    assert (cpm.cylinders, cpm.heads) == (43, 1)
     assert sorted(s.sector_id for s in cpm.track(0, 0).sectors) == list(range(0x41, 0x4A))  # type: ignore[union-attr]
     vortex = load_image(VORTEX_DISK)
     assert (vortex.cylinders, vortex.heads) == (83, 2)

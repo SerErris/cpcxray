@@ -124,13 +124,30 @@ class DiskMixin:
         self._cpc().insert_disk(self._drive_letter(drive), blank_image(disk_format))
         return self.disk_list()
 
-    def disk_save(self, drive: str, path: str) -> dict[str, Any]:
-        """Save the disk in a drive as EDSK (never over the file of a read-only image)."""
+    def disk_save(self, drive: str, path: str | None = None) -> dict[str, Any]:
+        """Save the disk in a drive as EDSK.
+
+        Args:
+            drive: "A" or "B".
+            path: Target file. None saves a writable image back over the file it was loaded
+                from; a read-only image is never overwritten, a draft needs a path.
+        """
         image = self._image_in(drive)
-        file = self._path(path)
+        if path is None:
+            if image.source is None:
+                raise SessionError("the disk is a draft: give a file name (Save as)")
+            if not image.writable:
+                raise SessionError(f"{image.source} is read-only; save it under another name")
+            file = image.source
+        elif not path.strip():
+            raise SessionError("give a file name to save the disk to, e.g. disk/my_disk.dsk")
+        else:
+            file = self._path(path.strip())
+        if file.is_dir():
+            raise SessionError(f"{file} is a directory; give a file name")
         try:
             size = save_image(image, file)
-        except DiskImageError as error:
+        except (DiskImageError, OSError) as error:
             raise SessionError(str(error)) from None
         return {"drive": self._drive_letter(drive), "path": str(file), "size": size}
 

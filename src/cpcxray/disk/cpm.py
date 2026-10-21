@@ -36,7 +36,7 @@ AMSDOS_TYPES = {0: "BASIC", 1: "BASIC (protected)", 2: "binary", 3: "binary (pro
 
 
 @dataclass(frozen=True)
-class CpmFormat:
+class CpmFormat:  # pylint: disable=too-many-instance-attributes  # one field per parameter
     """Geometry and file system parameters of a disk format.
 
     Attributes:

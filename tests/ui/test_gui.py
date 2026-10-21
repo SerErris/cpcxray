@@ -56,6 +56,10 @@ def test_window_keyboard_type_box_and_panels(tmp_path: Path) -> None:
 def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     """Exercise the debugger panels of a booted machine (called inside the one GUI test)."""
     panels = app.panels
+    assert "read-only" in dpg.get_value(panels.items["drives"])  # filled at start while running
+    dpg.set_value(panels.items["disk_path"], "")
+    panels._call("disk_message", lambda: app.session.disk_save("B", ""))  # pylint: disable=protected-access
+    assert dpg.get_value(panels.items["disk_message"]).startswith("error: give a file name")
     app.loop.stop()
     panels.refresh(force=True)
     assert dpg.get_value(panels.items["registers"]).startswith("AF ")
@@ -84,6 +88,12 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     panels._call("cpu_message", panels._set_registers)  # pylint: disable=protected-access
     assert dpg.get_value(panels.items["cpu_message"]).startswith("error:")
     assert not panels.typing()
+    check_toggles_and_freeze(app, dpg)
+
+
+def check_toggles_and_freeze(app: Any, dpg: Any) -> None:
+    """Trace and analysis toggles, panels frozen while running (inside the one GUI test)."""
+    panels = app.panels
     app._toggle_analysis()  # pylint: disable=protected-access
     app.render_frame()
     assert not app.session.analysis_enabled

@@ -91,6 +91,7 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
                 self._build_screen_column()
             with dpg.child_window(width=PANEL_WIDTH + 20, border=False):
                 self.panels.build()
+        self.panels.refresh(force=True)  # fill every panel once (they are frozen while running)
         dpg.create_viewport(
             title=TITLE, width=WIDTH * DISPLAY_SCALE + PANEL_WIDTH + 70, height=2 * HEIGHT + 170
         )
