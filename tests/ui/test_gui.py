@@ -84,6 +84,25 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     panels._call("cpu_message", panels._set_registers)  # pylint: disable=protected-access
     assert dpg.get_value(panels.items["cpu_message"]).startswith("error:")
     assert not panels.typing()
+    app._toggle_analysis()  # pylint: disable=protected-access
+    app.render_frame()
+    assert not app.session.analysis_enabled
+    assert dpg.get_value(app._widgets.analysis_light) == "analysis off"  # pylint: disable=protected-access
+    app._toggle_analysis()  # pylint: disable=protected-access
+    app.render_frame()
+    assert dpg.get_value(app._widgets.analysis_light) == "ANALYSIS"  # pylint: disable=protected-access
+    panels._call("trace_message", panels._toggle_trace)  # pylint: disable=protected-access
+    assert app.session.trace.enabled
+    assert dpg.get_item_label(panels.items["trace_toggle"]) == "Trace runs: on"
+    panels._call("trace_message", panels._toggle_trace)  # pylint: disable=protected-access
+    assert not app.session.trace.enabled
+    app.loop.start()  # while running, the panels stay frozen
+    dpg.set_value(panels.items["registers"], "frozen")
+    panels.refresh()
+    assert dpg.get_value(panels.items["registers"]) == "frozen"
+    app.loop.stop()
+    panels.refresh()
+    assert dpg.get_value(panels.items["registers"]).startswith("AF ")
     panels.refresh(force=True)
     assert "read-only" in dpg.get_value(panels.items["drives"])  # the owner's real images
     assert "format" in dpg.get_value(panels.items["catalog"])

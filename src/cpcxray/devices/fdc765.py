@@ -29,8 +29,10 @@ termination" and ST1 "end of cylinder" (ST0 &40, ST1 &80) - AMSDOS and VDOS expe
 With MT set, a transfer continues from head 0 to sector 1 of head 1.
 
 Drives: unit 0 = A:, unit 1 = B: (the DDI-1 decodes US0 only, so units 2 and 3 are A: and B:
-again). A drive is ready when a disk image is inserted. A single-sided drive ignores the head
-select. A read-only image is reported write protected: writes and formats fail with ST1 NW.
+again). Both drives share the motor line (&FA7E); a drive's activity light (`drive_lights`) is
+on while the motor runs and that drive was the last one a command addressed. A drive is ready
+when a disk image is inserted. A single-sided drive ignores the head select. A read-only image
+is reported write protected: writes and formats fail with ST1 NW.
 """
 
 from __future__ import annotations
@@ -75,6 +77,7 @@ NAMES = {
     0x0F: "SEEK", 0x11: "SCAN EQUAL", 0x19: "SCAN LOW OR EQUAL", 0x1D: "SCAN HIGH OR EQUAL",
 }  # fmt: skip
 READ_COMMANDS = frozenset({0x02, 0x06, 0x0C})
+UNIT_COMMANDS = frozenset(COMMAND_LENGTHS) - {0x03, 0x08}  # byte 1 holds US/HD
 WRITE_COMMANDS = frozenset({0x05, 0x09})
 
 
@@ -140,7 +143,8 @@ class Fdc765:  # pylint: disable=too-many-instance-attributes  # controller and 
 
     Attributes:
         drives: Unit 0 (A:) and unit 1 (B:).
-        motor_on: Last value written to the motor latch (bit 0).
+        motor_on: Last value written to the motor latch (bit 0); both drives share it.
+        selected_unit: The drive (0 = A:, 1 = B:) the last command addressed.
         command: Command bytes received so far.
         data_out: Bytes waiting for the CPU (execution data of a read, then results).
         results: Result bytes waiting to be read after the data.
@@ -152,6 +156,7 @@ class Fdc765:  # pylint: disable=too-many-instance-attributes  # controller and 
     def __init__(self) -> None:
         """Create an idle controller with A: (3", 40 tracks, 1 side) and B: (Vortex, 80, 2)."""
         self.drives = [Drive("A", 40, False), Drive("B", 80, True)]
+        self.selected_unit = 0
         self._reset_state()
 
     def _reset_state(self) -> None:
@@ -234,6 +239,8 @@ class Fdc765:  # pylint: disable=too-many-instance-attributes  # controller and 
             return
         command, self.command = self.command, []
         self._last_command = (NAMES.get(code, f"invalid &{code:02X}"), command)
+        if code in UNIT_COMMANDS:
+            self.selected_unit = command[1] & 0x01
         self._execute(code, command)
 
     def _execute(self, code: int, command: list[int]) -> None:  # pylint: disable=too-many-branches  # one case per command
@@ -527,6 +534,10 @@ class Fdc765:  # pylint: disable=too-many-instance-attributes  # controller and 
 
     # -- device view -----------------------------------------------------------------------------
 
+    def drive_lights(self) -> list[bool]:
+        """Activity light per drive (A:, B:): motor on and the drive addressed last."""
+        return [self.motor_on and self.selected_unit == unit for unit in range(len(self.drives))]
+
     def state(self) -> dict[str, Any]:
         """Return the state for the device view (FR-DBG-05)."""
         drives = {}
@@ -542,6 +553,7 @@ class Fdc765:  # pylint: disable=too-many-instance-attributes  # controller and 
             }
         return {
             "motor_on": self.motor_on,
+            "selected_drive": self.drives[self.selected_unit].name,
             "msr": self.main_status(),
             "drives": drives,
             "recent_commands": [

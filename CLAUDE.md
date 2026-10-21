@@ -141,6 +141,21 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
 - session/debugger.py `DebuggerMixin`: breakpoint_*, bus_trace_*, memory_view (cpu, ram,
   lower/romN, raw:romN, shadow:romN), sna_load/sna_save. machine/sna.py: load v1-v3 (MEM0 RLE
   chunks), save v3 with a plain 64 KB dump; SystemIO now stores PSG register writes for it.
+- Performance (owner's rule): the instruction trace is off for free runs unless switched on
+  ("Trace runs" toggle / `trace_start`; ~5x slower); step/step_over/step_out always record into
+  the ring buffer; a trace file is written only on request. Panels are frozen while running and
+  refresh when stopped. The status line shows TRACE / BUS TRACE while one is on. Biggest fixed
+  cost: the analysis bus observers (1.0x vs 2.3x without).
+- Performance (owner's rule): the instruction trace is off for free runs unless switched on
+  ("Trace runs" toggle / `trace_start`); step/step_over/step_out always record into the ring
+  buffer; a trace file is written only on request. The trace captures bytes/registers only and
+  disassembles on reading. Panels are frozen while running. Status line: speed (emulated/wall
+  time), fps and fps/50, TRACE / BUS TRACE. Bus observers declare `handlers` (per access kind,
+  called directly) or `cycles`; unwatched kinds use the fast bus methods. Biggest fixed cost:
+  the analysis observers (headless 1.15x vs 2.3x without): `analysis_enable(False)` / the
+  GUI's "Analysis" button takes them off the bus (collected data kept, decoding and access map
+  continue). GUI indicators: ANALYSIS, one activity LED per drive (shared motor + drive
+  addressed last, `Fdc765.drive_lights`).
 - ui/panels/: tabs.py (Dear PyGui tab bar: CPU, Memory, Devices, Breakpoints, Trace, Bus trace,
   Symbols, Files), text.py (formatting/parsing, tested headless). Panels only call Session
   methods; the visible tab refreshes every 5th frame; PC keys go to a focused text input, not the

@@ -24,6 +24,7 @@ from cpcxray.session.commands import CommandQueue
 from cpcxray.session.session import Session
 
 FRAME_US = 19968  # one CPC frame (D-05)
+CPC_FPS = 50  # the CPC's own frame rate: the reference for the GUI's display speed
 MAX_CATCH_UP_US = 5 * FRAME_US  # after a stall, do not try to catch up more than this
 MAX_SPEED_WALL_BUDGET_S = 0.015  # per GUI frame, leaves time for rendering at 50-60 Hz
 
@@ -38,6 +39,8 @@ class EmulationLoop:  # pylint: disable=too-many-instance-attributes  # loop sta
         max_speed: Run as fast as possible instead of in real time.
         last_stop: Result of the last run that stopped on its own (breakpoint, ...).
         speed: Emulated time / wall-clock time over the last frames (1.0 = real time).
+        fps: GUI frames per wall-clock second over the last frames; the CPC shows 50, so
+            `fps / CPC_FPS` is the display speed (40 fps = 0.80 even if emulation keeps up).
         until_address: Target of "run to address": the free run stops when the PC gets there.
     """
 
@@ -49,6 +52,7 @@ class EmulationLoop:  # pylint: disable=too-many-instance-attributes  # loop sta
         self.max_speed = False
         self.last_stop: dict[str, Any] | None = None
         self.speed = 0.0
+        self.fps = 0.0
         self.until_address: int | None = None
         self._seen_pause = session.pause_generation
         self._last_frame = time.perf_counter()
@@ -105,6 +109,8 @@ class EmulationLoop:  # pylint: disable=too-many-instance-attributes  # loop sta
         now = time.perf_counter()
         elapsed = now - self._last_frame
         self._last_frame = now
+        if elapsed > 0:
+            self.fps = 0.8 * self.fps + 0.2 / elapsed
         if not self.running:
             self.speed = 0.0
             return
@@ -146,6 +152,11 @@ class EmulationLoop:  # pylint: disable=too-many-instance-attributes  # loop sta
         line = f"{state}  PC={cpu.pc:04X}  t={clock_s:8.3f} s"
         if self.running:
             line += f"  speed {self.speed:4.2f}x" + (" (max)" if self.max_speed else "")
+            line += f"  {self.fps:4.1f} fps ({self.fps / CPC_FPS:4.2f})"
+        if self.session.trace.enabled:
+            line += "  TRACE" + (" to file" if self.session.trace.path else "")
+        if self.session.bus_trace.enabled:
+            line += "  BUS TRACE"
         if self.last_stop is not None:
             line += f"  stopped: {self.last_stop['reason']} at {self.last_stop['pc']}"
             hit = self.last_stop.get("breakpoint")

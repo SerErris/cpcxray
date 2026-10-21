@@ -157,6 +157,11 @@ class MemoryMap:  # pylint: disable=too-many-instance-attributes  # the paging s
         upper_slot = self.effective_upper_slot() if self.upper_enabled else None
         upper = self.upper_roms[upper_slot] if upper_slot is not None else None
         self._read_banks = [lower, None, None, upper]
+        # names for visible_rom, computed once per paging change (it is asked on every access)
+        self._visible_names = [
+            "lower" if lower is not None else None, None, None,
+            f"rom{upper_slot}" if upper is not None else None,
+        ]  # fmt: skip
 
     # -- access ----------------------------------------------------------------------------------
 
@@ -186,9 +191,4 @@ class MemoryMap:  # pylint: disable=too-many-instance-attributes  # the paging s
 
     def visible_rom(self, address: int) -> str | None:
         """Return which ROM answers reads at `address` now: "lower", "romN", or None for RAM."""
-        bank = address >> 14
-        if bank == 0 and self._read_banks[0] is not None:
-            return "lower"
-        if bank == 3 and self._read_banks[3] is not None:
-            return f"rom{self.effective_upper_slot()}"
-        return None
+        return self._visible_names[address >> 14]

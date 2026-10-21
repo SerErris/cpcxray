@@ -17,8 +17,12 @@ A tab bar next to the screen:
 | Files       | .sna save/load, analysis save, source generate + verify                    |
 
 Every action is a `Session` call (the same as the MCP tool); errors show in the panel's message
-line. Only the visible tab is refreshed, every few frames (D-13: rendering and panels are
-asynchronous to execution).
+line. While the machine runs freely the panels stay frozen; they are refreshed (the visible tab)
+when it stops - pause, breakpoint, step - and after every panel action.
+
+The instruction trace is off for free runs unless switched on with its toggle button (it costs
+about 5x speed); stepping is always recorded into its buffer. A file is written only when
+"write file" is ticked before switching the trace on.
 """
 
 from __future__ import annotations
@@ -174,11 +178,19 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
         self._text("breakpoints")
 
     def _build_trace(self) -> None:
-        """Instruction trace switch and lines."""
+        """Toggle for tracing free runs, file options, and the last lines (steps always)."""
         with dpg.group(horizontal=True):
-            self._button("Start", "trace_message", self._start_trace)
-            self._button("Stop", "trace_message", self.session.trace_stop)
+            self.items["trace_toggle"] = dpg.add_button(
+                label="Trace runs: off", width=130,
+                callback=lambda: self._call("trace_message", self._toggle_trace),
+            )  # fmt: skip
             self.items["trace_targets"] = dpg.add_checkbox(label="analysis targets only")
+        with dpg.group(horizontal=True):
+            self.items["trace_file"] = dpg.add_checkbox(label="write file")
+            self._input("trace_path", "output/trace.txt", 200, default_value="output/trace.txt")
+            self.items["trace_format"] = dpg.add_combo(("text", "csv", "jsonl"),
+                                                       default_value="text", width=70)  # fmt: skip
+        dpg.add_text("Stepping is always recorded; tracing free runs costs about 5x speed.")
         self._text("trace_message")
         self._text("trace")
 
@@ -270,9 +282,19 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
             rom=int(rom_text) if rom_text else None,
         )
 
-    def _start_trace(self) -> Any:
-        """Start the instruction trace (ring buffer; optionally analysis targets only)."""
-        return self.session.trace_start(targets_only=bool(self._value("trace_targets")))
+    def _toggle_trace(self) -> Any:
+        """Switch tracing of free runs on (with the chosen options) or off."""
+        if self.session.trace.enabled:
+            result = self.session.trace_stop()
+        else:
+            path = self._value("trace_path").strip() if self._value("trace_file") else None
+            result = self.session.trace_start(
+                path=path or None, file_format=self._value("trace_format"),
+                targets_only=bool(self._value("trace_targets")),
+            )  # fmt: skip
+        label = "Trace runs: on" if self.session.trace.enabled else "Trace runs: off"
+        dpg.set_item_label(self.items["trace_toggle"], label)
+        return result
 
     def _start_bus_trace(self) -> Any:
         """Start the bus trace with the kinds typed in (empty: all)."""
@@ -315,7 +337,9 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
     # -- refreshing ------------------------------------------------------------------------------
 
     def refresh(self, force: bool = False) -> None:
-        """Refresh the visible tab (all tabs with force=True after an action)."""
+        """Refresh the visible tab while stopped (all tabs with force=True after an action)."""
+        if self.loop.running and not force:
+            return  # frozen during free runs (no use, and it costs time)
         if force:
             for refresher in self._refreshers.values():
                 refresher()

@@ -24,14 +24,16 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from cpcxray.analysis.provenance import RamTag
 from cpcxray.cpu.disasm import Flow, Instruction, disassemble
 from cpcxray.debugger.symbols import GLOBAL, SymbolError, SymbolTable, parse_address
-from cpcxray.debugger.trace import Trace
+from cpcxray.debugger.trace import CAPTURE_BYTES, Capture, Trace, TraceRecord
 from cpcxray.devices.key_map import KeyMap, KeyMapError
 from cpcxray.machine.config import ConfigError
 from cpcxray.machine.cpc464 import CPC464, build_cpc464
@@ -95,7 +97,9 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         self.project_dir = Path(project_dir).resolve()
         self.symbols = SymbolTable()
         self._setup_debugger()
-        self.trace = Trace()
+        self.analysis_enabled = True  # the analysis observers run while targets exist
+        self.trace = Trace(self._format_capture)
+        self._recording_steps = False  # step/step_over/step_out record into the trace buffer
         self._pause_requested = threading.Event()
         self.pause_generation = 0  # counts pause() calls; the GUI stops free-running on change
         annotations = self.project_dir / ANNOTATIONS_FILE
@@ -197,6 +201,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
             finished: Called after every instruction; a non-None result is the stop reason.
         """
         machine, cpu, trace = self.machine, self.machine.cpu, self.trace
+        tracing = trace.enabled or self._recording_steps  # free runs: only if switched on
         self._pause_requested.clear()
         deadline = time.monotonic() + limits.timeout_s
         instructions = emulated_us = 0
@@ -215,7 +220,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
             reason = self._limit_reached(limits, instructions, emulated_us, deadline)
             if reason is not None:
                 break
-            if trace.enabled and trace.wants(pc):
+            if tracing and trace.wants(pc):
                 self._trace_instruction(pc)
             emulated_us += machine.step()
             instructions += 1
@@ -242,25 +247,62 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         return rom.data[first : first + length]
 
     def _trace_instruction(self, pc: int) -> None:
-        """Record the instruction at `pc` in the trace (applying the targets-only filter)."""
-        scope = self.machine.symbol_scope(pc)
+        """Capture the instruction at `pc` for the trace (applying the targets-only filter).
+
+        Only the facts are taken (bytes, registers, location); the disassembly is made when
+        the trace is read (`_format_capture`), which keeps tracing cheap.
+        """
+        machine = self.machine
+        scope = machine.symbol_scope(pc)
         where = scope or "RAM"
         observer = self._analysis_observer
-        origin = observer.origin_text(pc) if observer is not None and not scope else None
+        origin = observer.ram_origin[pc] if observer is not None and not scope else None
         if self.trace.targets_only and not self._in_analysis_target(pc, where, origin):
             return
-        instruction = self._disassemble(pc)
-        rom_raw = self._scrambled_bytes(pc, instruction.length)
-        self.trace.record(
-            pc, instruction.raw, instruction.text(self._label), self._register_summary(),
-            where=where, origin=origin, rom_raw=rom_raw,
-        )  # fmt: skip
+        memory = getattr(machine, "memory", None)
+        if scope or memory is None:
+            data_bytes = bytes(machine.peek((pc + i) & 0xFFFF) for i in range(CAPTURE_BYTES))
+        else:  # RAM of the CPC: one slice (the rare wrap at &FFFF reads zeros)
+            data_bytes = bytes(memory.ram[pc : pc + CAPTURE_BYTES]).ljust(CAPTURE_BYTES, b"\0")
+        rom_bytes = self._scrambled_bytes(pc, CAPTURE_BYTES) if scope else None
+        # M1 fetches see the raw image of a scrambled ROM, elsewhere the same bytes as data reads
+        opcode_bytes = rom_bytes if rom_bytes is not None else data_bytes
+        cpu = machine.cpu
+        registers = (cpu.af, cpu.bc, cpu.de, cpu.hl, cpu.ix, cpu.iy, cpu.sp)
+        self.trace.record(pc, opcode_bytes, data_bytes, registers, where=where, origin=origin,
+                          rom_bytes=rom_bytes)  # fmt: skip
 
-    def _in_analysis_target(self, pc: int, where: str, origin: str | None) -> bool:
+    def _format_capture(self, capture: Capture) -> TraceRecord:
+        """Disassemble a trace capture into a readable record (bytes beyond it: memory now)."""
+        pc = capture.pc
+
+        def reader(captured: bytes) -> Callable[[int], int]:
+            """Read captured bytes near the PC, other addresses from memory."""
+
+            def read(address: int) -> int:
+                """The byte at an address (captured if within the capture)."""
+                offset = (address - pc) & 0xFFFF
+                return captured[offset] if offset < CAPTURE_BYTES else self.machine.peek(address)
+
+            return read
+
+        instruction = disassemble(
+            reader(capture.data_bytes), pc, self.machine.disassembly_profile(), self._label,
+            read_opcode=reader(capture.opcode_bytes),
+        )  # fmt: skip
+        af, bc, de, hl, ix, iy, sp = capture.registers
+        registers = (f"AF={hex4(af)} BC={hex4(bc)} DE={hex4(de)} HL={hex4(hl)} "
+                     f"IX={hex4(ix)} IY={hex4(iy)} SP={hex4(sp)} PC={hex4(pc)}")  # fmt: skip
+        rom_raw = capture.rom_bytes[: instruction.length] if capture.rom_bytes else None
+        origin = capture.origin.text() if capture.origin is not None else None
+        return TraceRecord(capture.sequence, pc, instruction.raw, instruction.text(self._label),
+                           registers, capture.where, origin, rom_raw)  # fmt: skip
+
+    def _in_analysis_target(self, pc: int, where: str, origin: RamTag | None) -> bool:
         """True if code at `pc` belongs to an analysis target (ROM, its RAM copy, RAM range)."""
         if where in self.analysis_targets:
             return True
-        if origin is not None and origin.split(":", 1)[0] in self.analysis_targets:
+        if origin is not None and origin.target in self.analysis_targets:
             return True
         return any(t.kind == "ram" and t.contains(pc) for t in self.analysis_targets.values())
 
@@ -519,7 +561,8 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         """
         if not 1 <= count <= 100_000:
             raise SessionError("count must be 1-100000")
-        result = self._run_loop(_RunLimits(count, None, MAX_TIMEOUT_S))
+        with self._step_recording():
+            result = self._run_loop(_RunLimits(count, None, MAX_TIMEOUT_S))
         if result["reason"] == "instruction_limit":
             result["reason"] = "steps_done"
         return result
@@ -538,7 +581,8 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         if not runs_through:
             return self.step(1)
         limits = self._limits(None, None, timeout_s)
-        return self._run_loop(limits, until_address=instruction.next_address)
+        with self._step_recording():
+            return self._run_loop(limits, until_address=instruction.next_address)
 
     def step_out(self, timeout_s: float | None = None) -> dict[str, Any]:
         """Run until the current subroutine returns, then stop at the return address.
@@ -557,7 +601,22 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
             return None
 
         was_return[0] = self._is_return(cpu.pc)
-        return self._run_loop(self._limits(None, None, timeout_s), finished=returned)
+        with self._step_recording():
+            return self._run_loop(self._limits(None, None, timeout_s), finished=returned)
+
+    @contextmanager
+    def _step_recording(self) -> Iterator[None]:
+        """Record the instructions of a step into the trace ring buffer, even with the trace off.
+
+        Stepping is where the trace is wanted (and cheap: few instructions); free runs are
+        traced only when the trace is switched on, because tracing costs about 5x speed.
+        The file sink is written only while the trace is on.
+        """
+        previous, self._recording_steps = self._recording_steps, True
+        try:
+            yield
+        finally:
+            self._recording_steps = previous
 
     def _is_return(self, address: int) -> bool:
         """True if the instruction at `address` is RET, RET cc, RETI or RETN."""
@@ -730,7 +789,10 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         file_format: str = "text",
         targets_only: bool = False,
     ) -> dict[str, Any]:
-        """Start the instruction trace (ring buffer, plus a file if `path` is given, D-24).
+        """Switch the instruction trace on for runs (ring buffer, plus a file if `path`, D-24).
+
+        Tracing slows the emulation to about 1/5; stepping (step, step_over, step_out) is
+        recorded into the ring buffer anyway, without switching the trace on.
 
         Records show where code runs (ROM slot or RAM, with the ROM origin of copied code)
         and, for scrambled ROMs, the raw bytes next to the clear ones.

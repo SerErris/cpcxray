@@ -99,3 +99,12 @@ def test_status_line_reports_access_breakpoint() -> None:
     loop.start()
     loop.frame()
     assert "(write 4000=55 by 0002, ram:0)" in loop.status_line()
+
+
+def test_status_line_shows_traces() -> None:
+    """The status line warns while a (costly) trace is switched on."""
+    loop = make_loop(bytes.fromhex("18FE"))
+    assert "TRACE" not in loop.status_line()
+    loop.session.trace_start()
+    loop.session.bus_trace_start()
+    assert "TRACE  BUS TRACE" in loop.status_line()

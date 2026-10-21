@@ -304,6 +304,11 @@ class BreakpointObserver:
         self.locate = locate
         self.hit: Hit | None = None
 
+    @property
+    def cycles(self) -> frozenset[Cycle]:
+        """The access kinds the enabled breakpoints need (the bus calls only for these)."""
+        return frozenset().union(*(_CYCLES[b.kind] for b in self.breakpoints.observed))
+
     def on_cycle(self, kind: Cycle, address: int, value: int, pc: int) -> None:
         """Check one access against the enabled breakpoints."""
         if self.hit is not None:

@@ -1,11 +1,13 @@
 """Dear PyGui window: CPC screen, controls and debugger panels (design.md §6.12; D-02, D-13).
 
 Left: the rendered screen (768 x 272 texture, drawn with doubled scan lines at 768 x 544), a
-tool bar (Run/Pause, Step, Step over, Step out, Reset, "Max speed"), the status line and the
-"Type text" box. Right: the debugger panels (ui/panels/: CPU, memory, devices, breakpoints,
-traces, symbols, files). Everything runs in the GUI thread: per frame the `EmulationLoop`
-executes queued MCP commands and emulates a time slice, then the screen is rendered from a
-snapshot, the visible panel is refreshed every few frames, and the frame is drawn.
+tool bar (Run/Pause, Step, Step over, Step out, Reset, "Max speed", "Analysis" on/off), the
+indicators (ANALYSIS while the analysis observers run, one activity LED per drive), the status
+line and the "Type text" box. Right: the debugger panels (ui/panels/: CPU, memory, devices,
+breakpoints, traces, symbols, disks, files). Everything runs in the GUI thread: per frame the
+`EmulationLoop` executes queued MCP commands and emulates a time slice, then the screen is
+rendered from a snapshot, the visible panel is refreshed (only while stopped), and the frame
+is drawn.
 
 With an MCP port, the same tools as the headless server are offered over streamable HTTP on
 127.0.0.1 (D-28); their commands run between frames (D-29), so Claude sees and drives exactly
@@ -31,6 +33,9 @@ from cpcxray.ui.renderer import HEIGHT, WIDTH, render
 TITLE = "CPC X-Ray"
 DISPLAY_SCALE = 1  # 768 x 544 on screen
 FRAME_SECONDS = 1 / 50
+ANALYSIS_COLOUR = (240, 190, 40)  # the analysis observers are running (costly)
+DRIVE_LED_COLOUR = (240, 60, 40)  # drive activity LED lit
+DARK_COLOUR = (110, 110, 110)  # indicator off
 PANEL_REFRESH_FRAMES = 5  # the visible panel is redrawn every 5th frame (10 per second)
 
 
@@ -42,6 +47,9 @@ class _Widgets:
     status: int = 0
     run_button: int = 0
     type_box: int = 0
+    analysis_button: int = 0
+    analysis_light: int = 0
+    drive_lights: tuple[int, ...] = ()
 
 
 class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, panels, MCP
@@ -101,6 +109,9 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
             dpg.add_button(label="Step out", callback=self.loop.step_out)
             dpg.add_button(label="Reset", callback=self.loop.reset)
             dpg.add_checkbox(label="Max speed", callback=self._set_max_speed)
+            self._widgets.analysis_button = dpg.add_button(
+                label="Analysis: on", width=110, callback=self._toggle_analysis
+            )
             if self.mcp_port:
                 dpg.add_text(f"MCP: http://127.0.0.1:{self.mcp_port}/mcp")
         dpg.add_image(
@@ -108,6 +119,11 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
             width=WIDTH * DISPLAY_SCALE,
             height=2 * HEIGHT * DISPLAY_SCALE,
         )
+        with dpg.group(horizontal=True):
+            self._widgets.analysis_light = dpg.add_text("ANALYSIS")
+            self._widgets.drive_lights = tuple(
+                dpg.add_text(f"\u25cf {name}:") for name in ("A", "B")
+            )  # one activity LED per drive (the motor is shared, see devices/fdc765.py)
         self._widgets.status = dpg.add_text("", wrap=WIDTH)
         with dpg.group(horizontal=True):
             dpg.add_text("Type text:")
@@ -115,6 +131,25 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
                 width=WIDTH - 160, on_enter=True, callback=self._type_text,
                 hint="characters are typed exactly; Enter adds RETURN",
             )  # fmt: skip
+
+    def _toggle_analysis(self) -> None:
+        """Analysis button: switch the analysis observers on or off (about 2x speed when off)."""
+        self.session.analysis_enable(not self.session.analysis_enabled)
+
+    def _update_indicators(self) -> None:
+        """Analysis indicator and drive LEDs."""
+        enabled = self.session.analysis_enabled and bool(self.session.analysis_targets)
+        dpg.set_item_label(
+            self._widgets.analysis_button, "Analysis: on" if self.session.analysis_enabled
+            else "Analysis: off",
+        )  # fmt: skip
+        dpg.set_value(self._widgets.analysis_light, "ANALYSIS" if enabled else "analysis off")
+        dpg.configure_item(self._widgets.analysis_light,
+                           color=ANALYSIS_COLOUR if enabled else DARK_COLOUR)  # fmt: skip
+        fdc = getattr(self.session.machine, "fdc", None)
+        lights = fdc.drive_lights() if fdc is not None else [False, False]
+        for item, lit in zip(self._widgets.drive_lights, lights, strict=True):
+            dpg.configure_item(item, color=DRIVE_LED_COLOUR if lit else DARK_COLOUR)
 
     def _toggle_run(self) -> None:
         """Run/Pause button."""
@@ -160,6 +195,7 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
         dpg.set_value(self._widgets.texture, (image.astype(np.float32) / 255.0).ravel())
         dpg.set_item_label(self._widgets.run_button, "Pause" if self.loop.running else "Run")
         dpg.set_value(self._widgets.status, self.loop.status_line())
+        self._update_indicators()
         if self._frames % PANEL_REFRESH_FRAMES == 0:
             self.panels.refresh()
         self._frames += 1

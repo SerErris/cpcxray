@@ -34,13 +34,18 @@ class BusRecord(Access):
 
 
 class BusTrace:
-    """The ring buffer and its filters; `on_cycle` is the observer callback."""
+    """The ring buffer and its filters; `on_cycle` is the observer callback.
+
+    `cycles` is the kinds filter, so the bus calls the trace only for the wanted kinds.
+    """
 
     def __init__(self, locate: Locator, capacity: int = 10_000) -> None:
         """Create a stopped trace; `locate(address, kind)` tells where a memory access went."""
         self.locate = locate
-        self.records: deque[BusRecord] = deque(maxlen=capacity)
+        # (sequence, kind, address, value, pc, location): records are built on reading
+        self.records: deque[tuple[int, Cycle, int, int, int, str]] = deque(maxlen=capacity)
         self.kinds: frozenset[Cycle] = frozenset(Cycle)
+        self.cycles = self.kinds
         self.address_range = (0x0000, 0xFFFF)
         self.enabled = False
         self._sequence = 0
@@ -57,6 +62,7 @@ class BusTrace:
         self.records.clear()
         self._sequence = 0
         self.kinds = kinds if kinds is not None else frozenset(Cycle)
+        self.cycles = self.kinds
         self.address_range = address_range or (0x0000, 0xFFFF)
         self.enabled = True
 
@@ -67,10 +73,13 @@ class BusTrace:
         self._sequence += 1
         port = kind in (Cycle.IO_RD, Cycle.IO_WR, Cycle.INT_ACK)
         location = "io" if port else self.locate(address, kind)
-        self.records.append(
-            BusRecord(CYCLE_NAMES[kind], address, value, pc, location, self._sequence)
-        )
+        self.records.append((self._sequence, kind, address, value, pc, location))
 
     def last(self, count: int) -> list[BusRecord]:
         """Return the last `count` records, oldest first."""
-        return list(self.records)[-count:] if count > 0 else []
+        if count <= 0:
+            return []
+        return [
+            BusRecord(CYCLE_NAMES[kind], address, value, pc, location, sequence)
+            for sequence, kind, address, value, pc, location in list(self.records)[-count:]
+        ]

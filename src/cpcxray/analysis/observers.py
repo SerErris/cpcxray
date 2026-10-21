@@ -52,7 +52,11 @@ class _PendingArrival:
 
 
 class ExecutionObserver:
-    """Records instruction starts and RST facts for analysis targets (module docstring)."""
+    """Records instruction starts and RST facts for analysis targets (module docstring).
+
+    Attributes:
+        handlers: Only opcode fetches matter (the bus calls nothing else, D-12).
+    """
 
     def __init__(
         self,
@@ -74,10 +78,16 @@ class ExecutionObserver:
         self.databases = databases
         self.provenance = provenance
         self._pending: _PendingArrival | None = None
+        self.handlers = {Cycle.M1: self._on_fetch}
 
     def on_cycle(self, kind: Cycle, address: int, value: int, pc: int) -> None:
         """Process one bus access; only instruction-start fetches matter."""
-        if kind == Cycle.M1 and address == pc:
+        if kind == Cycle.M1:
+            self._on_fetch(address, value, pc)
+
+    def _on_fetch(self, address: int, value: int, pc: int) -> None:
+        """An M1 fetch: the first one of an instruction (address = PC) is recorded."""
+        if address == pc:
             self._on_instruction(address, value)
 
     def locate(self, address: int) -> tuple[str, int] | None:

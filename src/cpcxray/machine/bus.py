@@ -10,15 +10,21 @@ The Z80 calls `fetch`/`read`/`write`/`io_in`/`io_out`/`int_ack` (the `CpuBus` pr
 * The interrupt acknowledge clears the Gate Array's request; the data bus reads &FF (IM 1
   ignores it; IM 2 on a CPC would read &FF too).
 
-Bus observers (trace, breakpoints, analysis) get `on_cycle(kind, address, value, pc)` for every
-access, where `pc` is the address of the instruction being executed. They are opt-in (D-12):
-without observers the bus methods are the plain fast variants; adding the first observer swaps
-in the observed variants, removing the last swaps them back. The CPU looks the methods up on
-every access, so the swap takes effect immediately.
+Bus observers (trace, breakpoints, analysis) get `on_cycle(kind, address, value, pc)` for the
+accesses they want, where `pc` is the address of the instruction being executed. They are
+opt-in (D-12), and per access kind: an observer may declare `cycles` (the `Cycle` kinds it
+wants, default all), or `handlers`, a dict from kind to `handler(address, value, pc)` that the
+bus calls directly (no dispatch inside the observer). Each CPU-facing method (fetch, read,
+write, ...) is the plain fast variant while no observer wants its kind, and the observed
+variant otherwise; only the interested observers are called. The CPU looks the methods up on
+every access, so a swap takes effect immediately. Observers whose interest changes call
+`refresh_observers()`.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from functools import partial
 from typing import Protocol
 
 from cpcxray.cpu.bus import Cycle
@@ -68,7 +74,8 @@ class CpcBus:  # pylint: disable=too-many-instance-attributes  # swappable metho
         self.gate_array = gate_array
         self.instruction_pc = 0
         self._observers: list[BusObserver] = []
-        self._use_fast_methods()
+        self._handlers: dict[Cycle, tuple[Callable[[int, int, int], None], ...]] = {}
+        self.refresh_observers()
 
     # -- observers (D-12) ------------------------------------------------------------------------
 
@@ -78,38 +85,47 @@ class CpcBus:  # pylint: disable=too-many-instance-attributes  # swappable metho
         return bool(self._observers)
 
     def add_observer(self, observer: BusObserver) -> None:
-        """Register an observer; the first one switches to the observed methods."""
+        """Register an observer (for the access kinds in its `cycles`, default all)."""
         self._observers.append(observer)
-        self._use_observed_methods()
+        self.refresh_observers()
 
     def remove_observer(self, observer: BusObserver) -> None:
-        """Unregister an observer; without observers the fast methods return."""
+        """Unregister an observer; kinds nobody watches go back to the fast methods."""
         self._observers.remove(observer)
-        if not self._observers:
-            self._use_fast_methods()
+        self.refresh_observers()
 
-    def _use_fast_methods(self) -> None:
-        """Point the CPU-facing methods at the unobserved implementations."""
-        self.fetch = self._fetch
-        self.read = self._read
-        self.write = self._write
-        self.io_in = self._io_in
-        self.io_out = self._io_out
-        self.int_ack = self._int_ack
+    def refresh_observers(self) -> None:
+        """Recompute who watches which access kind and pick fast or observed methods."""
+        self._handlers = {kind: tuple(self._handler(o, kind) for o in self._observers
+                                      if self._wants(o, kind)) for kind in Cycle}  # fmt: skip
+        watched = self._handlers
+        self.fetch = self._fetch_observed if watched[Cycle.M1] else self._fetch
+        self.read = self._read_observed if watched[Cycle.MEM_RD] else self._read
+        self.write = self._write_observed if watched[Cycle.MEM_WR] else self._write
+        self.io_in = self._io_in_observed if watched[Cycle.IO_RD] else self._io_in
+        self.io_out = self._io_out_observed if watched[Cycle.IO_WR] else self._io_out
+        self.int_ack = self._int_ack_observed if watched[Cycle.INT_ACK] else self._int_ack
 
-    def _use_observed_methods(self) -> None:
-        """Point the CPU-facing methods at the implementations that notify observers."""
-        self.fetch = self._fetch_observed
-        self.read = self._read_observed
-        self.write = self._write_observed
-        self.io_in = self._io_in_observed
-        self.io_out = self._io_out_observed
-        self.int_ack = self._int_ack_observed
+    @staticmethod
+    def _wants(observer: BusObserver, kind: Cycle) -> bool:
+        """True if the observer wants accesses of this kind (`handlers`, `cycles`, or all)."""
+        handlers = getattr(observer, "handlers", None)
+        if handlers is not None:
+            return kind in handlers
+        return kind in getattr(observer, "cycles", Cycle)
+
+    @staticmethod
+    def _handler(observer: BusObserver, kind: Cycle) -> Callable[[int, int, int], None]:
+        """The callable for one kind: a direct handler, or `on_cycle` with the kind bound."""
+        handlers = getattr(observer, "handlers", None)
+        if handlers is not None:
+            return handlers[kind]  # type: ignore[no-any-return]
+        return partial(observer.on_cycle, kind)
 
     def _notify(self, kind: Cycle, address: int, value: int) -> None:
-        """Pass one access to every observer."""
-        for observer in self._observers:
-            observer.on_cycle(kind, address, value, self.instruction_pc)
+        """Pass one access to the observers that want its kind."""
+        for handler in self._handlers[kind]:
+            handler(address, value, self.instruction_pc)
 
     # -- fast implementations --------------------------------------------------------------------
 

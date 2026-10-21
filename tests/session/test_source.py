@@ -97,3 +97,18 @@ def test_target_required(tmp_path: Path) -> None:
     session = Session(make_cpc(), project_dir=tmp_path)
     with pytest.raises(SessionError, match="give the target"):
         session.source_generate()
+
+
+def test_analysis_switch_keeps_collected_data(tmp_path: Path) -> None:
+    """Off: the observers leave the bus (decoding goes on); on again: nothing was lost."""
+    session = booted_session(tmp_path)
+    bus = session.machine.bus  # type: ignore[attr-defined]
+    observers = (session._analysis_observer, session._execution_observer)  # pylint: disable=protected-access
+    flags_before = bytes(session.analysis_targets["rom3"].flags)
+    assert session.analysis_enable(False) == {"analysis_enabled": False, "observing": False,
+                                              "targets": ["rom3"]}  # fmt: skip
+    assert not bus.observed
+    assert session.analysis_target_list()["analysis_enabled"] is False
+    session.analysis_enable(True)
+    assert all(o in bus._observers for o in observers)  # the same objects: tags kept  # pylint: disable=protected-access
+    assert bytes(session.analysis_targets["rom3"].flags) == flags_before

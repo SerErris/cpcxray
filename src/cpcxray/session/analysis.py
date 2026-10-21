@@ -4,7 +4,8 @@ A mixin of `Session`: every public method here is an MCP tool as well (D-27). Gr
 
 * Scrambled ROMs: decode switch, shadow status, conflicts, access map files and ranges, decoding
   from a map without a run, clear dump, ROM map, coverage CSV.
-* Analysis targets: add/remove/list, RAM-target capture, relocated blocks.
+* Analysis targets: add/remove/list, RAM-target capture, relocated blocks; `analysis_enable`
+  switches the analysis observers on and off (they cost about half the emulation speed).
 * Analysis database and source (phase 8, D-31..D-33): save/load (merge), owner
   classification, source generation, round-trip check.
 
@@ -55,12 +56,14 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods  # one method pe
     """Scrambled-ROM and analysis-target methods of `Session` (see the module docstring)."""
 
     analysis_targets: dict[str, AnalysisTarget]
+    analysis_enabled: bool  # observers on the bus (set by Session, kept across load_config)
     analysis_databases: dict[str, TargetDatabase]
     manual_relocations: list[RelocatedBlock]
     saved_relocations: list[RelocatedBlock]
     symbols: SymbolTable
     _analysis_observer: AnalysisObserver | None
     _execution_observer: ExecutionObserver | None
+    _analysis_observing: bool
     _line_maps: dict[Path, list[int]]
 
     # -- helpers (provided by Session) -----------------------------------------------------------
@@ -102,6 +105,7 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods  # one method pe
         self.saved_relocations = []
         self._analysis_observer = None
         self._execution_observer = None
+        self._analysis_observing = False
         self._line_maps = {}
 
     def _add_target(self, target: AnalysisTarget) -> None:
@@ -115,7 +119,12 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods  # one method pe
             self._merge_database(target.name, path)
 
     def _sync_observer(self) -> None:
-        """Register the analysis observers while targets exist, remove them otherwise (D-12)."""
+        """Keep the analysis observers on the bus while targets exist and analysis is on (D-12).
+
+        Switched off, the observers leave the bus but keep what they collected (provenance
+        tags, detected relocated blocks), so switching on again continues seamlessly. Without
+        targets they are dropped.
+        """
         machine = self._cpc()
         if self.analysis_targets and self._analysis_observer is None:
             self._analysis_observer = AnalysisObserver(machine.memory, self.analysis_targets)
@@ -123,14 +132,31 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods  # one method pe
                 machine.memory, self.analysis_targets, self.analysis_databases,
                 self._analysis_observer,
             )  # fmt: skip
-            machine.bus.add_observer(self._analysis_observer)
-            machine.bus.add_observer(self._execution_observer)
-        elif not self.analysis_targets and self._analysis_observer is not None:
-            machine.bus.remove_observer(self._analysis_observer)
-            if self._execution_observer is not None:
-                machine.bus.remove_observer(self._execution_observer)
+        wanted = bool(self.analysis_targets) and self.analysis_enabled
+        observers = (self._analysis_observer, self._execution_observer)
+        if wanted and not self._analysis_observing:
+            for observer in observers:
+                machine.bus.add_observer(observer)
+        elif not wanted and self._analysis_observing:
+            for observer in observers:
+                machine.bus.remove_observer(observer)
+        self._analysis_observing = wanted
+        if not self.analysis_targets:
             self._analysis_observer = None
             self._execution_observer = None
+
+    def analysis_enable(self, enabled: bool = True) -> dict[str, Any]:
+        """Switch the analysis observers on or off (decoding and the access map keep working).
+
+        The observers record instruction starts, RST facts and the provenance of code copied
+        to RAM; they watch every bus access and halve the emulation speed. Switch them on while
+        exercising the analysed ROM (boot, disk access, RSX commands), off for normal use.
+        What was collected is kept either way.
+        """
+        self.analysis_enabled = enabled
+        self._sync_observer()
+        return {"analysis_enabled": enabled, "observing": self._analysis_observing,
+                "targets": list(self.analysis_targets)}  # fmt: skip
 
     def _slot_name(self, slot: str | int | None) -> str:
         """Normalise a slot ("rom5", 5, "5", "lower"); None = the only scrambled ROM."""
@@ -382,7 +408,7 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods  # one method pe
                 entry |= {"capture": target.capture, "captured": target.image is not None,
                           "modified_after_capture": len(target.modifications)}  # fmt: skip
             targets.append(entry)
-        return {"targets": targets}
+        return {"targets": targets, "analysis_enabled": self.analysis_enabled}
 
     def analysis_capture(self, target: str) -> dict[str, Any]:
         """Capture a RAM target's image now; later writes into it are recorded (D-23)."""

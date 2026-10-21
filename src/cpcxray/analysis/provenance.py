@@ -59,6 +59,10 @@ class RamTag:
     offset: int
     exact: bool
 
+    def text(self) -> str:
+        """The origin as shown in traces, e.g. "rom5:&0105" ("?" marks a probable tag)."""
+        return f"{self.target}:&{self.offset:04X}{'' if self.exact else '?'}"
+
 
 @dataclass(frozen=True)
 class RelocatedBlock:
@@ -84,7 +88,12 @@ class RelocatedBlock:
 
 
 class AnalysisObserver:  # pylint: disable=too-many-instance-attributes  # per-instruction state
-    """Bus observer maintaining provenance, execution via RAM and RAM-target captures."""
+    """Bus observer maintaining provenance, execution via RAM and RAM-target captures.
+
+    Attributes:
+        handlers: Called by the bus per access kind: memory accesses only; I/O and interrupt
+            acknowledges are not observed (D-12).
+    """
 
     def __init__(self, memory: MemoryMap, targets: dict[str, AnalysisTarget]) -> None:
         """Observe on behalf of `targets` (shared with the session, may change at run time)."""
@@ -97,11 +106,16 @@ class AnalysisObserver:  # pylint: disable=too-many-instance-attributes  # per-i
         self._block_move = False
         self._instruction_pc = -1
         self._previous_m1 = -1
+        self.handlers = {Cycle.M1: self._on_fetch, Cycle.MEM_RD: self._on_read,
+                         Cycle.MEM_WR: self._on_write}  # fmt: skip
 
     # -- the observer callback -------------------------------------------------------------------
 
     def on_cycle(self, kind: Cycle, address: int, value: int, pc: int) -> None:
-        """Process one bus access."""
+        """Process one bus access.
+
+        The bus calls `handlers` directly; this serves callers that have the kind at hand.
+        """
         if kind == Cycle.M1:
             self._on_fetch(address, value, pc)
         elif kind == Cycle.MEM_RD:
@@ -135,7 +149,7 @@ class AnalysisObserver:  # pylint: disable=too-many-instance-attributes  # per-i
                     and target.contains(address)):  # fmt: skip
                 capture(target, self.memory)
 
-    def _on_read(self, address: int, value: int) -> None:
+    def _on_read(self, address: int, value: int, _pc: int = 0) -> None:
         """Data read: remember reads from ROM targets."""
         rom = self.memory.visible_rom(address)
         if rom is not None and rom in self.targets:
@@ -143,7 +157,7 @@ class AnalysisObserver:  # pylint: disable=too-many-instance-attributes  # per-i
             self._instruction_reads.append(entry)
             self._recent.append(entry)
 
-    def _on_write(self, address: int, value: int) -> None:
+    def _on_write(self, address: int, value: int, _pc: int = 0) -> None:
         """RAM write: tag, retag or clear provenance; record writes into captured targets."""
         tag = None
         if self._block_move and self._instruction_reads:
@@ -199,9 +213,7 @@ class AnalysisObserver:  # pylint: disable=too-many-instance-attributes  # per-i
     def origin_text(self, address: int) -> str | None:
         """Describe the provenance of a RAM byte, e.g. "rom5:&1234" (None if untagged)."""
         tag = self.ram_origin[address]
-        if tag is None:
-            return None
-        return f"{tag.target}:&{tag.offset:04X}{'' if tag.exact else '?'}"
+        return tag.text() if tag is not None else None
 
 
 def capture(target: AnalysisTarget, memory: MemoryMap) -> None:

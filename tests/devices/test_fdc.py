@@ -155,3 +155,18 @@ def test_invalid_command_and_log() -> None:
     send(fdc, 0x03, 0xA1, 0x03)
     send(fdc, 0x03, 0xA1, 0x03)
     assert fdc.state()["recent_commands"][-1] == "SPECIFY 03 a1 03 ->   (x2)"
+
+
+def test_drive_lights() -> None:
+    """The light of the drive addressed last is on while the (shared) motor runs."""
+    fdc, _ = vortex_fdc()
+    assert fdc.drive_lights() == [False, False]
+    fdc.io_out(0xFA7E, 1)
+    send(fdc, 0x04, 0x01)  # SENSE DRIVE STATUS of B:
+    assert fdc.drive_lights() == [False, True]
+    send(fdc, 0x03, 0xA1, 0x03)  # SPECIFY has no unit: the selection stays
+    assert fdc.drive_lights() == [False, True] and fdc.state()["selected_drive"] == "B"
+    send(fdc, 0x04, 0x00)
+    assert fdc.drive_lights() == [True, False]
+    fdc.io_out(0xFA7E, 0)
+    assert fdc.drive_lights() == [False, False]

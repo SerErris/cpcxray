@@ -123,6 +123,7 @@ class DebuggerMixin:
         elif not self.bus_trace.enabled and self._bus_trace_observing:
             bus.remove_observer(self.bus_trace)
             self._bus_trace_observing = False
+        bus.refresh_observers()  # breakpoint kinds or trace filters may have changed
 
     # -- hooks of the run loop -------------------------------------------------------------------
 

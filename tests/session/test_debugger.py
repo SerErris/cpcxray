@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from cpcxray.decoding.vortex import vortex_decode
@@ -162,3 +164,22 @@ def test_load_config_moves_observers() -> None:
     assert observer is not None
     assert observer in session.machine.bus._observers  # type: ignore[attr-defined]  # pylint: disable=protected-access
     assert session.run(max_us=2_000_000)["reason"] == "breakpoint"  # the firmware writes the stack
+
+
+def test_steps_are_recorded_runs_only_when_switched_on(tmp_path: Path) -> None:
+    """Stepping fills the trace buffer with the trace off; free runs need the switch."""
+    session = Session(make_test_cpc(OS, UPPER), project_dir=tmp_path)
+    session.step(3)
+    session.step_over()
+    lines = session.trace_read(10)["lines"]
+    assert len(lines) == 4 and not session.trace_read()["tracing"]
+    session.run(max_instructions=20)
+    assert len(session.trace_read(100)["lines"]) == 4  # a free run with the trace off: nothing
+    session.trace_start(path="out/trace.txt")
+    session.run(max_instructions=5)
+    session.trace_stop()
+    assert len(session.trace_read(100)["lines"]) == 5  # started: buffer cleared, run recorded
+    assert len((tmp_path / "out" / "trace.txt").read_text(encoding="utf-8").splitlines()) == 5
+    session.step(2)  # the trace is off again: the steps go to the buffer, not to the file
+    assert len(session.trace_read(100)["lines"]) == 7
+    assert len((tmp_path / "out" / "trace.txt").read_text(encoding="utf-8").splitlines()) == 5
