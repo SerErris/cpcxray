@@ -6,7 +6,7 @@ from cpcxray.analysis.classifier import TargetView, build_observed, find_rom_hea
 from cpcxray.analysis.cpc_profile import CpcProfile
 from cpcxray.analysis.database import Kind, Source, TargetDatabase
 from cpcxray.analysis.provenance import RelocatedBlock
-from cpcxray.analysis.targets import INSN_START
+from cpcxray.analysis.targets import EXEC_VIA_RAM, INSN_START
 from cpcxray.decoding.shadow_rom import DATA, M1, UNKNOWN
 from cpcxray.decoding.vortex import vortex_decode, vortex_mask
 from tests.analysis.helpers import classified, plain_view
@@ -174,3 +174,18 @@ def test_jump_table_entries() -> None:
     database = classified(plain_view(image), starts=[0])
     assert database.kind_at(3) == Kind.INSN_START  # jp &C00C: target inside the ROM
     assert database.kind_at(6) == Kind.UNKNOWN  # jp &4000: outside, not taken as an entry
+
+
+def test_direct_execution_wins_over_ram_copy() -> None:
+    """A via-RAM instruction start inside a directly executed RST operand is ignored (&C324)."""
+    image = bytes.fromhex("DF 05 C0 C9 00 DC C1 07")  # rst #18 / defw &C005; far object at &C005
+    access = bytes([M1, DATA, DATA, M1, UNKNOWN, DATA, DATA, DATA])
+    view = TargetView("rom5", 0xC000, image, image, access, lambda _o, raw: raw)
+    database = TargetDatabase(view.name, view.start, view.length)
+    flags = bytearray(8)
+    flags[0] = INSN_START
+    flags[2] = INSN_START | EXEC_VIA_RAM  # the pointer's high byte, "executed" in RAM
+    build_observed(database, view, bytes(flags), CpcProfile(image_range=(0xC000, 0xC007)))
+    assert [database.kind_at(o) for o in (0, 1, 2)] == [
+        Kind.INSN_START, Kind.RST_OPERAND, Kind.RST_OPERAND,
+    ]  # fmt: skip

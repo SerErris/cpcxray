@@ -55,3 +55,27 @@ Open tasks for later sessions, in the owner's words, with notes on where they ap
    - Verification: the existing tests run against the Rust core through the binding
      (SingleStepTests, ZEXDOC/ZEXALL, z80test), the analysis and VDOS milestone tests check
      the Rust observers; the byte-identical VDOS source is the end-to-end check.
+
+6. **Full keyboard translation (character-based).** A key pressed on the PC keyboard shall give
+   the character printed on it on the CPC: on the German keyboard, the key for `|` must type
+   `|` on the CPC. Today the PC keys map by position (ui/host_keys.py, owner's choice in
+   phase 6), so that key gives `Ü`'s position on the CPC keyboard - physically right, but
+   unusable.
+   - How: translate the character the PC produces into the CPC key combination that types it
+     (the firmware's translation tables, as `type_text` already does: devices/key_map.py), and
+     hold those matrix keys (including SHIFT/CONTROL) while the PC key is down.
+   - Note: Dear PyGui reports key codes, not the characters of the active layout; the
+     character has to come from the text input events (or the OS layout). Keys without a
+     character (cursor keys, COPY, ESC, function keys) stay mapped by position.
+
+7. **More graphical Devices page.** Today the Devices tab is a text dump of `devices_get`.
+   - Draw a framed box per device (Gate Array, CRTC, ROM select, SystemIO/PSG, keyboard, FDC
+     with both drives) with its registers laid out inside.
+   - Gate Array: show the 16 pens and the border as colour swatches in their actual colours
+     (hardware colour → RGB via ui/palette.py), with the colour numbers; mark the selected pen;
+     screen mode, ROM enables, interrupt state.
+   - Further ideas: CRTC registers with names (R0-R17) and the screen start address, ROM
+     select with the ROM name, the keyboard matrix as a grid of keys (held keys highlighted),
+     FDC drive state with motor/activity LED and head position.
+   - Where: ui/panels/tabs.py (Devices tab; Dear PyGui drawing / colour widgets); the data
+     stays `Session.devices_get` (MCP parity).

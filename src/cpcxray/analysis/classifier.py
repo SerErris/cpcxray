@@ -37,10 +37,10 @@ from dataclasses import dataclass, field, replace
 from cpcxray.analysis.cpc_profile import CpcProfile
 from cpcxray.analysis.database import Kind, Source, TargetDatabase
 from cpcxray.analysis.provenance import RelocatedBlock
-from cpcxray.analysis.targets import INSN_START
+from cpcxray.analysis.targets import EXEC_VIA_RAM, INSN_START
 from cpcxray.cpu.disasm import Flow, Instruction, SymbolLookup, disassemble
 from cpcxray.decoding.m1map import FILL_POLICIES
-from cpcxray.decoding.shadow_rom import DATA, M1, UNKNOWN
+from cpcxray.decoding.shadow_rom import DATA, ERROR, M1, UNKNOWN
 
 PREFIXES = frozenset({0xCB, 0xDD, 0xED, 0xFD})
 RST_OPCODES_WITH_OPERAND = frozenset({0xCF, 0xD7, 0xDF, 0xEF})
@@ -286,18 +286,44 @@ def build_observed(
     """Rebuild the owner and observed classification from the facts (module docstring)."""
     database.reset_classification()
     apply_overrides(database, view, profile)
-    for offset in range(view.length):
-        if flags[offset] & INSN_START and database.sources[offset] < Source.OWNER:
-            instruction = view.disassemble(offset, profile)
-            if view.fits(offset, instruction.length):
-                mark_instruction(database, offset, instruction, Source.OBSERVED)
-            else:  # crosses a block or target end: the generator emits it as defb
-                database.classify(offset, Kind.INSN_START, Source.OBSERVED)
+    starts = [o for o in range(view.length) if flags[o] & INSN_START]
+    direct = [o for o in starts if _executed_directly(view, flags, o)]
+    via_ram = [o for o in starts if not _executed_directly(view, flags, o)]
+    for offset in direct + via_ram:  # direct execution is the stronger evidence
+        if database.sources[offset] >= Source.OWNER:
+            continue
+        instruction = view.disassemble(offset, profile)
+        if offset in via_ram and _overlaps_observed(database, offset, instruction.length):
+            continue  # e.g. an operand of a directly executed instruction, copied to RAM
+        if view.fits(offset, instruction.length):
+            mark_instruction(database, offset, instruction, Source.OBSERVED)
+        else:  # crosses a block or target end: the generator emits it as defb
+            database.classify(offset, Kind.INSN_START, Source.OBSERVED)
     for address_text, facts in database.observations.items():
         offset = int(address_text, 16) - database.start
         if facts.get("far_object") and 0 <= offset <= view.length - 3:
             for index in range(3):
                 database.classify(offset + index, Kind.FAR_ADDR, Source.OBSERVED)
+
+
+def _executed_directly(view: TargetView, flags: bytes, offset: int) -> bool:
+    """True if the instruction start ran in the target itself, not only from a RAM copy.
+
+    Scrambled ROMs: its opcode byte was fetched with M1 there. Other targets: it has no
+    EXEC_VIA_RAM flag.
+    """
+    if view.access is not None:
+        return view.access[offset] in (M1, ERROR)
+    return not flags[offset] & EXEC_VIA_RAM
+
+
+def _overlaps_observed(database: TargetDatabase, offset: int, length: int) -> bool:
+    """True if any byte of an instruction is already part of an observed instruction."""
+    return any(
+        database.sources[o] == Source.OBSERVED
+        and database.kinds[o] in (Kind.INSN_START, Kind.INSN_BODY, Kind.RST_OPERAND)
+        for o in range(offset, min(offset + length, database.length))
+    )
 
 
 def mark_data_reads(database: TargetDatabase, view: TargetView) -> None:

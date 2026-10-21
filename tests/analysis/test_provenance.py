@@ -94,3 +94,23 @@ def test_only_configured_targets_are_analysed() -> None:
     targets.clear()
     run_until_halt(machine)
     assert observer.origin_text(0x4000) is None
+
+
+def test_single_value_match_is_not_executed_code() -> None:
+    """A RAM byte that only equals a recent ROM read (not a copied run) is no executed ROM code.
+
+    Like the firmware's FAR CALL: it reads &C3 from the ROM, then writes the constant &C3 (a JP
+    opcode) into RAM and executes it - that must not mark the ROM byte (found with |CPM).
+    """
+    machine = make_test_cpc(
+        {0x0000: "01817F ED49 C300C0"},
+        {0x0000: "3A20C0 210040 36C9 CD0040 76", 0x0020: "C9"},  # read &C9, write #C9, call it
+    )
+    targets = {"rom3": rom_target("rom3")}
+    observer = AnalysisObserver(machine.memory, targets)
+    machine.bus.add_observer(observer)
+    run_until_halt(machine)
+    origin = observer.origin_text(0x4000)  # tagged (probable: the immediate &C9 at &0007) ...
+    assert origin is not None and origin.endswith("?")
+    flags = targets["rom3"].flags
+    assert not flags[0x07] & EXEC_VIA_RAM and not flags[0x20] & EXEC_VIA_RAM  # ... not executed

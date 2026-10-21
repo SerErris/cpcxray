@@ -33,6 +33,10 @@ is a line start of the source, lies in the target's own address range, or is a f
 jumpblock entry (&B900 and up). Counters (LDIR's BC, DJNZ, `dec bc` loops) and other plain
 numbers stay hex: `ld bc,#0016`, not `ld bc,JP_DE`.
 
+A far address (RST 3) that selects another upper ROM points into that ROM's code: it never
+gets a label of this target (`defw #C1DC ; ROM 7` for an AMSDOS routine called from VDOS, not
+VDOS's own `sub_c1dc`).
+
 The file starts with a reference block of all low-kernel firmware entries (the restarts
 RESET_ENTRY … EXT_INTERRUPT at &0000-&003B, the same on 464, 664 and 6128), whether the code
 uses them or not, so the names are at hand when the source is edited; then the EQUs of the
@@ -45,6 +49,7 @@ round-trip report (D-33).
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from cpcxray.analysis.classifier import (
@@ -387,7 +392,8 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
     def _item_references(self, item: _Item) -> list[tuple[int, str]]:
         """Addresses an item refers to, with their use ("call", "jump", "far", "data")."""
         references = []
-        if item.kind == "far":
+        if item.kind == "far" and self._same_rom(self._word(item.offset),
+                                                 self.view.image[item.offset + 2]):  # fmt: skip
             references.append((self._word(item.offset), "data"))
         instruction = item.instruction
         if instruction is None:
@@ -507,6 +513,28 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             if label not in used_names:
                 self.references[entry.address] = (label, entry.name)
                 used_names.add(label)
+
+    def _same_rom(self, address: int, select: int) -> bool:
+        """True unless a far address selects another upper ROM for an upper-ROM address.
+
+        Select bytes 252-255 only set the ROM enables (the current upper ROM stays), so they
+        count as this ROM; a lower-ROM target has no own upper ROM number.
+        """
+        if address < 0xC000 or select >= 252:
+            return True
+        name = self.view.name
+        return name.startswith("rom") and name[3:].isdigit() and int(name[3:]) == select
+
+    def _foreign_far_target(self, item: _Item) -> int | None:
+        """The target of a FAR CALL whose far object selects another ROM, else None."""
+        instruction = item.instruction
+        if instruction is None or instruction.raw[0] != 0xDF:
+            return None
+        far = far_object_offset(self.view, instruction)
+        if far is None:
+            return None
+        target, select = self._word(far), self.view.image[far + 2]
+        return None if self._same_rom(target, select) else target
 
     def _lookup(self, address: int) -> str | None:
         """Label for an operand (in the coordinates of the line being emitted), or None."""
@@ -688,9 +716,10 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             )
         if item.kind == "far":
             word = self._word(item.offset)
-            target = self._lookup(word) or hex_word(word)
             select = self.view.image[item.offset + 2]
-            target_name = self.symbols.label_at(word) or hex_word(word)
+            own = self._same_rom(word, select)
+            target = (self._lookup(word) if own else None) or hex_word(word)
+            target_name = target if own else hex_word(word)
             return _format_line(f"defw {target}", f"far address: to {target_name}", label) + (
                 _format_line(f"defb {hex_byte(select)}", f"  {rom_select_text(select)}")
             )
@@ -702,6 +731,9 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         word = item.instruction.word_operand if item.instruction else None
         if word is not None and not self._wants_label(item, word):
             lookup = _no_label
+        foreign = self._foreign_far_target(item)
+        if foreign is not None:  # RST 3 into another ROM: no label of this target for it
+            lookup = _excluding(lookup, foreign)
         instruction = self.view.disassemble(item.offset, self.profile, lookup)
         self._statistics[f"instructions_{item.source.name.lower()}"] = (
             self._statistics.get(f"instructions_{item.source.name.lower()}", 0) + 1
@@ -791,6 +823,16 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
                 operands = string_operands(chunk) if is_string else ",".join(map(hex_byte, chunk))
                 pieces.append((first + start, length, f"defb {operands}"))
         return pieces
+
+
+def _excluding(lookup: Callable[[int], str | None], excluded: int) -> Callable[[int], str | None]:
+    """A symbol lookup that finds no label for one address (it belongs to another ROM)."""
+
+    def wrapped(address: int) -> str | None:
+        """Look up every address but the excluded one."""
+        return None if address == excluded else lookup(address)
+
+    return wrapped
 
 
 def _no_label(_address: int) -> None:

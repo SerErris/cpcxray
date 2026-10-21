@@ -229,3 +229,23 @@ def test_immediates_labels_only_for_addresses(tmp_path: Path) -> None:
     assert "ld bc,#0016" in lines  # ... but a number stays a number
     assert "; firmware restarts and low kernel entries (464/664/6128), for reference" in lines
     assert lines.count("TXT_OUTPUT              EQU #BB5A") == 1  # used entries: own block
+
+
+def test_far_call_into_another_rom_gets_no_own_label(tmp_path: Path) -> None:
+    """A FAR CALL to &C008 in ROM 7, made from ROM 5, must not use ROM 5's label at &C008."""
+    image = bytes.fromhex(
+        "DF 0B C0"  # rst #18 via the far object at &C00B
+        "CD 08 C0"  # call &C008 (ROM 5's own routine there gets a label)
+        "C9 00"
+        "C9"  # &C008: ret
+        "00 00"
+        "08 C0 07"  # &C00B far object: &C008 in ROM 7
+    )
+    view = plain_view(image, name="rom5")
+    database = classified(view, starts=[0, 3, 6, 8], observations={"C00B": {"far_object": True}})
+    generated, result = round_trip(tmp_path, view, database)
+    assert result.identical, result.differences
+    lines = code_lines(generated.text)
+    assert "call sub_c008" in lines and "sub_c008:" in lines  # own code: labelled
+    assert "defw #C008                      ; far address: to #C008" in lines  # ROM 7: hex
+    assert any(line.startswith("defw far_c00b") and "to #C008 [ROM 7]" in line for line in lines)

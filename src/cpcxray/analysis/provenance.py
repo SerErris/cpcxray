@@ -13,7 +13,11 @@ from the ROM with M1, so without tracking it would look like data. Every RAM byt
   MODIFIED_AFTER_COPY.
 
 An M1 fetch from tagged RAM flags the origin byte EXEC_VIA_RAM, and INSN_START for the first
-byte of an instruction, and counts executions per RAM address.
+byte of an instruction, and counts executions per RAM address. A probable tag counts only inside
+a copied run (a neighbouring RAM byte tagged with the consecutive offset of the same ROM): a
+single value match is a coincidence too often - the firmware's FAR CALL writes a JP opcode &C3
+into RAM right after reading a pointer byte &C3 from the ROM, which made a VDOS operand byte look
+like executed code (found with |CPM, &C324).
 
 Relocated blocks (D-22): consecutive RAM addresses whose tags point to consecutive offsets of
 the same target form a block (target, rom_start, length, ram_start). The same ROM range copied
@@ -138,7 +142,7 @@ class AnalysisObserver:  # pylint: disable=too-many-instance-attributes  # per-i
     def _on_ram_fetch(self, address: int, instruction_start: bool) -> None:
         """M1 from RAM: provenance of tagged bytes, first-M1 capture of RAM targets."""
         tag = self.ram_origin[address]
-        if tag is not None:
+        if tag is not None and (tag.exact or self._in_copied_run(address, tag)):
             target = self.targets.get(tag.target)
             if target is not None:
                 target.flags[tag.offset] |= EXEC_VIA_RAM | (INSN_START if instruction_start else 0)
@@ -148,6 +152,16 @@ class AnalysisObserver:  # pylint: disable=too-many-instance-attributes  # per-i
             if (target.kind == "ram" and target.image is None and target.capture == "first_m1"
                     and target.contains(address)):  # fmt: skip
                 capture(target, self.memory)
+
+    def _in_copied_run(self, address: int, tag: RamTag) -> bool:
+        """True if a neighbouring RAM byte carries the neighbouring offset of the same target."""
+        before = self.ram_origin[(address - 1) & 0xFFFF]
+        after = self.ram_origin[(address + 1) & 0xFFFF]
+        previous_byte = (tag.target, tag.offset - 1)
+        next_byte = (tag.target, tag.offset + 1)
+        return (before is not None and (before.target, before.offset) == previous_byte) or (
+            after is not None and (after.target, after.offset) == next_byte
+        )
 
     def _on_read(self, address: int, value: int, _pc: int = 0) -> None:
         """Data read: remember reads from ROM targets."""
