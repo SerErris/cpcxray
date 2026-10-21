@@ -173,7 +173,7 @@ software.
 | D-19 | **Access map format:** raw binary file `<rom>.m1map`, exactly 16,384 bytes, byte *i* describes ROM offset *i*: `&7F` unknown (initial), `&01` M1, `&00` data, `&FF` error. Optional range list export as text/JSON. Only observed facts are stored. | Smallest and fastest form; loads into a `bytearray` in one call, lines up 1:1 with the ROM in a hex editor, `cmp` shows differences. Per-address JSON would be ~25× larger. Guesses stay in the analysis database, so the map never mixes certainty with assumptions. |
 | D-20 | **Dump fill policy is selectable per dump** for never-read bytes: `raw`, `data` (decoded as if data), `ff`, `static` (code/data guess by recursive disassembly). Every dump comes with a **ROM map** highlighting never-accessed areas. | Never-read bytes cannot be decoded with certainty, because decoding depends on the access type. |
 | D-21 | **Automatic RAM provenance tracking for analysis targets.** A RAM byte written with a value read from a target carries the tag (target, offset, exact/probable). Block moves (LDI/LDIR/LDD/LDDR) give exact tags; copies via registers give probable tags. An M1 fetch from tagged RAM marks the origin bytes as executed via RAM and as instruction starts. | Code that only runs from RAM is never M1-fetched from the ROM; without provenance it would appear as data and could not be linked to ROM addresses, labels and comments. |
-| D-22 | **Relocated code blocks:** consecutive provenance tags with a constant offset form a block (target, ROM start, length, RAM start), stored in the analysis database and editable by the owner. Views, listing and source generator disassemble the block **at its RAM address**; the source wraps it in sjasmplus `DISP ram_start` … `ENT`. | Absolute JP/CALL targets, pointers and labels in copied code are only meaningful in RAM coordinates. `DISP` assembles for the RAM address while placing the bytes at the ROM position, so the ROM still reassembles byte-identically. |
+| D-22 | **Relocated code blocks:** consecutive provenance tags with a constant offset form a block (target, ROM start, length, RAM start), stored in the analysis database and editable by the owner. Views, listing and source generator disassemble a **position-dependent** block **at its RAM address**; the source wraps it in sjasmplus `DISP ram_start` … `ENT`. A position-independent block (no relative branch inside it, no absolute reference into its RAM range from executed code) stays at its ROM address with a comment line. | Absolute JP/CALL targets, pointers and labels that point into the copy are only meaningful in RAM coordinates. `DISP` assembles for the RAM address while placing the bytes at the ROM position, so the ROM still reassembles byte-identically. A copied jumpblock whose entries jump into the ROM needs no RAM coordinates; a `DISP` would only split it (VDOS's boot jumpblock &C0D2, partly kept at &AD0E by the CP/M BIOS). |
 | D-23 | **RAM-range targets** are analysed on an image captured on command or at the first M1 fetch inside the range. Source `ORG` = range start. Later writes into the range are flagged with their runtime value; the owner can recapture. Provenance and relocation do not apply. | RAM code can be loaded, unpacked or patched at runtime; the bytes to disassemble must be fixed at a defined moment, and later changes must be visible. |
 | D-24 | **Trace sinks:** text file, CSV, JSON Lines, GUI panel; each switchable. | Text for reading, CSV/JSON for scripts, panel for live work. |
 | D-25 | **Snapshots in `.sna` format only.** Analysis state (access map, analysis database) is saved in its own files. | `.sna` holds machine state only and stays compatible with other emulators. |
@@ -477,6 +477,10 @@ with the runtime value; the owner can recapture.
   probable tag; any other write clears the tag.
 - An M1 fetch from tagged RAM sets `EXEC_VIA_RAM` on the origin byte and marks it as an
   instruction start (mapped back from the RAM address); the trace shows `RAM &xxxx ← ROM5:&yyyy`.
+- Mapping RAM back to a target (executed code, RSTs, far address objects) trusts an exact tag,
+  but a probable tag only inside a copied run (a neighbouring RAM byte carries the neighbouring
+  offset): code that builds bytes with `ld (hl),n` writes values equal to its own operands
+  (VDOS builds a FAR CALL at &BB48 and its far object at &BE26 that way).
 
 **Relocated blocks (D-22):**
 
@@ -490,6 +494,12 @@ with the runtime value; the owner can recapture.
   addresses (`ram_bf00_ff4a`); a reference from outside to an overlaid RAM address stays hex.
 - Only blocks that executed in RAM (or that the owner added) become `DISP` blocks; a copy that
   never runs is data (e.g. a jump table).
+- Of the executed blocks only position-dependent ones become `DISP` blocks: an instruction
+  executed in the copy branches relatively inside it or refers absolutely into its RAM range,
+  or code executed elsewhere in the target refers into that range. The others stay at their
+  ROM address with a comment line `; ---- #rrrr-#rrrr copied to RAM #xxxx-#xxxx and executed
+  there (position-independent) ----` before the instruction containing the first copied byte.
+  Owner-added blocks are always `DISP` blocks.
 - Copied code modified in RAM before it runs: the tag is cleared, the bytes are flagged
   `MODIFIED_AFTER_COPY`, the listing shows the ROM version with the runtime value as a comment.
 - Partially copied ranges: only the copied part becomes a block.
@@ -705,6 +715,11 @@ far_c7f3:
   table"; RST 6 inline length).
 - Relocated blocks and runtime observations (RST targets and ROM selections actually used).
 - Saved on demand and on exit; merged when loading, so knowledge from several runs accumulates.
+- Static guesses (recursive descent from observed code and the ROM header jumpblock) also take
+  the neighbouring entries of a jump table: next to a `jp nn` into the target, the following
+  `C3 nn nn` entry, and the preceding one inside a run of three. Their opcode bytes may have
+  been read as data: a table that runs from a RAM copy was read by the copy (VDOS's boot
+  jumpblock &C0D2, 17 entries, copied whole, only some run).
 
 **Source generator** — walks the target range linearly and emits every byte exactly once:
 

@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from cpcxray.analysis.classifier import TargetView, build_observed, find_rom_header
+from cpcxray.analysis.classifier import (
+    TargetView,
+    build_observed,
+    executed_instructions,
+    find_rom_header,
+    position_dependent,
+)
 from cpcxray.analysis.cpc_profile import CpcProfile
 from cpcxray.analysis.database import Kind, Source, TargetDatabase
 from cpcxray.analysis.provenance import RelocatedBlock
@@ -176,6 +182,24 @@ def test_jump_table_entries() -> None:
     assert database.kind_at(6) == Kind.UNKNOWN  # jp &4000: outside, not taken as an entry
 
 
+def test_copied_jump_table_entries_both_directions() -> None:
+    """A jump table read as data by a copy: entries before and after an executed one are code.
+
+    Like VDOS's boot jumpblock &C0D2: copied whole by LDIR (all bytes read as data), one entry
+    executed; the entry before it counts only inside a run of three.
+    """
+    image = bytes.fromhex("C3 0F C0 C3 0F C0 C3 0F C0 00 00 00 00 00 00 C9")
+    access = bytes([DATA] * 9 + [UNKNOWN] * 6 + [M1])
+    view = TargetView("rom5", 0xC000, image, image, access, lambda _o, raw: raw)
+    database = classified(view, starts=[3])
+    assert [database.kind_at(o) for o in (0, 3, 6)] == [Kind.INSN_START] * 3
+    assert database.sources[0] == Source.STATIC and database.sources[6] == Source.STATIC
+
+    plain = bytes.fromhex("3E C3 0C C0 C3 0C C0 00 00 00 00 00 C9")  # ld a,&C3 ... / jp &C00C
+    before = classified(plain_view(plain), starts=[4])
+    assert before.kind_at(1) == Kind.UNKNOWN  # looks like an entry, but no run of three
+
+
 def test_direct_execution_wins_over_ram_copy() -> None:
     """A via-RAM instruction start inside a directly executed RST operand is ignored (&C324)."""
     image = bytes.fromhex("DF 05 C0 C9 00 DC C1 07")  # rst #18 / defw &C005; far object at &C005
@@ -189,3 +213,29 @@ def test_direct_execution_wins_over_ram_copy() -> None:
     assert [database.kind_at(o) for o in (0, 1, 2)] == [
         Kind.INSN_START, Kind.RST_OPERAND, Kind.RST_OPERAND,
     ]  # fmt: skip
+
+
+def test_position_dependence_of_relocated_blocks() -> None:
+    """Relocated blocks: which ones need their RAM address in the source (D-22).
+
+    A copied jumpblock into the ROM is position-independent; an internal jr or a reference
+    into the RAM copy makes a block depend on its RAM address.
+    """
+    image = bytes.fromhex(
+        "C3 10 C0 C3 20 C0"  # &C000 jumpblock into the ROM, copied to &8000
+        "18 FE"  # &C006 jr &C006 (to itself), copied to &9000
+        "21 00 A0"  # &C008 ld hl,&A000: refers to the copy of &C00B
+        "C9"  # &C00B ret, copied to &A000
+    )
+    view = plain_view(image)
+    profile = CpcProfile(image_range=(0xC000, 0xC00B))
+    flags = bytearray(len(image))
+    for offset in (0, 3, 6, 8, 11):
+        flags[offset] |= INSN_START
+    instructions = executed_instructions(view, bytes(flags), profile)
+    jumpblock = RelocatedBlock("rom1", 0, 6, 0x8000, executed=2)
+    loop = RelocatedBlock("rom1", 6, 2, 0x9000, executed=1)
+    referenced = RelocatedBlock("rom1", 11, 1, 0xA000, executed=1)
+    assert not position_dependent(view, jumpblock, instructions)
+    assert position_dependent(view, loop, instructions)
+    assert position_dependent(view, referenced, instructions)

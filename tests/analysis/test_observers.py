@@ -49,3 +49,30 @@ def test_restarts_far_object_and_arrival() -> None:
     assert observations["C000"] == {"rst": 2, "reached": "rom3"}
     assert observations["C050"] == {"rst": 3, "reached": "rom3"}
     assert observations["C060"] == {"far_object": True}
+
+
+def test_far_call_built_in_ram_is_not_rom_code() -> None:
+    """An RST 3 and far object written into RAM with `ld (hl),n` are not mapped to the ROM.
+
+    The written values equal the instructions' own operand bytes (value-matched provenance), as
+    when VDOS patches KM DISARM BREAK with a FAR CALL via &BE26: no "rst" and no "far_object"
+    must land on those operand bytes (&C2A0, &C28B in VDOS).
+    """
+    machine = make_test_cpc(
+        OS,
+        {
+            0x00: "210040 36DF 23 3610 23 3640"  # &4000: rst #18 / defw #4010
+            "211040 3670 23 36C0 23 3603"  # &4010: far address object &C070, ROM 3
+            "CD0040",  # call it
+            0x70: "76",
+        },
+    )
+    targets = {"rom3": rom_target("rom3")}
+    databases = {"rom3": TargetDatabase("rom3", 0xC000, 0x4000)}
+    provenance = AnalysisObserver(machine.memory, targets)
+    machine.bus.add_observer(provenance)
+    machine.bus.add_observer(ExecutionObserver(machine.memory, targets, databases, provenance))
+    run_until_halt(machine)
+    assert machine.cpu.pc == 0xC071  # the FAR CALL ran (test handler: jp &C070)
+    assert provenance.origin_text(0x4000) is not None  # value-tagged, but no evidence
+    assert not databases["rom3"].observations

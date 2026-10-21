@@ -5,6 +5,7 @@ Every generated source is assembled with sjasmplus and must reproduce the image 
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from cpcxray.analysis.provenance import RelocatedBlock
@@ -92,6 +93,24 @@ def test_relocated_block_uses_disp(tmp_path: Path) -> None:
     assert any("copied to RAM #8000-#8005 (from #C004)" in line for line in lines)
 
 
+def test_position_independent_copy_stays_at_rom_address(tmp_path: Path) -> None:
+    """A RAM copy shown at its ROM address gets a comment line, no DISP (D-22)."""
+    image = bytes.fromhex("C9 00 C3 00 C0 C3 00 C0")  # ret / nop / jumpblock (2 entries)
+    copy = RelocatedBlock("rom1", 5, 3, 0xAD0E, executed=1)  # starts at the second entry
+    view = replace(plain_view(image), ram_copies=(copy,))
+    database = classified(view, starts=[0, 2, 5])
+    generated, result = round_trip(tmp_path, view, database)
+    assert result.identical, result.differences
+    lines = code_lines(generated.text)
+    marker = (
+        "; ---- #C005-#C007 copied to RAM #AD0E-#AD10 and executed there"
+        " (position-independent) ----"
+    )
+    assert marker in lines
+    assert lines[lines.index(marker) + 1] == "jp l_c000"
+    assert "DISP #AD0E" not in lines
+
+
 def non_canonical_encodings() -> list[bytes]:
     """Every encoding the disassembler flags as non-canonical (D-32), with operands."""
     candidates = [bytes([0xED, op, 0x34, 0x12]) for op in range(256)]
@@ -163,7 +182,7 @@ def test_rom_header_rendering(tmp_path: Path) -> None:
     assert "defb #01                        ; background ROM" in lines
 
 
-def test_owner_labels_and_comments(tmp_path: Path) -> None:
+def test_owner_labels_and_comments() -> None:
     """Owner labels replace RSX names; owner comments end code lines and start data lines."""
     image = bytearray(0x40)
     image[0:6] = bytes.fromhex("01 01 02 03 20 C0")

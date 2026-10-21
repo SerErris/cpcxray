@@ -141,8 +141,8 @@ class AnalysisObserver:  # pylint: disable=too-many-instance-attributes  # per-i
 
     def _on_ram_fetch(self, address: int, instruction_start: bool) -> None:
         """M1 from RAM: provenance of tagged bytes, first-M1 capture of RAM targets."""
-        tag = self.ram_origin[address]
-        if tag is not None and (tag.exact or self._in_copied_run(address, tag)):
+        tag = self.trusted_origin(address)
+        if tag is not None:
             target = self.targets.get(tag.target)
             if target is not None:
                 target.flags[tag.offset] |= EXEC_VIA_RAM | (INSN_START if instruction_start else 0)
@@ -152,6 +152,17 @@ class AnalysisObserver:  # pylint: disable=too-many-instance-attributes  # per-i
             if (target.kind == "ram" and target.image is None and target.capture == "first_m1"
                     and target.contains(address)):  # fmt: skip
                 capture(target, self.memory)
+
+    def trusted_origin(self, address: int) -> RamTag | None:
+        """Return the tag of a RAM byte if it counts as a copy: exact, or inside a copied run.
+
+        A single value match is no evidence (module docstring): code that builds bytes with
+        `ld (hl),n` writes values that equal its own operand bytes.
+        """
+        tag = self.ram_origin[address]
+        if tag is not None and (tag.exact or self._in_copied_run(address, tag)):
+            return tag
+        return None
 
     def _in_copied_run(self, address: int, tag: RamTag) -> bool:
         """True if a neighbouring RAM byte carries the neighbouring offset of the same target."""

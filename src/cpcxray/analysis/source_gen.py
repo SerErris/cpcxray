@@ -15,6 +15,7 @@ from the trace, D-31) and the final clear image (`TargetView.resolve`):
 | word table (owner)            | `defw label`                                                 |
 | other data                    | `defb`, 8 per line                                           |
 | relocated block               | `DISP #rrrr` … `ENT`, labels in RAM coordinates (D-22)       |
+| position-independent RAM copy | at its ROM address, a comment line where it starts (D-22)    |
 | never-read bytes (scrambled)  | inside `; ---- never accessed: … ----` markers               |
 
 A ROM header at &C000 gets its own labels (`rom_type` … `rom_name_table`, `rom_jumpblock`)
@@ -254,6 +255,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         self.externals: dict[int, str] = {}
         self._boundaries: set[int] = set()
         self._far_starts: set[int] = set()
+        self._copy_marks: dict[int, RelocatedBlock] = {}
         self._roles: dict[int, Role] = {}  # immediate loads: offset → address or number
         self.references: dict[int, tuple[str, str]] = {}  # unused low-kernel EQUs: label, name
         self._access_edges: set[int] = set()
@@ -572,6 +574,12 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         self._build_items()
         self._judge_immediates()
         self._assign_labels()
+        self._copy_marks = {  # item offset → RAM copy starting inside the item (D-22)
+            item.offset: copy
+            for copy in self.view.ram_copies
+            for item in self.items
+            if item.offset <= copy.rom_start < item.offset + item.length
+        }
         self._lines = self._file_header()
         self._line_of_offset = [0] * self.view.length
         self._statistics = dict.fromkeys(STATISTICS, 0)
@@ -655,6 +663,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             and item.offset not in self._boundaries
             and item.offset not in self._access_edges
             and not self._owner_comment(item.offset)  # a commented byte starts a line
+            and item.offset not in self._copy_marks
         )
 
     def _file_header(self) -> list[str]:
@@ -705,6 +714,13 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
                     if other.rom_start == block.rom_start and other.ram_start != block.ram_start:
                         lines.append(f"; ---- also copied to RAM {hex_word(other.ram_start)} ----")
                 lines.append(f"{INDENT}DISP {hex_word(block.ram_start)}")
+        copy = self._copy_marks.get(offset)  # position-independent: stays in ROM (D-22)
+        if copy is not None:
+            end = copy.ram_start + copy.length - 1
+            lines += ["", f"; ---- {hex_word(view.start + copy.rom_start)}-"
+                      f"{hex_word(view.start + copy.rom_start + copy.length - 1)} copied to RAM "
+                      f"{hex_word(copy.ram_start)}-{hex_word(end)} and executed there "
+                      "(position-independent) ----"]  # fmt: skip
         return lines
 
     def _after(self, end: int) -> list[str]:

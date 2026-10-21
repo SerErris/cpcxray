@@ -19,11 +19,16 @@ output/<rom>_coverage.csv, output/<rom>.asm.
 from __future__ import annotations
 
 import re
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from cpcxray.analysis.classifier import TargetView, classify_target
+from cpcxray.analysis.classifier import (
+    TargetView,
+    classify_target,
+    executed_instructions,
+    position_dependent,
+)
 from cpcxray.analysis.cpc_profile import CpcProfile
 from cpcxray.analysis.database import Kind, TargetDatabase
 from cpcxray.analysis.observers import ExecutionObserver
@@ -521,17 +526,26 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
         if conflict not in ("m1", "data"):
             raise self._error("conflict must be 'm1' or 'data'")
         target = self.analysis_targets[name]
-        blocks, _ = self._chosen_blocks(target)
         if target.kind == "ram":
             start = target.start
             image = target.image or bytes(self._cpc().memory.ram[start : start + target.length])
-            return TargetView(name, start, image, blocks=blocks)
-        rom = self._rom_slot(name)
-        if rom.shadow is None or rom.decoder is None:
-            return TargetView(name, target.start, rom.data, blocks=blocks)
-        access = bytes(rom.shadow.access_map)
-        image = decode_rom(rom.data, access, rom.decoder, "data", conflict)
-        return TargetView(name, target.start, image, rom.data, access, rom.decoder, blocks)
+            view = TargetView(name, start, image)
+        else:
+            rom = self._rom_slot(name)
+            if rom.shadow is None or rom.decoder is None:
+                view = TargetView(name, target.start, rom.data)
+            else:
+                access = bytes(rom.shadow.access_map)
+                image = decode_rom(rom.data, access, rom.decoder, "data", conflict)
+                view = TargetView(name, target.start, image, rom.data, access, rom.decoder)
+        chosen, _ = self._chosen_blocks(target)
+        profile = CpcProfile(image_range=(view.start, view.start + view.length - 1))
+        instructions = executed_instructions(view, bytes(target.flags), profile) if chosen else []
+        shown = tuple(
+            b for b in chosen if b.manual or position_dependent(view, b, instructions)
+        )  # D-22: only position-dependent copies are shown at their RAM address
+        copies = tuple(b for b in chosen if b not in shown)
+        return replace(view, blocks=shown, ram_copies=copies)
 
     def _classified(
         self, name: str, fill_policy: str, conflict: str = "m1"

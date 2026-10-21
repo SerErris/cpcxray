@@ -94,12 +94,14 @@ class ExecutionObserver:
         """Map a CPU address to (target name, offset), now; None if outside every target.
 
         A paged-in target ROM wins; RAM is mapped through its provenance tag (a RAM copy of
-        target code) or into a RAM-range target.
+        target code; value matches only inside a copied run) or into a RAM-range target. VDOS
+        builds a FAR CALL and its far address object in RAM with `ld (hl),n`: the values match
+        its operand bytes, which made them look like an RST and a far object (&C2A0, &C28B).
         """
         rom = self.memory.visible_rom(address)
         if rom is not None:
             return (rom, address & 0x3FFF) if rom in self.targets else None
-        tag = self.provenance.ram_origin[address]
+        tag = self.provenance.trusted_origin(address)  # not a mere value match
         if tag is not None and tag.target in self.targets:
             return tag.target, tag.offset
         for target in self.targets.values():

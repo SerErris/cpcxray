@@ -176,7 +176,13 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   `final_image` per fill policy ("static" keeps opcode bytes of classified code raw). Static
   descent from observed code and the ROM header jumpblock; never into &FF or non-canonical code.
 - Only relocated blocks that ran in RAM (or manual ones) become DISP blocks; unexecuted copies
-  are data tables (VDOS copies its jumpblock to RAM).
+  are data tables (VDOS copies its jumpblock to RAM). Of those, only position-dependent blocks
+  (relative branch inside, or an absolute reference into the RAM copy) get DISP; the others stay
+  at their ROM address with a comment (`TargetView.ram_copies`, classifier.position_dependent).
+- RAM is mapped back to a ROM (EXEC_VIA_RAM, RSTs, far objects) only through trusted tags:
+  exact, or value-matched inside a copied run (`AnalysisObserver.trusted_origin`).
+- Owner symbols (project/annotations.txt): an owner label replaces generated names incl.
+  `rsx_<name>`; owner comments also on data lines (a commented data byte starts a line).
 - analysis/source_gen.py: one item per instruction / far object / header field, data merged
   into lines; labels only at line starts (else hex), firmware symbols outside via EQU.
   analysis/verify.py runs sjasmplus (`--raw`, temp dir). CLI: `cpcxray source-verify SRC BIN`.

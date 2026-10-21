@@ -18,7 +18,8 @@ Classification, in order of strength (owner > observed > static, `Source`):
    via a RAM copy), their bodies by disassembly, the inline bytes of RST 1/2/3/5 as
    RST_OPERAND, recorded far address objects as FAR_ADDR;
 3. static (`classify_static`): recursive descent from the observed code and the jumpblock of a
-   ROM header, following the control flow incl. the CPC RST flow kinds (D-30). It never
+   ROM header, following the control flow incl. the CPC RST flow kinds (D-30) and the
+   neighbouring entries of jump tables (`jump_table_neighbours`). It never
    enters a classified byte, a &FF opcode (§6.15: never code in unknown areas), or a
    non-canonical encoding (unlikely in real code), and stays inside the target and the
    relocated block it started in. Opcode and prefix bytes must be unread (or M1); operand
@@ -73,6 +74,8 @@ class TargetView:  # pylint: disable=too-many-instance-attributes  # image, acce
         access: Access class per byte (None if not recorded).
         decode: The decode rule `decode(offset, raw)` of a scrambled ROM.
         blocks: Relocated blocks shown at their RAM address (non-overlapping).
+        ram_copies: Copies that ran in RAM but are position-independent: shown at their ROM
+            address, only noted by a comment (D-22).
         resolved: The image is final (`final_image`): opcode reads see `image` too.
     """
 
@@ -83,6 +86,7 @@ class TargetView:  # pylint: disable=too-many-instance-attributes  # image, acce
     access: bytes | None = None
     decode: Callable[[int, int], int] | None = None
     blocks: tuple[RelocatedBlock, ...] = field(default=())
+    ram_copies: tuple[RelocatedBlock, ...] = field(default=())
     resolved: bool = False
 
     @property
@@ -229,6 +233,54 @@ class TargetView:  # pylint: disable=too-many-instance-attributes  # image, acce
     def resolve(self, database: TargetDatabase, fill_policy: str) -> TargetView:
         """Return a view of the final image (for the source generator and the dump)."""
         return replace(self, image=self.final_image(database, fill_policy), resolved=True)
+
+
+_RELATIVE_BRANCHES = frozenset({0x10, 0x18, 0x20, 0x28, 0x30, 0x38})  # djnz, jr, jr cc
+
+
+def executed_instructions(
+    view: TargetView, flags: bytes, profile: CpcProfile
+) -> list[tuple[int, Instruction]]:
+    """Return (offset, instruction) of every executed instruction start, in ROM coordinates.
+
+    Args:
+        view: The target without relocated blocks.
+        flags: The target flags (INSN_START marks executed instruction starts).
+        profile: RST profile for the disassembly.
+    """
+    return [(o, view.disassemble(o, profile)) for o in range(view.length) if flags[o] & INSN_START]
+
+
+def position_dependent(
+    view: TargetView, block: RelocatedBlock, instructions: list[tuple[int, Instruction]]
+) -> bool:
+    """True if a relocated block needs its RAM coordinates in the source (D-22).
+
+    It does if an instruction executed in the copy branches relatively inside the block (its
+    labels belong to the RAM copy) or refers absolutely into the block's RAM range, or if code
+    executed anywhere else in the target refers into that range. A copy without such
+    references, e.g. a jumpblock whose entries jump into the ROM, assembles the same at its
+    ROM address and stays there.
+
+    Args:
+        view: The target without relocated blocks (ROM coordinates).
+        block: The block to check.
+        instructions: The executed instructions (`executed_instructions`).
+    """
+    ram = range(block.ram_start, block.ram_start + block.length)
+    rom = range(view.start + block.rom_start, view.start + block.rom_start + block.length)
+    for offset, instruction in instructions:
+        if _inside(instruction.target, ram) or _inside(instruction.word_operand, ram):
+            return True
+        inside = block.rom_start <= offset < block.rom_start + block.length
+        if inside and instruction.raw[0] in _RELATIVE_BRANCHES and _inside(instruction.target, rom):
+            return True
+    return False
+
+
+def _inside(value: int | None, addresses: range) -> bool:
+    """True if a value is given and lies in the address range."""
+    return value is not None and value in addresses
 
 
 def opcode_offsets(database: TargetDatabase, view: TargetView) -> list[int]:
@@ -443,25 +495,37 @@ def successors(view: TargetView, instruction: Instruction, offset: int) -> list[
             result.append(instruction.target)
     context = view.block_at(offset)
     offsets = [view.offset_of_target(address, context) for address in result]
-    neighbour = _jump_table_neighbour(view, instruction, offset)
-    return [offset for offset in [*offsets, neighbour] if offset is not None]
+    return [offset for offset in offsets if offset is not None]
 
 
-def _jump_table_neighbour(view: TargetView, instruction: Instruction, offset: int) -> int | None:
-    """After `jp nn`: the offset of a following `jp nn` entry of a jump table, if any.
+def jump_table_neighbours(view: TargetView, instruction: Instruction, offset: int) -> list[int]:
+    """Around `jp nn`: the offsets of the neighbouring `jp nn` entries of a jump table.
 
-    Jump tables (ROM jumpblocks, RAM vectors copied from the ROM) are runs of `C3 nn nn`;
-    an unconditional jump has no fall-through, so without this the entries after the first
-    executed one would stay data. Only entries whose target lies in the target's own address
-    space (ROM or relocated blocks) count.
+    Jump tables (ROM jumpblocks, tables a ROM hands over or copies to RAM) are runs of
+    `C3 nn nn`; an unconditional jump has no fall-through and an entry is rarely a jump
+    target, so without this the entries next to an executed one would stay data. The entry
+    after a `jp` counts; the entry before it only if the one after it does too (a run of
+    three), because the bytes before a `jp` end some other instruction more often. Only
+    entries whose target lies in the target's own address space (ROM or relocated blocks)
+    count.
     """
     if instruction.raw[0] != 0xC3 or instruction.length != 3:
-        return None
-    entry = offset + 3
-    if not view.fits(offset, 6) or view.value(entry, as_opcode=True) != 0xC3:
-        return None
+        return []
+    following = offset + 3
+    if not _table_entry(view, following, offset):
+        return []
+    previous = offset - 3
+    return [following, previous] if _table_entry(view, previous, offset) else [following]
+
+
+def _table_entry(view: TargetView, entry: int, offset: int) -> bool:
+    """True if a `jp nn` into the target's own address space starts at `entry`."""
+    if entry < 0 or not view.fits(entry, 3) or view.block_at(entry) != view.block_at(offset):
+        return False
+    if view.value(entry, as_opcode=True) != 0xC3:
+        return False
     target = view.value(entry + 1) | view.value(entry + 2) << 8
-    return entry if view.offset_of_target(target, view.block_at(offset)) is not None else None
+    return view.offset_of_target(target, view.block_at(offset)) is not None
 
 
 def classify_static(
@@ -481,30 +545,37 @@ def classify_static(
     Returns:
         The number of instructions found.
     """
-    work = list(extra_seeds)
+    work = [(offset, False) for offset in extra_seeds]  # (offset, is a jump table entry)
     header = find_rom_header(view)
     if header is not None:
-        work += header.jumpblock
+        work += [(offset, False) for offset in header.jumpblock]
     for offset in range(view.length):
         if database.kinds[offset] == Kind.INSN_START:
             instruction = view.disassemble(offset, profile)
-            work += successors(view, instruction, offset)
+            work += _next_work(view, instruction, offset)
             _mark_far_object(database, view, instruction)
     found = 0
     while work:
-        offset = work.pop()
+        offset, table_entry = work.pop()
         if database.kinds[offset] != Kind.UNKNOWN or view.value(offset, as_opcode=True) == 0xFF:
             continue
         instruction = view.disassemble(offset, profile)
         if instruction.non_canonical or not _static_code_possible(
-            database, view, offset, instruction
+            database, view, offset, instruction, table_entry
         ):
             continue
         mark_instruction(database, offset, instruction, Source.STATIC)
         found += 1
-        work += successors(view, instruction, offset)
+        work += _next_work(view, instruction, offset)
         _mark_far_object(database, view, instruction)
     return found
+
+
+def _next_work(view: TargetView, instruction: Instruction, offset: int) -> list[tuple[int, bool]]:
+    """Static descent work after an instruction: its successors and jump table neighbours."""
+    return [(o, False) for o in successors(view, instruction, offset)] + [
+        (o, True) for o in jump_table_neighbours(view, instruction, offset)
+    ]
 
 
 def _mark_far_object(database: TargetDatabase, view: TargetView, instruction: Instruction) -> None:
@@ -516,18 +587,25 @@ def _mark_far_object(database: TargetDatabase, view: TargetView, instruction: In
 
 
 def _static_code_possible(
-    database: TargetDatabase, view: TargetView, offset: int, instruction: Instruction
+    database: TargetDatabase,
+    view: TargetView,
+    offset: int,
+    instruction: Instruction,
+    table_entry: bool = False,
 ) -> bool:
     """True if a guessed instruction fits: unclassified bytes, opcode bytes not read as data.
 
     An opcode byte read as data would have to hold two values (§5.5); an operand byte read
     as data is what executing the instruction does anyway. Inside a relocated block every
     byte was read as data by the copy to RAM, and the CPU executes the copied (decoded)
-    values, so there the data reads say nothing against code (D-21, D-22).
+    values, so there the data reads say nothing against code (D-21, D-22). The same holds
+    for a jump table entry: a table that runs from a RAM copy was read as data by the copy
+    (VDOS's boot jumpblock &C0D2: copied whole, only some entries ran, mostly in RAM).
     """
     if not view.fits(offset, instruction.length):
         return False
-    opcode_bytes = 0 if view.block_at(offset) is not None else opcode_byte_count(instruction)
+    copied = table_entry or view.block_at(offset) is not None
+    opcode_bytes = 0 if copied else opcode_byte_count(instruction)
     for index in range(instruction.length):
         if database.kinds[offset + index] != Kind.UNKNOWN:
             return False
