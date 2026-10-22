@@ -10,7 +10,7 @@ unpopulated_rom = 0          # D-10
 file = "roms/os6128.rom"
 
 [rom.upper.0]
-file = "roms/basic11.rom"
+file = "roms/basic11_6128.rom"
 
 [rom.upper.7]
 file = "roms/amsdos.rom"

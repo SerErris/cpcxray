@@ -40,6 +40,6 @@ def test_config_command_shows_decoder(tmp_path: Path, capsys: pytest.CaptureFixt
 def test_config_command_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """`cpcxray config` with an invalid config exits with 1 and names the key."""
     bad = tmp_path / "bad.toml"
-    bad.write_text('[machine]\nmodel = "664"\n')
+    bad.write_text('[machine]\nmodel = "472"\n')
     assert main(["config", "--config", str(bad)]) == 1
     assert "machine.model" in capsys.readouterr().err

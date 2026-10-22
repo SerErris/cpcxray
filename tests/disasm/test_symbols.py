@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from cpcxray.debugger.firmware_symbols import FIRMWARE_464
+from cpcxray.debugger.firmware_symbols import FIRMWARE_464, FIRMWARE_664, FIRMWARE_6128
 from cpcxray.debugger.symbols import (
     SymbolError,
     SymbolTable,
@@ -30,6 +30,48 @@ def test_firmware_preset() -> None:
     labels = [entry.label for entry in FIRMWARE_464]
     assert len(labels) == len(set(labels))
     assert table.symbols(source="user") == []
+
+
+@pytest.mark.parametrize("entries", [FIRMWARE_464, FIRMWARE_664, FIRMWARE_6128])
+def test_firmware_tables_are_consistent(entries: tuple) -> None:  # type: ignore[type-arg]
+    """Every table has unique addresses and labels, and the common jumpblocks complete."""
+    addresses = [entry.address for entry in entries]
+    labels = [entry.label for entry in entries]
+    assert len(addresses) == len(set(addresses)) and len(labels) == len(set(labels))
+    assert set(range(0xBB00, 0xBD38, 3)) <= set(addresses)  # main entries 0-189
+    assert {0x0000, 0x0038, 0xB900, 0xB92A, 0xBDCD, 0xBDF1} <= set(addresses)
+
+
+def test_firmware_names_per_machine() -> None:
+    """Each machine gets its own names (Firmware Guide via docs/firmware.md).
+
+    464: maths at &BD3D, no entries 190-201, no KM SCAN KEYS; 664: entries 190-200 and maths at
+    &BD61; 6128: also KL BANK SWITCH.
+    """
+    cpc464, cpc664, cpc6128 = (SymbolTable(model=m) for m in ("464", "664", "6128"))
+    assert cpc464.label_at(0xBD3D) == "MOVE_REAL" and cpc464.label_at(0xBD3A) is None
+    assert cpc464.label_at(0xBDF4) is None
+    assert cpc664.label_at(0xBD3A) == "KM_SET_LOCKS" and cpc664.label_at(0xBD3D) == "KM_FLUSH"
+    assert cpc664.label_at(0xBD61) == "MOVE_REAL" and cpc664.label_at(0xBDF4) == "KM_SCAN_KEYS"
+    assert cpc664.label_at(0xBD5B) is None
+    assert cpc6128.label_at(0xBD5B) == "KL_BANK_SWITCH"
+    assert cpc6128.comment_at(0xBC77) == "CAS IN OPEN (AMSDOS patch, V1.0 differs)"
+    assert cpc6128.label_at(0x0023) == "KL_FAR_ICALL"
+
+
+def test_set_firmware_keeps_the_owners_symbols() -> None:
+    """Switching the machine replaces the firmware names; the owner's symbols stay and win."""
+    table = SymbolTable(model="464")
+    table.add(0x8000, "my_routine")
+    table.add(0xBD3D, "my_maths_hook")  # on the 464 a firmware address
+    table.set_firmware("6128")
+    assert table.firmware_model == "6128"
+    assert table.label_at(0x8000) == "my_routine" and table.label_at(0xBD3D) == "my_maths_hook"
+    assert table.label_at(0xBD5B) == "KL_BANK_SWITCH" and table.label_at(0xBD3A) == "KM_SET_LOCKS"
+    table.set_firmware("464")
+    assert table.label_at(0xBD5B) is None and table.label_at(0xBD40) == "INTEGER_TO_REAL"
+    with pytest.raises(SymbolError, match="model"):
+        table.set_firmware("664plus")
 
 
 def test_scoped_lookup_falls_back_to_global() -> None:

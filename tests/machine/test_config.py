@@ -49,8 +49,10 @@ def test_repo_config_loads() -> None:
 
 @pytest.mark.parametrize(("name", "model", "os_rom", "basic"), [
     ("test_cpc464.toml", "464", "os464.rom", "basic10.rom"),
-    ("test_cpc6128.toml", "6128", "os6128.rom", "basic11.rom"),
-    ("cpc6128.toml", "6128", "os6128.rom", "basic11.rom"),
+    ("test_cpc664.toml", "664", "os664.rom", "basic11_664.rom"),
+    ("cpc664.toml", "664", "os664.rom", "basic11_664.rom"),
+    ("test_cpc6128.toml", "6128", "os6128.rom", "basic11_6128.rom"),
+    ("cpc6128.toml", "6128", "os6128.rom", "basic11_6128.rom"),
 ])  # fmt: skip
 def test_machine_configs(name: str, model: str, os_rom: str, basic: str) -> None:
     """The test and 6128 configurations hold the plain machine ROMs: OS, BASIC and AMSDOS."""
@@ -155,7 +157,7 @@ capture = "manual"
 @pytest.mark.parametrize(
     ("text", "match"),
     [
-        ('[machine]\nmodel = "664"\n', r"machine\.model"),
+        ('[machine]\nmodel = "472"\n', r"machine\.model"),
         ("[machine]\nunpopulated_rom = 16\n", r"machine\.unpopulated_rom"),
         ("[machine]\nunpopulated_rom = true\n", r"machine\.unpopulated_rom"),
         ('[rom.upper.16]\nfile = "x.rom"\n', r"rom\.upper\.16"),

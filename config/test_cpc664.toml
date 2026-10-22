@@ -1,0 +1,15 @@
+# Test configuration of the emulator's test suite: CPC 664 (64 KB, no banking) with the 664 OS,
+# BASIC 1.1 and AMSDOS. No drives (see test_cpc464.toml).
+
+[machine]
+model = "664"
+unpopulated_rom = 0          # D-10
+
+[rom.lower]
+file = "roms/os664.rom"
+
+[rom.upper.0]
+file = "roms/basic11_664.rom"
+
+[rom.upper.7]
+file = "roms/amsdos.rom"

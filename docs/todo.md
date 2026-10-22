@@ -28,8 +28,8 @@ Open tasks for later sessions, in the owner's words, with notes on where they ap
      verify the source, work with disk images).
 
 4. ~~Remaining implementation phase 11: 6128 RAM banking~~ - done (design.md §9, D-14,
-   FR-MCH-10; config/cpc6128.toml). Open: the 6128 firmware jumpblock names (KL BANK SELECT,
-   ...) are not in the preloaded symbols (debugger/firmware_symbols.py holds the 464's).
+   FR-MCH-10; config/cpc6128.toml). Firmware names per machine (464/664/6128, D-26) and the
+   664 model (FR-MCH-12, with its own BASIC 1.1: basic11_664.rom / basic11_6128.rom) done.
 
 5. **Low priority, later - first get the tool running: Rust inner loop** (only if CPython speed
    becomes a real blocker; PyPy was tried and dropped, 2026-10-21).

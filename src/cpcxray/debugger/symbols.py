@@ -10,9 +10,11 @@ A lookup for an address in a scope first checks that scope, then the global symb
 scope applies to an address at run time (ROM paged in or not) is decided by the caller; the
 memory map provides it from phase 4.
 
-The firmware jumpblock names of the CPC 464 are preloaded (source "firmware") as upper-case
-labels (TXT_OUTPUT, JP_HL); everything the owner or the tools add has source "user" and is what
-the annotation file stores. Label lookups by name fall back to a case-insensitive match.
+The firmware jumpblock names of the machine are preloaded (source "firmware") as upper-case
+labels (TXT_OUTPUT, JP_HL): the 464, 664 and 6128 have different sets
+(debugger/firmware_symbols.py); `set_firmware` switches them when the machine changes.
+Everything the owner or the tools add has source "user" and is what the annotation file
+stores. Label lookups by name fall back to a case-insensitive match.
 
 Annotation file format (plain text, one entry per line, `#` starts a comment line):
 
@@ -31,7 +33,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from cpcxray.debugger.firmware_symbols import FIRMWARE_464
+from cpcxray.debugger.firmware_symbols import FIRMWARE_BY_MODEL
 
 GLOBAL = ""
 LABEL_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
@@ -95,15 +97,38 @@ def parse_address(text: str) -> int:
 class SymbolTable:
     """All symbols, with lookups by address and by label."""
 
-    def __init__(self, preload_firmware: bool = True) -> None:
-        """Create the table, optionally with the CPC 464 firmware jumpblock names."""
+    def __init__(self, preload_firmware: bool = True, model: str = "464") -> None:
+        """Create the table, optionally with the firmware jumpblock names of a machine.
+
+        Args:
+            preload_firmware: Preload the firmware names.
+            model: The machine whose firmware names are preloaded: "464", "664" or "6128".
+        """
         self._symbols: dict[tuple[str, int], Symbol] = {}
+        self.firmware_model: str | None = None
         if preload_firmware:
-            for entry in FIRMWARE_464:
-                comment = entry.name + (f" ({entry.note})" if entry.note else "")
-                self._symbols[(GLOBAL, entry.address)] = Symbol(
-                    entry.address, entry.label, comment, GLOBAL, "firmware"
-                )
+            self.set_firmware(model)
+
+    def set_firmware(self, model: str) -> None:
+        """Replace the preloaded firmware names by those of another machine (D-26).
+
+        The owner's symbols stay; where one sits at a firmware address it wins over the name.
+
+        Raises:
+            SymbolError: For an unknown model.
+        """
+        if model not in FIRMWARE_BY_MODEL:
+            raise SymbolError(f"no firmware names for model {model!r}: 464, 664 or 6128")
+        for key in [key for key, symbol in self._symbols.items() if symbol.source == "firmware"]:
+            del self._symbols[key]
+        for entry in FIRMWARE_BY_MODEL[model]:
+            if (GLOBAL, entry.address) in self._symbols:
+                continue
+            comment = entry.name + (f" ({entry.note})" if entry.note else "")
+            self._symbols[(GLOBAL, entry.address)] = Symbol(
+                entry.address, entry.label, comment, GLOBAL, "firmware"
+            )
+        self.firmware_model = model
 
     # -- changes -----------------------------------------------------------------------------
 
@@ -273,7 +298,9 @@ def format_annotation_line(symbol: Symbol) -> str:
 
 def merge(tables: Iterable[SymbolTable]) -> SymbolTable:
     """Return a new table with the user symbols of all `tables` (later ones win)."""
-    merged = SymbolTable(preload_firmware=True)
+    tables = list(tables)
+    model = next((table.firmware_model for table in tables if table.firmware_model), "464")
+    merged = SymbolTable(preload_firmware=True, model=model)
     for table in tables:
         for symbol in table.symbols(source="user"):
             merged.add(symbol.address, symbol.label, symbol.comment, symbol.scope)

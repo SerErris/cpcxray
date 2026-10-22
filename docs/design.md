@@ -66,6 +66,7 @@ software.
 | FR-MCH-09 | Keyboard input through the I/O path the firmware uses to read the key matrix. No sound chip, no PPI device. |
 | FR-MCH-10 | CPC 6128 (`model = "6128"`): 128 KB RAM in eight 16 KB blocks with the eight banking configurations of the Firmware Guide §2.5 (Gate Array function 11); the CRTC always shows blocks 0–3. |
 | FR-MCH-11 | No additional memory expansions. |
+| FR-MCH-12 | Machine models `464`, `664` and `6128` (`[machine] model`). The 664 is a 464 with a built-in disc drive and firmware V1.1: the same 64 KB architecture, no banking, its own OS ROM and BASIC 1.1; AMSDOS is the same on all three. |
 
 ### 2.3 Decoding of scrambled ROMs
 
@@ -144,7 +145,7 @@ software.
 | NFR-05 | Tracing and observers cost (nearly) nothing when switched off. |
 | NFR-06 | Every component is testable in isolation. |
 | NFR-07 | ROM images are not committed to the repository; paths come from the config. |
-| NFR-08 | English BASIC 1.0 and the CPC 464 firmware. |
+| NFR-08 | English firmware and BASIC: 464 (V1.0, BASIC 1.0), 664 (V1.1, BASIC 1.1), 6128 (V1.2, BASIC 1.1). |
 | NFR-09 | Development and target platform: **Linux**. |
 
 ---
@@ -178,7 +179,7 @@ software.
 | D-23 | **RAM-range targets** are analysed on an image captured on command or at the first M1 fetch inside the range. Source `ORG` = range start. Later writes into the range are flagged with their runtime value; the owner can recapture. Provenance and relocation do not apply. | RAM code can be loaded, unpacked or patched at runtime; the bytes to disassemble must be fixed at a defined moment, and later changes must be visible. |
 | D-24 | **Trace sinks:** text file, CSV, JSON Lines, GUI panel; each switchable. | Text for reading, CSV/JSON for scripts, panel for live work. |
 | D-25 | **Snapshots in `.sna` format only.** Analysis state (access map, analysis database) is saved in its own files. | `.sna` holds machine state only and stays compatible with other emulators. |
-| D-26 | **Symbols and annotations from the start:** a project file with labels and comments per address (ROM labels scoped to a slot); firmware jumpblock names preloaded; used by views, trace, listing and source. | Readable traces and listings from day one. |
+| D-26 | **Symbols and annotations from the start:** a project file with labels and comments per address (ROM labels scoped to a slot); firmware jumpblock names preloaded per machine (464: firmware V1.0, maths at &BD3D; 664/6128: entries 190–200 and maths at &BD61; 6128: KL BANK SWITCH), generated from `docs/firmware.md` by `tools/extract_firmware_symbols.py` and switched with the machine; used by views, trace, listing and source. | Readable traces and listings from day one. |
 | D-27 | **One command façade:** a `Session` class (the debugger API) is the only way to act on the machine. GUI, MCP server and scripts are thin clients; MCP tools map 1:1 onto `Session` methods. A parity test fails when a method has no MCP tool. | Guarantees FR-MCP-02: each feature exists once. |
 | D-28 | **MCP transports:** stdio for headless mode (Claude Code starts `cpcxray mcp`); streamable HTTP on 127.0.0.1 for GUI mode. Official Python MCP SDK (`mcp`). | stdio is how Claude Code launches tool servers; HTTP lets Claude attach to the instance the owner is using. Localhost only, because the server can load files and run code. |
 | D-29 | **MCP calls go through a command queue** and are executed between emulation time slices; a running machine pauses while a command needs a consistent state. | Keeps the emulator single-threaded (D-13). |

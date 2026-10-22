@@ -1,22 +1,26 @@
-"""Generate src/cpcxray/debugger/firmware_symbols.py from the CPC Firmware Guide (D-26).
+"""Generate src/cpcxray/debugger/firmware_symbols.py: firmware names per machine (D-26).
 
-Source: the HTML transcription of the Amstrad CPC Firmware Guide (SOFT 968) by Dave Cantrell,
-http://www.cantrell.org.uk/david/tech/cpc/cpc-firmware/ . Each entry there reads
-"&BB5A TXT OUTPUT", or "&BDC1 MOVE REAL (&BD3D for the 464)" where the 464 address differs.
-The pages listing 664/6128-only entries (`!464.htm`, `math!464.htm`) are not used.
+Sources:
+* docs/firmware.md (from the Firmware Guide SOFT 968, sections 14-18): low and high Kernel
+  jumpblocks, the main jumpblock (entries 0-201) and the indirections, each with its
+  availability - all machines, 664/6128 only (main 190-200), or 6128 only (201, KL BANK SWITCH).
+* The maths jumpblock, which docs/firmware.md does not list, from the Firmware Guide
+  transcription by Dave Cantrell (https://www.cantrell.org.uk/david/tech/cpc/cpc-firmware/
+  math.htm). Each entry reads "&BD64 INTEGER TO REAL (&BD40 for the 464)": the 664 and 6128 share
+  one address, the 464 has another (its maths jumpblock lies where the 664/6128 have the main
+  entries 190-201, so the three machines need separate tables).
 
-Corrections of transcription errors in the source (checked against the Firmware Guide):
-* "GRA LlNE ABSOLUTE" (lower-case l) → GRA LINE ABSOLUTE.
-* "&BCS0 SCR SW ROLL" (S for 5) → &BC50.
-* "SCR FLOOD BOX" is listed at &BC17 (the address of SCR CHAR LIMITS) → &BC47.
-* A leading "*" (CAS entries redirected by AMSDOS) is dropped.
+Corrections:
+* "&BDC1 MOVE REAL" in the transcription is &BD61 (all other entries are &24 above their 464
+  address; the 464 address &BD3D is right).
 * The undocumented "INTERNAL SUBROUTINE" maths entries get the label MATHS_INTERNAL_xxxx.
-* KM SCAN KEYS (&BDF4) is dropped: it is 664/6128-only (verified on a booted 464, phase 4).
+* KM SCAN KEYS (&BDF4) is listed for all machines, but absent on the 464: after a 464 boot the
+  RAM at &BDF4 is empty while &BDCD-&BDF1 hold JP instructions (checked in phase 4).
 
 Labels (owner's convention): firmware entries are upper-case snake case (KM_WAIT_CHAR), so
 they stand out from the labels of analysed ROMs and RAM, which stay lower case. The restarts
 that jump through a register pair get labels saying what they do, as an assembler-valid
-resemblance of the instruction (same addresses on 464, 664 and 6128):
+resemblance of the instruction (same addresses on all machines):
 PCBC INSTRUCTION (&000E) → JP_BC, PCDE INSTRUCTION (&0016) → JP_DE,
 PCHL INSTRUCTION (&001E) → JP_HL. The Firmware Guide name stays the comment.
 
@@ -30,35 +34,20 @@ import re
 import sys
 import urllib.request
 from pathlib import Path
+from typing import NamedTuple
 
-BASE_URL = "http://www.cantrell.org.uk/david/tech/cpc/cpc-firmware/"
-PAGES = (
-    ("lowkern", "low kernel"),
-    ("highkern", "high kernel"),
-    ("keymng", "key manager"),
-    ("txtvdu", "text VDU"),
-    ("gfxvdu", "graphics VDU"),
-    ("scrpack", "screen pack"),
-    ("casmng", "cassette manager"),
-    ("sound", "sound manager"),
-    ("kernel", "kernel"),
-    ("machine", "machine pack"),
-    ("indirect", "indirections"),
-    ("math", "maths (464 addresses)"),
-)
-OUTPUT = (
-    Path(__file__).resolve().parents[1] / "src" / "cpcxray" / "debugger" / "firmware_symbols.py"
-)
+ROOT = Path(__file__).resolve().parents[1]
+FIRMWARE_DOC = ROOT / "docs" / "firmware.md"
+MATHS_URL = "https://www.cantrell.org.uk/david/tech/cpc/cpc-firmware/math.htm"
+OUTPUT = ROOT / "src" / "cpcxray" / "debugger" / "firmware_symbols.py"
+MODELS = ("464", "664", "6128")
+AVAILABILITY = {"all": MODELS, "664/6128": ("664", "6128"), "6128": ("6128",)}
 
-ENTRY = re.compile(
-    r"^&(?P<address>[0-9A-F]{4}) \*?(?P<name>[A-Z][A-Za-z0-9 *^/.()-]*?)"
-    r"(?: - not useful)?\s*(?:\(&(?P<address_464>[0-9A-F]{4}) for the 464\))?\s*$"
+MATHS_ENTRY = re.compile(
+    r"^&(?P<address>[0-9A-F]{4}) (?P<name>[A-Z][A-Z0-9 *^/]*?)"
+    r"(?: - not useful)?\s*\(&(?P<address_464>[0-9A-F]{4}) for the 464\)\s*$"
 )
-NAME_FIXES = {"GRA LlNE ABSOLUTE": "GRA LINE ABSOLUTE"}
-LINE_FIXES = {"&BCS0 SCR SW ROLL": "&BC50 SCR SW ROLL"}
-ADDRESS_FIXES = {"SCR FLOOD BOX": 0xBC47}
-# Listed in the source without a 664/6128 note, but absent on the 464: after a 464 boot the
-# RAM at &BDF4 is empty while &BDCD-&BDF1 hold JP instructions (checked in phase 4).
+MATHS_ADDRESS_FIXES = {"MOVE REAL": 0xBD61}  # transcription: &BDC1
 NOT_ON_464 = frozenset({"KM SCAN KEYS"})
 LABEL_RENAMES = {
     "PCBC INSTRUCTION": "JP_BC",  # &000E: JP (BC)
@@ -67,12 +56,24 @@ LABEL_RENAMES = {
 }
 
 
-def page_lines(page: str) -> list[str]:
-    """Download a page and return its text lines (HTML tags removed)."""
-    with urllib.request.urlopen(BASE_URL + page + ".htm", timeout=30) as response:
-        text = response.read().decode("latin-1")
-    text = html.unescape(re.sub(r"<[^>]+>", " ", text))
-    return [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
+class Entry(NamedTuple):
+    """A firmware entry before rendering.
+
+    Attributes:
+        address: Address of the entry (on the machines in `models`).
+        label: Label for listings, e.g. TXT_OUTPUT.
+        section: Firmware pack or jumpblock, e.g. "text vdu".
+        name: Name in the Firmware Guide, e.g. "TXT OUTPUT".
+        note: Remark from the guide ("AMSDOS patch", "V1.0 differs"), or "".
+        models: The machines that have the entry at this address.
+    """
+
+    address: int
+    label: str
+    section: str
+    name: str
+    note: str
+    models: tuple[str, ...]
 
 
 def label_for(name: str, address: int) -> str:
@@ -85,33 +86,89 @@ def label_for(name: str, address: int) -> str:
     return re.sub(r"[^A-Z0-9]+", "_", name.upper()).strip("_")
 
 
-def extract() -> list[tuple[int, str, str, str]]:
-    """Return (address, label, section, firmware name) for every 464 entry, sorted."""
-    entries = {}
-    for page, section in PAGES:
-        for line in page_lines(page):
-            match = ENTRY.match(LINE_FIXES.get(line, line))
-            if not match:
-                continue
-            name = NAME_FIXES.get(match["name"].strip(), match["name"].strip())
-            address = int(match["address_464"] or match["address"], 16)
-            address = ADDRESS_FIXES.get(name, address)
-            if name in NOT_ON_464:
-                continue
-            entries[address] = (address, label_for(name, address), section, name)
-    return sorted(entries.values())
+def table_rows(text: str, heading: str) -> list[dict[str, str]]:
+    """Return the rows of the first table after a markdown heading, as column → cell dicts."""
+    section = text.split(heading, 1)[1].split("\n## ", 1)[0]  # up to the next section
+    lines = [line for line in section.splitlines() if line.startswith("|")]
+    header = [cell.strip() for cell in lines[0].strip("|").split("|")]
+    return [
+        dict(zip(header, (cell.strip() for cell in line.strip("|").split("|")), strict=False))
+        for line in lines[2:]  # after the header and the |---| line
+    ]
 
 
-def render(entries: list[tuple[int, str, str, str]]) -> str:
+def models_of(name: str, availability: str) -> tuple[str, ...]:
+    """The machines that have an entry, from its availability (and the 464 correction)."""
+    models = AVAILABILITY[availability]
+    return tuple(model for model in models if not (model == "464" and name in NOT_ON_464))
+
+
+def entries_from_doc() -> list[Entry]:
+    """Kernel, main jumpblock and indirections from docs/firmware.md."""
+    text = FIRMWARE_DOC.read_text(encoding="utf-8")
+    entries = []
+    for row in table_rows(text, "## 4. Low Kernel jumpblock"):
+        name = row["Name"] + (f" ({row['Restart']})" if row["Restart"] else "")
+        address = int(row["Address"].lstrip("#"), 16)
+        entries.append(Entry(address, label_for(name, address), "low kernel", name, "",
+                             models_of(row["Name"], row["Avail"])))  # fmt: skip
+    for row in table_rows(text, "## 3. High Kernel jumpblock"):
+        address = int(row["Address"].lstrip("#"), 16)
+        entries.append(Entry(address, label_for(row["Name"], address), "high kernel",
+                             row["Name"], "", models_of(row["Name"], row["Avail"])))  # fmt: skip
+    for row in table_rows(text, "## 1. Main firmware jumpblock"):
+        address = int(row["Address"].lstrip("#"), 16)
+        models = models_of(row["Name"], row["Avail"])
+        entries.append(Entry(address, label_for(row["Name"], address), row["Pack"].lower(),
+                             row["Name"], row["Notes"], models))  # fmt: skip
+    for row in table_rows(text, "## 2. Firmware indirections"):
+        address = int(row["Address"].lstrip("#"), 16)
+        models = models_of(row["Name"], row["Avail"])
+        entries.append(Entry(address, label_for(row["Name"], address), "indirections",
+                             row["Name"], row["Notes"], models))  # fmt: skip
+    return entries
+
+
+def maths_entries() -> list[Entry]:
+    """The maths jumpblock: one entry for the 464 and one for the 664/6128 per routine."""
+    with urllib.request.urlopen(MATHS_URL, timeout=30) as response:
+        text = response.read().decode("latin-1")
+    text = html.unescape(re.sub(r"<[^>]+>", " ", text))
+    entries = []
+    for line in (re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()):
+        match = MATHS_ENTRY.match(line)
+        if not match:
+            continue
+        name = match["name"].strip()
+        address = MATHS_ADDRESS_FIXES.get(name, int(match["address"], 16))
+        address_464 = int(match["address_464"], 16)
+        entries.append(Entry(address_464, label_for(name, address_464), "maths", name, "",
+                             ("464",)))  # fmt: skip
+        entries.append(Entry(address, label_for(name, address), "maths", name, "",
+                             ("664", "6128")))  # fmt: skip
+    return entries
+
+
+def tables(entries: list[Entry]) -> dict[str, list[Entry]]:
+    """Per machine, its entries sorted by address (one per address)."""
+    result = {}
+    for model in MODELS:
+        by_address = {entry.address: entry for entry in entries if model in entry.models}
+        result[model] = [by_address[address] for address in sorted(by_address)]
+    return result
+
+
+def render(per_model: dict[str, list[Entry]]) -> str:
     """Render the data module."""
     lines = [
-        '"""CPC 464 firmware jumpblock symbols (D-26), generated - do not edit.',
+        '"""CPC firmware jumpblock symbols per machine (D-26), generated - do not edit.',
         "",
-        "Generated by tools/extract_firmware_symbols.py from the Firmware Guide transcription by",
-        "Dave Cantrell, see the tool for the corrections applied:",
-        BASE_URL,
-        "Addresses are those of the CPC 464 (the 664/6128 differ in the maths jumpblock and have",
-        "additional entries).",
+        "Generated by tools/extract_firmware_symbols.py from docs/firmware.md (Firmware Guide",
+        "SOFT 968: Kernel jumpblocks, main jumpblock, indirections) and the maths jumpblock of the",
+        "Firmware Guide transcription by Dave Cantrell; see the tool for the corrections applied.",
+        "The 464 (firmware V1.0) lacks main entries 190-201 and has its maths jumpblock at &BD3D;",
+        "the 664 (V1.1) and 6128 (V1.2) have entries 190-200 and the maths jumpblock at &BD61;",
+        "only the 6128 has entry 201, KL BANK SWITCH.",
         '"""',
         "",
         "from __future__ import annotations",
@@ -123,11 +180,11 @@ def render(entries: list[tuple[int, str, str, str]]) -> str:
         '    """One firmware jumpblock entry.',
         "",
         "    Attributes:",
-        "        address: Address of the entry on the CPC 464.",
+        "        address: Address of the entry on the machine of its table.",
         "        label: Label used in listings, e.g. TXT_OUTPUT.",
-        "        section: Firmware pack, e.g. text VDU.",
+        "        section: Firmware pack or jumpblock, e.g. text vdu.",
         "        name: Name in the Firmware Guide, e.g. TXT OUTPUT.",
-        "        note: Remark, e.g. that the entry still needs checking on a real 464.",
+        '        note: Remark from the Firmware Guide, e.g. "AMSDOS patch", "V1.0 differs".',
         '    """',
         "",
         "    address: int",
@@ -136,20 +193,31 @@ def render(entries: list[tuple[int, str, str, str]]) -> str:
         "    name: str",
         '    note: str = ""',
         "",
-        "",
-        "FIRMWARE_464: tuple[FirmwareEntry, ...] = (",
     ]
-    for address, label, section, name in entries:
-        lines.append(f"    FirmwareEntry(0x{address:04X}, {label!r}, {section!r}, {name!r}),")
-    lines.append(")")
+    for model in MODELS:
+        lines += ["", f"FIRMWARE_{model}: tuple[FirmwareEntry, ...] = ("]
+        for entry in per_model[model]:
+            note = f", {entry.note!r}" if entry.note else ""
+            lines.append(f"    FirmwareEntry(0x{entry.address:04X}, {entry.label!r}, "
+                         f"{entry.section!r}, {entry.name!r}{note}),")  # fmt: skip
+        lines.append(")")
+    lines += [
+        "",
+        "FIRMWARE_BY_MODEL: dict[str, tuple[FirmwareEntry, ...]] = {",
+        '    "464": FIRMWARE_464,',
+        '    "664": FIRMWARE_664,',
+        '    "6128": FIRMWARE_6128,',
+        "}",
+    ]
     return "\n".join(lines) + "\n"
 
 
 def main() -> int:
     """Extract the entries and write the data module."""
-    entries = extract()
-    OUTPUT.write_text(render(entries))
-    print(f"{len(entries)} entries written to {OUTPUT}")
+    per_model = tables(entries_from_doc() + maths_entries())
+    OUTPUT.write_text(render(per_model), encoding="utf-8")
+    counts = ", ".join(f"{model}: {len(entries)}" for model, entries in per_model.items())
+    print(f"written to {OUTPUT} ({counts} entries)")
     return 0
 
 

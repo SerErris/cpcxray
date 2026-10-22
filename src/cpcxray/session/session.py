@@ -95,7 +95,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         """
         self.machine: Machine = machine if machine is not None else FlatMachine()
         self.project_dir = Path(project_dir).resolve()
-        self.symbols = SymbolTable()
+        self.symbols = SymbolTable(model=getattr(self.machine, "firmware_model", "464"))
         self._setup_debugger()
         self.analysis_enabled = True  # the analysis observers run while targets exist
         self.trace = Trace(self._format_capture)
@@ -391,15 +391,18 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         return self.machine
 
     def load_config(self, path: str = str(DEFAULT_CONFIG)) -> dict[str, Any]:
-        """Power on a CPC 464 with the ROMs of a machine.toml (default config/machine.toml).
+        """Power on a CPC with the model and ROMs of a machine.toml (default config/machine.toml).
 
-        Replaces the current machine (memory is cleared); symbols, breakpoints and the trace
-        are kept; the breakpoint and bus-trace observers move to the new bus.
+        Replaces the current machine (memory is cleared); the owner's symbols, breakpoints and
+        the trace are kept, the firmware names follow the new model (D-26); the breakpoint and
+        bus-trace observers move to the new bus.
         """
         try:
-            self.machine = build_cpc464(self._path(path))
+            machine = build_cpc464(self._path(path))
         except ConfigError as error:
             raise SessionError(str(error)) from None
+        self.machine = machine
+        self.symbols.set_firmware(machine.firmware_model)
         self._breakpoint_observer = None
         self._bus_trace_observing = False
         self._sync_debug_observers()

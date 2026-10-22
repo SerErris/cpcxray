@@ -1,6 +1,6 @@
 # CPC X-Ray (`cpcxray`)
 
-An Amstrad CPC 464/6128 emulator built for reverse engineering: it runs the real firmware,
+An Amstrad CPC 464/664/6128 emulator built for reverse engineering: it runs the real firmware,
 BASIC, AMSDOS and any expansion ROMs, and analyses the code the owner selects (any ROM or a RAM
 range). Scrambled ROMs (e.g. the Vortex X-module scheme) are decoded on every read depending on
 M1 (opcode fetch) vs. data read, and the result is recorded. Outputs: a clear ROM image, an
@@ -57,7 +57,7 @@ cpcxray source-verify output/rom.asm output/rom_clear.rom   # round trip (D-33)
 cpcxray gui                       # window, starts running (--paused: stopped at &0000); MCP over
                                   #   HTTP on 127.0.0.1:8765 (--mcp-port 0: off)
 CPCXRAY_UPDATE_GOLDEN=1 pytest tests/disasm   # regenerate the disassembler golden listing
-python -m tools.extract_firmware_symbols      # regenerate the 464 firmware jumpblock names
+python -m tools.extract_firmware_symbols      # firmware names (464/664/6128); then ruff format
 ```
 
 `sjasmplus` must be on the PATH (round-trip check, D-33); `tests/test_tools.py` checks it.
@@ -104,9 +104,10 @@ MCP server; CPC 464 booting to BASIC; renderer and GUI (real time, MCP over HTTP
 decoding and analysis of scrambled ROMs; analysis database, classifier, sjasmplus source
 generator and round-trip check; full debugger (breakpoints with location qualifiers, bus trace,
 memory views, `.sna`, GUI panels); µPD765 FDC with DSK/EDSK/raw images (AMSDOS reads and writes
-the 3" disk in A:; Vortex 80-track format in B:); CPC 6128 with RAM banking (boots to BASIC 1.1).
-Tests run on the plain machine ROMs only: config/test_cpc464.toml / test_cpc6128.toml (OS,
-BASIC, AMSDOS) via tests/machines.py. Open work: docs/todo.md - only with the owner's go-ahead.
+the 3" disk in A:; Vortex 80-track format in B:); CPC 6128 with RAM banking and CPC 664 (both
+boot to BASIC 1.1); firmware names per machine. Tests run on the plain machine ROMs only:
+config/test_cpc464.toml / test_cpc664.toml / test_cpc6128.toml (OS, BASIC, AMSDOS) via
+tests/machines.py. Open work: docs/todo.md - only with the owner's go-ahead.
 
 Validation runtimes on CPython (8 cores): z80test ~1 min for all variants; ZEXDOC+ZEXALL ~30 min,
 dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on one core).
@@ -231,9 +232,19 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   `claude mcp add --transport http cpcxray-gui http://127.0.0.1:8765/mcp` (not in .mcp.json,
   because it fails while no GUI is running). `screen_image` returns MCP image content.
 
-## CPC 6128 notes (phase 11)
+## CPC 664 / 6128 notes (phase 11)
 
-- `model = "6128"` (config/cpc6128.toml: os6128.rom, basic11.rom; AMSDOS as on the 464) makes
+- Models (`[machine] model`, FR-MCH-12): "464", "664", "6128"; `CPC464.model` "cpc664" etc.,
+  `firmware_model` "664" selects the firmware names. The 664 is a 464 architecture (64 KB, no
+  banking) with firmware V1.1: config/cpc664.toml / test_cpc664.toml (os664.rom,
+  basic11_664.rom, amsdos.rom). Locomotive BASIC jumps into the lower ROM directly (RST 1 to
+  fixed addresses), so a BASIC 1.1 only works with the OS it was built with: the 6128's
+  BASIC 1.1 (basic11_6128.rom) loops on "Syntax error" under os664.rom.
+- Firmware names: tools/extract_firmware_symbols.py reads docs/firmware.md (kernel, main
+  jumpblock 0-201 with availability, indirections) + the maths jumpblock (Cantrell, both
+  addresses) → FIRMWARE_464/664/6128.
+
+- `model = "6128"` (config/cpc6128.toml: os6128.rom, basic11_6128.rom; AMSDOS as on the 464) makes
   `CPC464` a 6128 (`model` "cpc6128"): `MemoryMap(ram_blocks=8)`. Gate Array function 11
   (`OUT &7Fxx`, &C0 + o) sets the configuration; a 464 ignores it; reset restores 0.
 - machine/memory.py: `ram` is the CPU's 64 KB view; a configuration change swaps the changed
@@ -268,7 +279,8 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
 - Disassembler (cpu/disasm.py): sjasmplus syntax, golden test reassembles every opcode form
   with sjasmplus; non-canonical encodings flagged (D-32). RSTs via a profile (D-30,
   analysis/cpc_profile.py) with inline length and flow (call-like RST 2/3, jump-like 1/5).
-- Symbols (debugger/symbols.py): firmware names preloaded from debugger/firmware_symbols.py
+- Symbols (debugger/symbols.py): firmware names preloaded per machine (`SymbolTable(model=)`,
+  `set_firmware` on `load_config`) from debugger/firmware_symbols.py
   (generated); user symbols in project/annotations.txt (`[scope:]address label ; comment`).
 
 ## Z80 core notes (`src/cpcxray/cpu/`)

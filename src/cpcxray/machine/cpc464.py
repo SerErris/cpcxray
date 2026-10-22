@@ -1,8 +1,11 @@
 """The CPC 464 machine: wiring, power-on, reset and the scheduler (design.md §6.10).
 
-The same class is the CPC 6128 when the configuration says `model = "6128"`: 128 KB RAM with
-banking (FR-MCH-10, D-14, machine/memory.py). Everything else the emulator models is the same;
-the ROMs (6128 OS, BASIC 1.1, AMSDOS) come from the configuration as for the 464.
+The same class is the CPC 664 or 6128 when the configuration says `model = "664"` / "6128":
+the 664 is a 464 with a built-in disc drive and newer firmware (V1.1: 664 OS, BASIC 1.1,
+AMSDOS) - the same 64 KB architecture, no banking; the 6128 adds 128 KB RAM with banking
+(FR-MCH-10, D-14, machine/memory.py). Everything else the emulator models is the same; the
+ROMs come from the configuration, and `firmware_model` tells the debugger which firmware
+jumpblock names apply (D-26).
 
 Power-on (constructor): create memory (RAM cleared), devices, bus and CPU; install the ROMs
 from the configuration; then reset.
@@ -52,7 +55,8 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
     """An Amstrad CPC 464, or a 6128 by configuration (implements the `Machine` protocol).
 
     Attributes:
-        model: "cpc464" or "cpc6128".
+        model: "cpc464", "cpc664" or "cpc6128".
+        firmware_model: The firmware generation for the jumpblock names: "464", "664", "6128".
         clock_us: Emulated time since reset in µs.
         memory: RAM, ROM slots and paging.
         keyboard: The key matrix.
@@ -76,10 +80,11 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
             port_b_constant: PPI port B bits 7-1 (manufacturer, 50 Hz, ...).
         """
         self.clock_us = 0
-        six_one_two_eight = config is not None and config.model == "6128"
-        self.model = "cpc6128" if six_one_two_eight else "cpc464"
+        self.firmware_model = config.model if config is not None else "464"
+        self.model = f"cpc{self.firmware_model}"
         self.memory = MemoryMap(
-            config.unpopulated_rom if config else 0, ram_blocks=8 if six_one_two_eight else 4
+            config.unpopulated_rom if config else 0,
+            ram_blocks=8 if self.firmware_model == "6128" else 4,  # only the 6128 banks
         )
         self.keyboard = Keyboard()
         self.gate_array = GateArray(self.memory.set_rom_enables, self.memory.set_ram_configuration)

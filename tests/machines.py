@@ -1,10 +1,10 @@
-"""Shared setup of the tests that run the real CPC firmware (config/test_cpc464.toml, 6128).
+"""Shared setup of the tests that run the real CPC firmware (config/test_cpc464/664/6128.toml).
 
-The test configurations hold the plain machine ROMs: OS, BASIC and AMSDOS (464: BASIC 1.0;
-6128: its OS and BASIC 1.1). The disk images come from disk/ (the owner's real images, never
-written: 464_cpm_22_orig.dsk, a 3" CP/M 2.2 SYSTEM disk; vortex_test.dsk, a fixed copy of a
-Vortex-format disk). `requires_roms`, `requires_6128_roms` and `requires_disks` skip when files
-are missing (NFR-07: no images in git).
+The test configurations hold the plain machine ROMs: OS, BASIC and AMSDOS (464: BASIC 1.0; 664
+and 6128: their OS and BASIC 1.1). The disk images come from disk/ (the owner's real images,
+never written: 464_cpm_22_orig.dsk, a 3" CP/M 2.2 SYSTEM disk; vortex_test.dsk, a fixed copy of
+a Vortex-format disk). `requires_roms`, `requires_664_roms`, `requires_6128_roms` and
+`requires_disks` skip when files are missing (NFR-07: no images in git).
 """
 
 from __future__ import annotations
@@ -20,9 +20,13 @@ from cpcxray.session.session import Session
 
 REPO = Path(__file__).resolve().parents[1]
 CONFIG_464 = load_config(REPO / "config" / "test_cpc464.toml")
+CONFIG_664 = load_config(REPO / "config" / "test_cpc664.toml")
 CONFIG_6128 = load_config(REPO / "config" / "test_cpc6128.toml")
 requires_roms = pytest.mark.skipif(
     not all(rom.exists for rom in CONFIG_464.roms()), reason="464 ROM files missing"
+)
+requires_664_roms = pytest.mark.skipif(
+    not all(rom.exists for rom in CONFIG_664.roms()), reason="664 ROM files missing"
 )
 requires_6128_roms = pytest.mark.skipif(
     not all(rom.exists for rom in CONFIG_6128.roms()), reason="6128 ROM files missing"

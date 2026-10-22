@@ -12,7 +12,7 @@ file = "roms/os6128.rom"
 
 # Upper ROM slots 0-15 (D-09)
 [rom.upper.0]
-file = "roms/basic11.rom"
+file = "roms/basic11_6128.rom"
 
 [rom.upper.7]
 file = "roms/amsdos.rom"
