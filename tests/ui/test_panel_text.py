@@ -8,15 +8,21 @@ from cpcxray.session.session import Session
 from cpcxray.ui.panels.text import (
     AREA,
     breakpoint_lines,
-    devices_lines,
+    colour_numbers,
+    crtc_footer,
+    drive_flags,
     flags_text,
+    gate_array_lines,
+    keyboard_summary,
     line_address,
     mark_pc,
     memory_layout,
     paging_lines,
     parse_assignments,
     parse_memory_edit,
+    ppi_lines,
     registers_lines,
+    rom_select_lines,
     with_paging,
 )
 
@@ -56,7 +62,6 @@ def test_mark_pc_and_lists() -> None:
         "  2  off  hits 0     io_out DF00 mask FF00",
     ]
     assert breakpoint_lines([]) == ["(no breakpoints)"]
-    assert devices_lines({"crtc": {"selected": 12}}) == ["[crtc]", "  selected: 12"]
 
 
 QUARTERS = [
@@ -117,3 +122,36 @@ def test_memory_layout_colours_variables_and_builds_the_legend() -> None:
     plain, no_legend = memory_layout({"address": "4000", "hex": "41" * 20}, colours=2)
     assert len(plain) == 2 and plain[0].ascii == "A" * 16 and not no_legend
     assert {colour for row in plain for _, colour in row.cells} == {None}
+
+
+def test_device_texts() -> None:
+    """The Devices tab's texts: colours fw/hw, Gate Array lines, ROM select, PPI, CRTC, FDC."""
+    assert colour_numbers(20, 0x13) == "20/13"
+    gate_array = {"mode": 1, "pen": 15, "interrupt_in_us": 1784, "line_counter_r52": 24}
+    assert gate_array_lines(gate_array) == [
+        "mode 1 \u00b7 colours fw/hw (hex)",
+        "pen select P15 \u00b7 IRQ in 1784 \u00b5s \u00b7 R52 24",
+    ]
+    rom_select = {"selected": 7, "answering": 7, "file": "amsdos.rom", "paged_in": False,
+                  "installed": ["lower", "0", "7"]}  # fmt: skip
+    assert rom_select_lines(rom_select) == [
+        "selected 7 amsdos.rom",
+        "not paged in (upper ROM off)",
+        "installed: lower, 0, 7",
+    ]
+    empty = rom_select | {"selected": 3, "answering": 0, "file": "basic.rom", "paged_in": True}
+    assert rom_select_lines(empty)[:2] == ["selected 3 (empty: ROM 0 basic.rom)", "paged in"]
+    system_io = {"port_a": 0x0E, "port_b": 0x1E, "port_c": 0x30,
+                 "meanings": {"a": "keyboard data via PSG", "b": "B", "c": "C"}}  # fmt: skip
+    assert ppi_lines(system_io)[0] == "A &0E \u00b7 keyboard data via PSG"
+    screen = {"start": "C000", "characters": 40, "lines": 25, "scan_lines": 8}
+    assert crtc_footer({"screen": screen}) == "&C000 \u00b7 40 \u00d7 25 \u00b7 8 lines"
+    drive = {"disk": "a.dsk", "writable": False, "modified": False}
+    assert drive_flags(drive) == "read-only \u00b7 unchanged"
+    assert drive_flags(drive | {"writable": True, "modified": True}) == "writable \u00b7 changed"
+    assert drive_flags({"disk": None}) == ""
+    lines = [{"line": 2, "keys": ["Clr", "[", "Return", "]", "f4", "Shift", "\\", "Ctrl"],
+              "held": [5]},
+             {"line": 8, "keys": ["1"] * 5 + ["A", "Caps", "Z"], "held": [5]}]  # fmt: skip
+    assert keyboard_summary(lines, False) == "Shift + A held \u00b7 not typing"
+    assert keyboard_summary([], True) == "no key held \u00b7 typing"

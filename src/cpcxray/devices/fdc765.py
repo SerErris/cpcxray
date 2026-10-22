@@ -550,11 +550,14 @@ class Fdc765:  # pylint: disable=too-many-instance-attributes  # controller and 
                 "writable": bool(image and image.writable),
                 "modified": bool(image and image.modified),
                 "cylinder": drive.cylinder,
+                "cylinders": drive.cylinders,
             }
+        msr = self.main_status()
         return {
             "motor_on": self.motor_on,
             "selected_drive": self.drives[self.selected_unit].name,
-            "msr": self.main_status(),
+            "msr": msr,
+            "msr_meaning": msr_meaning(msr),
             "drives": drives,
             "recent_commands": [
                 f"{name} {bytes(command).hex(' ')} -> {bytes(results).hex(' ')}"
@@ -562,3 +565,19 @@ class Fdc765:  # pylint: disable=too-many-instance-attributes  # controller and 
                 for name, command, results, count in self.log
             ],
         }
+
+
+def msr_meaning(msr: int) -> str:
+    """The main status register in words (RQM, DIO, EXM, CB; bits 3-0: drives seeking)."""
+    if msr == MSR_RQM:
+        return "ready for a command · not busy"
+    parts = ["ready" if msr & MSR_RQM else "not ready"]
+    if msr & MSR_RQM:
+        parts.append("data to the CPU" if msr & MSR_DIO else "data from the CPU")
+    if msr & MSR_EXM:
+        parts.append("execution phase")
+    parts.append("busy" if msr & MSR_CB else "not busy")
+    seeking = [str(unit) for unit in range(4) if msr >> unit & 1]
+    if seeking:
+        parts.append(f"seeking {','.join(seeking)}")
+    return " · ".join(parts)

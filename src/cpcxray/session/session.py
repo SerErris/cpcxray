@@ -565,10 +565,6 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         except KeyMapError as error:
             raise SessionError(str(error)) from None
 
-    def devices_get(self) -> dict[str, Any]:
-        """Return the state of Gate Array, CRTC, ROM select, SystemIO and keyboard."""
-        return self._cpc().devices()
-
     def screen_text(self) -> dict[str, Any]:
         """Return the text on the CPC screen, recognised from screen RAM with the ROM font.
 

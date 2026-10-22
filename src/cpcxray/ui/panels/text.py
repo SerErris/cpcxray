@@ -6,7 +6,6 @@ is formatted here, so it is tested without a window and is exactly what MCP clie
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -221,17 +220,68 @@ def mark_pc(lines: list[str], pc: int, breakpoints: set[int]) -> list[str]:
     return marked
 
 
-def devices_lines(devices: dict[str, Any]) -> list[str]:
-    """Format the device state (FR-DBG-05) one device per block."""
-    lines = []
-    for name, state in devices.items():
-        lines.append(f"[{name}]")
-        if isinstance(state, dict):
-            for key, value in state.items():
-                lines.append(f"  {key}: {json.dumps(value)}")
-        else:
-            lines.append(f"  {json.dumps(state)}")
-    return lines
+def colour_numbers(firmware: int, hardware: int) -> str:
+    """A colour as "firmware/hardware": decimal firmware number, hardware number in hex."""
+    return f"{firmware}/{hardware:02X}"
+
+
+def gate_array_lines(gate_array: dict[str, Any]) -> list[str]:
+    """Header and footer texts of the Gate Array box (mode, pen select, interrupt timing)."""
+    pen = gate_array["pen"]
+    pen_text = "border" if pen == "border" else f"P{pen}"
+    return [
+        f"mode {gate_array['mode']} \u00b7 colours fw/hw (hex)",
+        f"pen select {pen_text} \u00b7 IRQ in {gate_array['interrupt_in_us']} \u00b5s "
+        f"\u00b7 R52 {gate_array['line_counter_r52']}",
+    ]
+
+
+def rom_select_lines(rom_select: dict[str, Any]) -> list[str]:
+    """The ROM select box: selected number and file, paged in or not, installed slots."""
+    number = rom_select["selected"]
+    file = rom_select.get("file") or "no ROM"
+    answering = rom_select.get("answering", number)
+    selected = (
+        f"{number} {file}" if answering == number else f"{number} (empty: ROM {answering} {file})"
+    )
+    paged = "paged in" if rom_select.get("paged_in") else "not paged in (upper ROM off)"
+    return [
+        f"selected {selected}",
+        paged,
+        f"installed: {', '.join(rom_select.get('installed', []))}",
+    ]
+
+
+def ppi_lines(system_io: dict[str, Any]) -> list[str]:
+    """The PPI box: ports A, B, C with their meaning."""
+    meanings = system_io.get("meanings", {})
+    return [
+        f"{port.upper()} &{system_io[f'port_{port}']:02X} \u00b7 {meanings.get(port, '')}"
+        for port in ("a", "b", "c")
+    ]
+
+
+def crtc_footer(crtc: dict[str, Any]) -> str:
+    """The CRTC footer: screen start, characters per line by lines, scan lines per character."""
+    screen = crtc["screen"]
+    return (f"&{screen['start']} \u00b7 {screen['characters']} \u00d7 {screen['lines']} "
+            f"\u00b7 {screen['scan_lines']} lines")  # fmt: skip
+
+
+def drive_flags(drive: dict[str, Any]) -> str:
+    """A drive's state in words: "read-only · unchanged", "writable · changed", or ""."""
+    if drive.get("disk") is None:
+        return ""
+    mode = "writable" if drive["writable"] else "read-only"
+    return f"{mode} \u00b7 {'changed' if drive['modified'] else 'unchanged'}"
+
+
+def keyboard_summary(key_lines: list[dict[str, Any]], typing: bool) -> str:
+    """The keyboard box's header: the held keys ("Shift + A held") and whether text is typed."""
+    held = [line["keys"][bit] or f"{line['line']}.{bit}" for line in key_lines
+            for bit in line["held"]]  # fmt: skip
+    keys = f"{' + '.join(held)} held" if held else "no key held"
+    return f"{keys} \u00b7 {'typing' if typing else 'not typing'}"
 
 
 def breakpoint_lines(breakpoints: list[dict[str, Any]]) -> list[str]:

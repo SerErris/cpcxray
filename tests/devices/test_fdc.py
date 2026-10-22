@@ -6,7 +6,7 @@ the MSR shows RQM, execution data and results read while DIO is set.
 
 from __future__ import annotations
 
-from cpcxray.devices.fdc765 import Fdc765
+from cpcxray.devices.fdc765 import Fdc765, msr_meaning
 from cpcxray.disk.dsk import DiskImage, blank_image
 
 MSR, DATA = 0xFB7E, 0xFB7F
@@ -88,6 +88,10 @@ def test_msr_phases() -> None:
     for _ in range(7):
         fdc.io_in(DATA)
     assert fdc.io_in(MSR) == 0x80
+    assert msr_meaning(0x80) == "ready for a command \u00b7 not busy"
+    assert msr_meaning(0xF0) == ("ready \u00b7 data to the CPU \u00b7 execution phase \u00b7 "
+                                 "busy")  # fmt: skip
+    assert msr_meaning(0x01) == "not ready \u00b7 not busy \u00b7 seeking 0"
 
 
 def test_multi_sector_and_multi_track() -> None:

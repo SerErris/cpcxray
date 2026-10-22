@@ -56,7 +56,9 @@ CHANGED_BACKGROUND: Final = rgb("#5a3410")
 CHANGED_BORDER: Final = rgb("#ff8c1a")
 ERROR: Final = rgb("#ff8a8a")  # error messages, remove (✕)
 ERROR_BACKGROUND: Final = rgb("#4a2a2a")
-LED_ON: Final = rgb("#ff6b6b")  # drive activity
+LED_ON: Final = rgb("#3fb950")  # an activity LED (motor, drive) lit
+LED_OFF: Final = rgb("#55555c")
+KEY_HELD_TEXT: Final = rgb("#1d1d1f")  # dark text on the yellow of a held key
 ANALYSED: Final = rgb("#ffc85a")  # a ROM that is an analysis target
 
 # -- badges: (text, background, border or None) -----------------------------------------------
@@ -67,6 +69,8 @@ BADGE_STYLES: Final[dict[str, tuple[Colour, Colour, Colour | None]]] = {
     "changed": (CHANGED, CHANGED_BACKGROUND, CHANGED_BORDER),  # lit orange warning light
     "error": (ERROR, ERROR_BACKGROUND, None),
     "here": (HERE, HERE_BACKGROUND, HERE),  # the selected / active thing
+    "key": (TEXT, ROW_ALTERNATE, None),  # a key of the keyboard matrix
+    "key_held": (KEY_HELD_TEXT, HERE, None),  # a key held down
 }
 
 # -- symbol types (task 5g): (text colour, chip background) -----------------------------------

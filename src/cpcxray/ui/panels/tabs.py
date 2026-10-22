@@ -19,12 +19,15 @@ colours.py (the colour table), scroll_list.py, file_selector.py; text.py formats
 
 While the machine runs freely the panels stay frozen; they are filled once when the window opens
 and when a tab is opened, refreshed (the visible tab) when the machine stops - pause,
-breakpoint, step - and after every panel action. PC keys go to a focused text input, to a list
-under the mouse (its keys) or to an open file selector instead of the CPC.
+breakpoint, step - and after every panel action. A tab with `live_seconds` (Devices: once per
+second, owner 2026-10-22) is also refreshed that often while running, when visible. PC keys go
+to a focused text input, to a list under the mouse (its keys) or to an open file selector
+instead of the CPC.
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 
 import dearpygui.dearpygui as dpg
@@ -72,6 +75,7 @@ class DebuggerPanels:
         self.items = self.context.items
         self.tabs = {tab_class.title: tab_class(self.context) for tab_class in TAB_CLASSES}
         self._tab_ids: dict[int | str, Tab] = {}
+        self._live_refreshed = 0.0  # when the visible tab was last refreshed while running
 
     def build(self, styles: Styles | None = None) -> None:
         """Create the tab bar in the current container (inside the Dear PyGui context).
@@ -125,7 +129,8 @@ class DebuggerPanels:
     def refresh(self, force: bool = False) -> None:
         """Refresh the visible tab while stopped (all tabs with force=True after an action)."""
         if self.loop.running and not force:
-            return  # frozen during free runs (no use, and it costs time)
+            self._refresh_live()  # the others stay frozen (no use, and it costs time)
+            return
         refreshers: list[Callable[[], None]]
         if force:
             refreshers = [tab.refresh for tab in self.tabs.values()]
@@ -134,3 +139,13 @@ class DebuggerPanels:
             refreshers = [active.refresh] if active is not None else []
         for refresher in refreshers:
             refresher()
+
+    def _refresh_live(self) -> None:
+        """While running: refresh the visible tab if it is live and its interval has passed."""
+        active = self._tab_ids.get(dpg.get_value(self.items["tab_bar"]))
+        if active is None or active.live_seconds is None:
+            return
+        now = time.monotonic()
+        if now - self._live_refreshed >= active.live_seconds:
+            self._live_refreshed = now
+            active.refresh()

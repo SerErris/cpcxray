@@ -46,6 +46,11 @@ def test_devices_get(tmp_path: Path) -> None:
     assert devices["gate_array"]["mode"] == 1
     assert devices["gate_array"]["upper_rom_enabled"] is False
     assert devices["keyboard_rows"] == "FF FF FF FF FF FF FF FF FF FF"
+    assert devices["gate_array"]["pens_used"] == 4
+    assert devices["gate_array"]["inks_firmware"] == [0x0D] * 16  # hardware 0: white (fw 13)
+    assert devices["rom_select"]["installed"] == [] and devices["rom_select"]["file"] is None
+    assert devices["key_lines"][2]["keys"] == [""] * 8  # no OS ROM: no key names
+    assert devices["crtc"]["screen"]["start"] == "0000"
 
 
 def test_screen_text_needs_lower_rom(tmp_path: Path) -> None:

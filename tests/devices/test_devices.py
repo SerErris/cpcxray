@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from cpcxray.devices.gate_array import INTERRUPT_PERIOD_US
-from cpcxray.devices.system_io import FRAME_US
+from cpcxray.devices.system_io import FRAME_US, port_b_meaning, port_c_meaning
 from cpcxray.machine.cpc464 import CPC464
 
 
@@ -103,6 +103,9 @@ def test_crtc_select_write_read(machine: CPC464) -> None:
         machine.bus.io_out(0xBD00, value)
     assert machine.crtc.registers[1] == 40
     assert machine.crtc.screen_start() == 0x3005
+    screen = machine.crtc.state()["screen"]
+    assert screen == {"start": "C00A", "characters": 40, "lines": 0, "scan_lines": 1}
+    assert machine.crtc.state()["names"][13] == "Start low"
     machine.bus.io_out(0xBC00, 13)
     assert machine.bus.io_in(0xBF00) == 0x05
     machine.bus.io_out(0xBC00, 1)
@@ -154,3 +157,11 @@ def test_port_c_bit_set_reset(machine: CPC464) -> None:
 def test_unanswered_in_reads_ff(machine: CPC464) -> None:
     """An IN no device answers reads &FF (D-08)."""
     assert machine.bus.io_in(0xFFFF) == 0xFF
+
+
+def test_ppi_meanings() -> None:
+    """Ports B and C in words: VSYNC, frequency, brand; keyboard line, motor, PSG function."""
+    assert port_b_meaning(0x1E) == "VSYNC 0, 50 Hz, Amstrad"
+    assert port_b_meaning(0x0B) == "VSYNC 1, 60 Hz, Schneider"
+    assert port_c_meaning(0x30) == "line 0, motor on, PSG inactive"
+    assert port_c_meaning(0xC9) == "line 9, motor off, PSG select register"

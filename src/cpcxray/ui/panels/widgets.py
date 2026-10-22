@@ -62,6 +62,8 @@ class Styles:  # pylint: disable=too-many-instance-attributes  # one theme per l
         self.primary_button = _button_theme(colours.ACCENT, colours.WHITE)
         self.plain_button = _button_theme(colours.BUTTON, colours.TEXT)
         self.remove_button = _button_theme(colours.PANEL, colours.ERROR)
+        self.swatch = _swatch_theme(colours.TEXT_OFF, 1)
+        self.swatch_here = _swatch_theme(colours.HERE, 2)  # e.g. the pen selected for ink writes
         self._badges: dict[str, int | str] = {}
         self._rows: dict[tuple[Colour | None, bool], int | str] = {}
         self._texts: dict[Colour, int | str] = {}
@@ -125,12 +127,26 @@ def _window_theme() -> int | str:
     return theme
 
 
+def _swatch_theme(border: Colour, width: int) -> int | str:
+    """The frame of a colour swatch."""
+    with dpg.theme() as theme, dpg.theme_component(dpg.mvColorButton):
+        dpg.add_theme_color(dpg.mvThemeCol_Border, border)
+        dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, width)
+    return theme
+
+
 def _child_theme(background: Colour, border: Colour) -> int | str:
     """The theme of a section box."""
-    with dpg.theme() as theme, dpg.theme_component(dpg.mvChildWindow):
-        dpg.add_theme_color(dpg.mvThemeCol_ChildBg, background)
-        dpg.add_theme_color(dpg.mvThemeCol_Border, border)
-        dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 8, 6)
+    with dpg.theme() as theme:
+        with dpg.theme_component(dpg.mvChildWindow):
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, background)
+            dpg.add_theme_color(dpg.mvThemeCol_Border, border)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 8, 6)
+        with dpg.theme_component(dpg.mvAll):  # everything inside: dense, as in the mock-ups
+            # Dear PyGui lays a text out with the frame padding above and below it: 1 + 2
+            # spacing gives the mock-ups' 17 px per line (default 23)
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 6, 2)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 4, 1)
     return theme
 
 
@@ -194,7 +210,7 @@ def swatch(colour: Colour, size: int = SWATCH_SIZE, **options: object) -> int | 
     """Add a colour square (no picker, no tooltip)."""
     return dpg.add_color_button(
         default_value=(*colour, 255), width=size, height=size, no_alpha=True, no_tooltip=True,
-        no_drag_drop=True, no_border=True, **options,  # type: ignore[arg-type]
+        no_drag_drop=True, **options,  # type: ignore[arg-type]
     )  # fmt: skip
 
 

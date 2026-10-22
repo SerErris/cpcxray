@@ -18,7 +18,8 @@ observers).
    - Gate Array: header "mode n · colours fw/hw (hex)"; a line "[swatch] border fw/hw" with a
      swatch the size of a pen swatch (e.g. `border 2/15`); then the 16 pens in a 4 × 4 grid,
      each a swatch + `fw/hw` (firmware colour decimal, hardware colour hex, e.g. `20/13`); pens
-     the mode does not use dimmed; the pen selected for ink writes ringed yellow; badges for
+     the mode does not use with grey numbers (their swatch keeps the true colour: a faded
+     swatch read as another colour, owner 2026-10-22); the pen selected for ink writes ringed yellow; badges for
      lower/upper ROM enable, RAM configuration, pen select, interrupt timing (µs, R52).
    - ROM select: the selected number and ROM file, whether it is paged in, installed slots.
    - PPI: ports A, B, C with a short meaning each (port A: keyboard data via PSG; B: VSYNC,

@@ -109,13 +109,35 @@ class SystemIO:  # pylint: disable=too-many-instance-attributes  # mirrors the P
         return 0xFF
 
     def state(self) -> dict[str, Any]:
-        """Return the latches for the device view."""
+        """Return the latches for the device view, each port with a short meaning."""
+        port_b = self.port_b_constant | (1 if self.vsync() else 0)
         return {
             "port_a": self.port_a,
-            "port_b": self.port_b_constant | (1 if self.vsync() else 0),
+            "port_b": port_b,
             "port_c": self.port_c,
+            "meanings": {
+                "a": "keyboard data via PSG",
+                "b": port_b_meaning(port_b),
+                "c": port_c_meaning(self.port_c),
+            },
             "psg_register": self.psg_register,
             "psg_registers": list(self.psg_registers),
             "keyboard_row": self.port_c & 0x0F,
             "vsync": self.vsync(),
         }
+
+
+BRANDS = ("Isp", "Triumph", "Saisho", "Solavox", "Awa", "Schneider", "Orion", "Amstrad")
+PSG_FUNCTIONS = ("PSG inactive", "PSG read", "PSG write", "PSG select register")
+
+
+def port_b_meaning(value: int) -> str:
+    """Port B in words: VSYNC (bit 0), brand (bits 3-1), 50/60 Hz (bit 4)."""
+    frequency = "50 Hz" if value & 0x10 else "60 Hz"
+    return f"VSYNC {value & 1}, {frequency}, {BRANDS[value >> 1 & 0x07]}"
+
+
+def port_c_meaning(value: int) -> str:
+    """Port C in words: keyboard line (bits 3-0), tape motor (bit 4), PSG function (bits 7-6)."""
+    motor = "motor on" if value & 0x10 else "motor off"
+    return f"line {value & 0x0F}, {motor}, {PSG_FUNCTIONS[value >> 6]}"

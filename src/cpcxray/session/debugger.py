@@ -29,9 +29,11 @@ from cpcxray.debugger.breakpoints import (
 )
 from cpcxray.debugger.bus_trace import ACCESS_KINDS, BusTrace
 from cpcxray.decoding.shadow_rom import M1, UNKNOWN
+from cpcxray.devices.key_map import KeyMapError
 from cpcxray.machine.memory import BLOCK_SIZE
 from cpcxray.machine.sna import SnapshotError, load_sna, save_sna
 from cpcxray.session.errors import SessionError
+from cpcxray.ui.palette import HARDWARE_TO_FIRMWARE
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -58,6 +60,24 @@ def hex_dump(start: int, data: list[int | None]) -> list[str]:
         )
         lines.append(f"{(start + offset) & 0xFFFF:04X}  {hex_text:<47}  {ascii_text}")
     return lines
+
+
+PENS_PER_MODE = {0: 16, 1: 4, 2: 2, 3: 4}  # mode 3 (undocumented) shows 4 pens
+KEY_LABELS = {
+    "cursor_up": "Cur\u2191", "cursor_down": "Cur\u2193", "cursor_left": "Cur\u2190",
+    "cursor_right": "Cur\u2192", "joy_up": "Joy\u2191", "joy_down": "Joy\u2193",
+    "joy_left": "Joy\u2190", "joy_right": "Joy\u2192", "joy_fire1": "Fire1", "joy_fire2": "Fire2",
+    "control": "Ctrl", "caps_lock": "Caps",
+}  # fmt: skip
+
+
+def _key_label(name: str) -> str:
+    """A key's label for the matrix view: "Cur↑", "Shift", "A", "f7", ";"."""
+    if name in KEY_LABELS:
+        return KEY_LABELS[name]
+    if len(name) == 1:
+        return name.upper()
+    return name if name.startswith("f") else name.capitalize()
 
 
 class DebuggerMixin:
@@ -139,6 +159,49 @@ class DebuggerMixin:
     def _instruction_text(self, instruction: Instruction) -> str:
         """The instruction's first line with operand names (`_instruction_labels`)."""
         return instruction.text(self._instruction_labels(instruction))
+
+    def devices_get(self) -> dict[str, Any]:
+        """Return the state of Gate Array, CRTC, ROM select, PPI (SystemIO), FDC and keyboard.
+
+        Besides the registers: the inks as firmware colours and the pens the mode uses, the
+        selected ROM's file and whether it is paged in, the CRTC register names and screen
+        layout, the PPI ports and the FDC status in words, and `key_lines`: the keyboard
+        matrix lines 0-9 with the names of their 8 keys (from the OS ROM's key map), the
+        line's value (bit clear = pressed) and the held keys.
+        """
+        machine = self._cpc()
+        state = machine.devices()
+        gate_array = state["gate_array"]
+        gate_array["inks_firmware"] = [HARDWARE_TO_FIRMWARE[ink] for ink in gate_array["inks"]]
+        gate_array["border_firmware"] = HARDWARE_TO_FIRMWARE[gate_array["border"]]
+        gate_array["pens_used"] = PENS_PER_MODE[gate_array["mode"]]
+        rom_select = state["rom_select"]
+        answering = machine.memory.effective_upper_slot()
+        rom = machine.memory.upper_roms.get(answering)
+        rom_select |= {
+            "answering": answering,
+            "file": rom.name if rom is not None else None,
+            "paged_in": bool(gate_array["upper_rom_enabled"]),
+            "installed": (["lower"] if machine.memory.lower_rom is not None else [])
+            + [str(slot) for slot in sorted(machine.memory.upper_roms)],
+        }
+        state["key_lines"] = self._key_lines(machine)
+        return state
+
+    @staticmethod
+    def _key_lines(machine: CPC464) -> list[dict[str, Any]]:
+        """The keyboard matrix by line: key labels (bit 0-7), value, held bits."""
+        try:
+            names = {number: name for name, number in machine.key_map().names.items()}
+        except KeyMapError:
+            names = {}
+        rows = machine.keyboard.rows
+        return [
+            {"line": line, "value": rows[line],
+             "keys": [_key_label(names.get(line * 8 + bit, "")) for bit in range(8)],
+             "held": [bit for bit in range(8) if not rows[line] >> bit & 1]}
+            for line in range(len(rows))
+        ]  # fmt: skip
 
     def _setup_debugger(self) -> None:
         """Create the breakpoint set and the (stopped) bus trace."""

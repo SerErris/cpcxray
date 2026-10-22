@@ -23,6 +23,11 @@ from cpcxray.devices import NOT_DRIVEN
 
 REGISTER_COUNT = 18
 READABLE_REGISTERS = frozenset({12, 13, 14, 15, 16, 17})
+REGISTER_NAMES = (
+    "H total", "H displayed", "H sync pos", "Sync widths", "V total", "V adjust",
+    "V displayed", "V sync pos", "Interlace", "Max raster", "Cursor start", "Cursor end",
+    "Start high", "Start low", "Cursor high", "Cursor low", "Pen high", "Pen low",
+)  # fmt: skip
 
 
 class Crtc:
@@ -72,5 +77,23 @@ class Crtc:
         return (self.registers[12] & 0x3F) << 8 | self.registers[13]
 
     def state(self) -> dict[str, Any]:
-        """Return the registers for the device view (FR-DBG-05)."""
-        return {"selected": self.selected, "registers": list(self.registers)}
+        """Return the registers for the device view (FR-DBG-05), with names and the screen.
+
+        "screen": where the screen starts in RAM (R12/R13: bits 13-12 of R12 the 16 KB page,
+        the rest a word offset), characters per line (R1), character lines (R6) and scan lines
+        per character (R9 + 1).
+        """
+        registers = self.registers
+        start = self.screen_start()
+        page, offset = (start >> 12 & 0x03) * 0x4000, (start & 0x03FF) * 2
+        return {
+            "selected": self.selected,
+            "registers": list(registers),
+            "names": list(REGISTER_NAMES),
+            "screen": {
+                "start": f"{(page + offset) & 0xFFFF:04X}",
+                "characters": registers[1],
+                "lines": registers[6],
+                "scan_lines": registers[9] + 1,
+            },
+        }

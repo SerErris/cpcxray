@@ -65,7 +65,10 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     panels.refresh(force=True)
     assert dpg.get_value(panels.items["registers"]).startswith("AF ")
     assert ">" in dpg.get_value(panels.items["disassembly"])  # the PC line is marked
-    assert "[gate_array]" in dpg.get_value(panels.items["devices"])
+    assert dpg.get_value(panels.items["crtc_1"]).startswith("R1  H displayed")
+    assert dpg.get_value(panels.items["ga_header"]).startswith("mode 1")
+    assert dpg.get_value(panels.items["fdc_disk_B"]).startswith("B: ")  # the Vortex test disk
+    assert dpg.get_item_label(panels.items["key_2_5"]) == "Shift"  # names from the OS ROM
     assert dpg.get_value(panels.items["memory_address_0"]) == "0000 "
     check_memory_variables(panels, dpg)
     dpg.set_value(panels.items["bp_kind"], "write")
@@ -115,6 +118,12 @@ def check_toggles_and_freeze(app: Any, dpg: Any) -> None:
     dpg.set_value(panels.items["registers"], "frozen")
     panels.refresh()
     assert dpg.get_value(panels.items["registers"]) == "frozen"
+    devices_tab = next(i for i, t in panels._tab_ids.items() if t.title == "Devices")  # pylint: disable=protected-access
+    dpg.set_value(panels.items["tab_bar"], devices_tab)
+    dpg.set_value(panels.items["crtc_1"], "stale")
+    panels.refresh()  # the Devices tab is live: refreshed while running
+    assert dpg.get_value(panels.items["crtc_1"]).startswith("R1")
+    dpg.set_value(panels.items["tab_bar"], next(iter(panels._tab_ids)))  # pylint: disable=protected-access  # CPU
     app.loop.stop()
     panels.refresh()
     assert dpg.get_value(panels.items["registers"]).startswith("AF ")

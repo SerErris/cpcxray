@@ -60,6 +60,7 @@ class Tab:
 
     title = ""
     message = ""  # name of the tab's message line (the item that `call` reports into)
+    live_seconds: float | None = None  # refresh while running, this often (None: frozen)
 
     def __init__(self, context: PanelContext) -> None:
         """Create the tab for the shared context (`build` creates the widgets)."""
