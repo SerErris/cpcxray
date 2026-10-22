@@ -5,10 +5,12 @@ The format is the de-facto standard of CPC emulators (CPCWiki "SNA snapshot file
 "MEM8" hold 64 KB RAM blocks, run-length compressed (`E5 count value`, `E5 00` = a literal &E5)
 when the dump size in the header is 0.
 
-Loading accepts versions 1, 2 and 3 (memory as plain dump or MEM0 chunk; a 6128's extra RAM is
-ignored, FR-MCH-10 comes later). Saving writes version 3 with a plain 64 KB dump, CPC type 464,
-including the Gate Array's interrupt line counter and request flag, so the 300 Hz interrupt
-continues in phase.
+Loading accepts versions 1, 2 and 3 (memory as plain dump, or MEM0/MEM1 chunks). The dump holds
+the physical RAM blocks in order (block 0 first), not the CPU's banked view; a 6128 snapshot has
+128 KB and its RAM configuration in the header (FR-MCH-10). A 464 ignores RAM beyond 64 KB; a
+6128 loading a 64 KB snapshot gets blocks 4-7 cleared. Saving writes version 3 with a plain
+dump - 64 KB and CPC type 464, or 128 KB and CPC type 6128 - including the Gate Array's
+interrupt line counter and request flag, so the 300 Hz interrupt continues in phase.
 
 Only machine state goes into the file (D-25): ROM images stay in the configuration, analysis
 state (access maps, databases) in its own files.
@@ -27,8 +29,9 @@ if TYPE_CHECKING:
 SIGNATURE = b"MV - SNA"
 HEADER_SIZE = 0x100
 RAM_SIZE = 0x10000
+BLOCK_SIZE = 0x4000
 SAVE_VERSION = 3
-CPC_TYPE_464 = 0
+CPC_TYPE_464, CPC_TYPE_6128 = 0, 2
 
 # Byte offsets of the 8-bit registers in the header, in file order
 _BYTE_REGISTERS = {0x11: "f", 0x12: "a", 0x13: "c", 0x14: "b", 0x15: "e", 0x16: "d",
@@ -64,9 +67,11 @@ def save_sna(machine: CPC464, path: str | Path) -> int:
     header[OFFSET_IFF1], header[OFFSET_IFF2] = registers["iff1"], registers["iff2"]
     header[OFFSET_IM] = registers["im"]
     _save_devices(machine, header)
-    header[OFFSET_DUMP_SIZE : OFFSET_DUMP_SIZE + 2] = (RAM_SIZE // 1024).to_bytes(2, "little")
-    header[OFFSET_CPC_TYPE] = CPC_TYPE_464
-    data = bytes(header) + bytes(machine.memory.ram)
+    memory = machine.memory
+    ram = b"".join(memory.block(number) for number in range(memory.ram_blocks))
+    header[OFFSET_DUMP_SIZE : OFFSET_DUMP_SIZE + 2] = (len(ram) // 1024).to_bytes(2, "little")
+    header[OFFSET_CPC_TYPE] = CPC_TYPE_6128 if memory.ram_blocks == 8 else CPC_TYPE_464
+    data = bytes(header) + ram
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_bytes(data)
     return len(data)
@@ -110,7 +115,11 @@ def load_sna(machine: CPC464, path: str | Path) -> dict[str, Any]:
         raise SnapshotError(f"{path}: not a .sna snapshot")
     version = data[0x10]
     ram = _ram_from_snapshot(data, version)
-    machine.memory.ram[:] = ram
+    memory = machine.memory
+    machine.gate_array.write_ram_config(0)  # blocks in their home pages while loading
+    for number in range(memory.ram_blocks):
+        block = ram[number * BLOCK_SIZE : (number + 1) * BLOCK_SIZE]
+        memory.set_block(number, block if len(block) == BLOCK_SIZE else bytes(BLOCK_SIZE))
     _load_cpu(machine, data)
     _load_devices(machine, data, version)
     return {"version": version, "cpc_type": data[OFFSET_CPC_TYPE] if version >= 2 else 0,
@@ -118,22 +127,26 @@ def load_sna(machine: CPC464, path: str | Path) -> dict[str, Any]:
 
 
 def _ram_from_snapshot(data: bytes, version: int) -> bytes:
-    """Return the first 64 KB of RAM: the plain dump, or the MEM0 chunk of version 3."""
+    """Return the RAM blocks in order: 64 or 128 KB, from the plain dump or MEM0/MEM1 chunks."""
     dump_size = int.from_bytes(data[OFFSET_DUMP_SIZE : OFFSET_DUMP_SIZE + 2], "little") * 1024
     if dump_size >= RAM_SIZE and len(data) >= HEADER_SIZE + RAM_SIZE:
-        return data[HEADER_SIZE : HEADER_SIZE + RAM_SIZE]
+        dump = data[HEADER_SIZE : HEADER_SIZE + dump_size]
+        return dump[: 2 * RAM_SIZE] if len(dump) >= 2 * RAM_SIZE else dump[:RAM_SIZE]
+    chunks: dict[bytes, bytes] = {}
     if version >= 3:
         position = HEADER_SIZE + dump_size
         while position + 8 <= len(data):
             name = data[position : position + 4]
             length = int.from_bytes(data[position + 4 : position + 8], "little")
             content = data[position + 8 : position + 8 + length]
-            if name == b"MEM0":
-                ram = content if length == RAM_SIZE else decompress_chunk(content)
-                if len(ram) >= RAM_SIZE:
-                    return ram[:RAM_SIZE]
+            if name in (b"MEM0", b"MEM1"):
+                chunks[name] = content if length == RAM_SIZE else decompress_chunk(content)
             position += 8 + length
-    raise SnapshotError("snapshot holds no 64 KB RAM dump")
+    if len(chunks.get(b"MEM0", b"")) < RAM_SIZE:
+        raise SnapshotError("snapshot holds no 64 KB RAM dump")
+    ram = chunks[b"MEM0"][:RAM_SIZE]
+    extra = chunks.get(b"MEM1", b"")
+    return ram + extra[:RAM_SIZE] if len(extra) >= RAM_SIZE else ram
 
 
 def decompress_chunk(content: bytes) -> bytes:
@@ -175,7 +188,7 @@ def _load_devices(machine: CPC464, data: bytes, version: int) -> None:
     gate_array.pen = data[OFFSET_PEN] if data[OFFSET_PEN] <= 16 else 0
     gate_array.inks = [value & 0x1F for value in data[OFFSET_INKS : OFFSET_INKS + 17]]
     gate_array.write_rmr(data[OFFSET_RMR] & 0x0F)  # mode and ROM enables
-    gate_array.ram_config = data[OFFSET_RAM_CONFIG] & 0x3F
+    gate_array.write_ram_config(data[OFFSET_RAM_CONFIG] & 0x3F)  # banking (6128), D-14
     machine.crtc.selected = data[OFFSET_CRTC_SELECTED] & 0x1F
     machine.crtc.registers[:18] = list(data[OFFSET_CRTC : OFFSET_CRTC + 18])
     machine.rom_select.io_out(0xDF00, data[OFFSET_ROM_SELECT])

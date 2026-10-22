@@ -98,7 +98,7 @@ def test_status_line_reports_access_breakpoint() -> None:
     loop.session.breakpoint_add("4000", kind="write")
     loop.start()
     loop.frame()
-    assert "(write 4000=55 by 0002, ram:0)" in loop.status_line()
+    assert "(write 4000=55 by 0002, ram:1)" in loop.status_line()
 
 
 def test_status_line_shows_traces() -> None:

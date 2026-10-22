@@ -82,3 +82,72 @@ def test_rom_size_is_checked() -> None:
     """A ROM image must be exactly 16 KB."""
     with pytest.raises(ValueError, match="16384"):
         RomSlot(bytes(100), "short")
+
+
+# -- 6128 RAM banking (FR-MCH-10, D-14) --------------------------------------------------------
+
+EXPECTED_BLOCKS = {  # Firmware Guide §2.5: block per page &0000/&4000/&8000/&C000
+    0: (0, 1, 2, 3), 1: (0, 1, 2, 7), 2: (4, 5, 6, 7), 3: (0, 3, 2, 7),
+    4: (0, 4, 2, 3), 5: (0, 5, 2, 3), 6: (0, 6, 2, 3), 7: (0, 7, 2, 3),
+}  # fmt: skip
+
+
+def banked_memory() -> MemoryMap:
+    """A 6128 memory map whose 8 blocks are filled with &B0 + block number, no ROMs."""
+    memory = MemoryMap(ram_blocks=8)
+    for number in range(8):
+        memory.set_block(number, bytes([0xB0 + number]) * 0x4000)
+    return memory
+
+
+@pytest.mark.parametrize("configuration", range(8))
+def test_every_configuration_maps_its_blocks(configuration: int) -> None:
+    """Each configuration shows the documented block in every page, for reads and writes."""
+    memory = banked_memory()
+    memory.set_ram_configuration(configuration)
+    for page, block in enumerate(EXPECTED_BLOCKS[configuration]):
+        address = page * 0x4000 + 0x123
+        assert memory.read(address, is_m1=False) == 0xB0 + block
+        assert memory.ram_block_at(address) == block
+        memory.write(address, 0x40 + block)  # goes to the banked block
+    memory.set_ram_configuration(0)
+    for block in EXPECTED_BLOCKS[configuration]:
+        assert memory.block(block)[0x123] == 0x40 + block
+
+
+def test_blocks_survive_switching_and_moving() -> None:
+    """Configuration 3 moves block 3 to &4000 and back; every block keeps its contents."""
+    memory = banked_memory()
+    memory.write(0xC000, 0x33)  # block 3 at &C000 in configuration 0
+    memory.set_ram_configuration(3)
+    assert memory.read(0x4000, is_m1=False) == 0x33  # the same block, now at &4000
+    assert memory.read(0xC000, is_m1=False) == 0xB7  # block 7
+    memory.write(0x4001, 0x34)
+    memory.set_ram_configuration(2)
+    memory.set_ram_configuration(0)
+    assert memory.ram[0xC000:0xC002] == b"\x33\x34"
+    assert [memory.block(n)[0x2000] for n in range(8)] == [0xB0 + n for n in range(8)]
+
+
+def test_banked_ram_stays_hidden_by_roms_and_crtc_sees_blocks_0_to_3() -> None:
+    """An enabled upper ROM still hides block 7; the screen RAM (base_ram) is block 3."""
+    memory = banked_memory()
+    memory.set_upper_rom(0, rom(0xEE))
+    memory.set_rom_enables(lower_enabled=False, upper_enabled=True)
+    memory.set_ram_configuration(1)
+    assert memory.read(0xC000, is_m1=False) == 0xEE
+    memory.write(0xC000, 0x77)  # under the ROM: into block 7
+    assert memory.block(7)[0] == 0x77
+    assert memory.base_ram()[0xC000] == 0xB3 and len(memory.base_ram()) == 0x10000
+
+
+def test_464_ignores_ram_configuration() -> None:
+    """Without banking (64 KB) a configuration write changes nothing; blocks 4-7 do not exist."""
+    memory = MemoryMap()
+    memory.ram[0xC000] = 0x12
+    memory.set_ram_configuration(2)
+    assert memory.ram_configuration == 0 and memory.read(0xC000, is_m1=False) == 0x12
+    with pytest.raises(ValueError, match="RAM block 4"):
+        memory.block(4)
+    with pytest.raises(ValueError, match="ram_blocks"):
+        MemoryMap(ram_blocks=6)

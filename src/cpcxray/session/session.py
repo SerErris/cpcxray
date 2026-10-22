@@ -545,8 +545,9 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         if lower is None:
             raise SessionError("no lower ROM installed: the font is needed to read the screen")
         font = lower.data[FONT_ADDRESS : FONT_ADDRESS + 0x0800]  # the lower ROM starts at &0000
+        screen = machine.memory.base_ram()  # the CRTC ignores 6128 banking: blocks 0-3
         lines = screen_text(
-            lambda address: machine.memory.ram[address], font,
+            lambda address: screen[address], font,
             machine.crtc.registers, machine.gate_array.mode,
         )  # fmt: skip
         return {"mode": machine.gate_array.mode, "lines": lines}

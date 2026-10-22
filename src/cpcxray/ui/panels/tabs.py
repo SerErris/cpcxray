@@ -52,7 +52,8 @@ MEMORY_BYTES = 256
 TRACE_LINES = 30
 BREAKPOINT_KINDS = ("pc", "m1", "read", "write", "access", "io_in", "io_out", "io",
                     "rom_select", "interrupt")  # fmt: skip
-LOCATIONS = ("any", "rom", "ram", "lower", *(f"rom:{n}" for n in range(16)), "ram:0")
+LOCATIONS = ("any", "rom", "ram", "lower", *(f"rom:{n}" for n in range(16)),
+             *(f"ram:{n}" for n in range(8)))  # RAM blocks; 4-7 only on a 6128  # fmt: skip
 
 
 class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one item id per widget

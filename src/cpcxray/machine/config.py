@@ -2,7 +2,8 @@
 
 The configuration is a TOML file, normally `config/machine.toml`:
 
-* `[machine]`: model ("464") and the slot that answers for unpopulated ROM numbers (D-10).
+* `[machine]`: model ("464", or "6128" with 128 KB RAM and banking, FR-MCH-10) and the slot
+  that answers for unpopulated ROM numbers (D-10).
 * `[rom.lower]` and `[rom.upper.N]` (N = 0-15): ROM image per slot, optional decoder and
   decode switch for scrambled ROMs (D-11), `analyse` to make the slot an analysis target
   (D-16).
@@ -31,7 +32,7 @@ MEMORY_SIZE = 0x10000
 
 DECODERS = frozenset({"vortex"})  # known decoders for scrambled ROMs (§5.5)
 CAPTURE_MODES = frozenset({"first_m1", "manual"})  # RAM-target capture moments (D-23)
-MODELS = frozenset({"464"})  # 6128 is later scope (FR-MCH-10)
+MODELS = frozenset({"464", "6128"})  # the 6128 adds RAM banking (FR-MCH-10)
 DRIVES = ("A", "B")  # A: 3" (unit 0), B: Vortex 5.25" (unit 1), FR-FDC-02/03
 
 type Slot = Literal["lower"] | int
@@ -115,7 +116,7 @@ class MachineConfig:  # pylint: disable=too-many-instance-attributes  # one per 
 
     Attributes:
         project_dir: Directory that relative paths are resolved against.
-        model: Machine model; only "464" for now.
+        model: Machine model: "464" (64 KB) or "6128" (128 KB RAM with banking).
         unpopulated_rom: Slot that answers when an unpopulated ROM number is selected (D-10).
         lower_rom: The OS ROM, or None if not configured.
         upper_roms: Upper ROM slots by number.

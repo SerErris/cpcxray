@@ -1,5 +1,9 @@
 """The CPC 464 machine: wiring, power-on, reset and the scheduler (design.md §6.10).
 
+The same class is the CPC 6128 when the configuration says `model = "6128"`: 128 KB RAM with
+banking (FR-MCH-10, D-14, machine/memory.py). Everything else the emulator models is the same;
+the ROMs (6128 OS, BASIC 1.1, AMSDOS) come from the configuration as for the 464.
+
 Power-on (constructor): create memory (RAM cleared), devices, bus and CPU; install the ROMs
 from the configuration; then reset.
 
@@ -45,9 +49,10 @@ type SlotName = str | int  # "lower" or an upper slot number 0-15
 
 
 class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's components
-    """An Amstrad CPC 464 (implements the `Machine` protocol used by `Session`).
+    """An Amstrad CPC 464, or a 6128 by configuration (implements the `Machine` protocol).
 
     Attributes:
+        model: "cpc464" or "cpc6128".
         clock_us: Emulated time since reset in µs.
         memory: RAM, ROM slots and paging.
         keyboard: The key matrix.
@@ -61,8 +66,6 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
         skipped_roms: Configured ROMs and disk images that were not installed, with the reason.
     """
 
-    model = "cpc464"
-
     def __init__(
         self, config: MachineConfig | None = None, port_b_constant: int = DEFAULT_PORT_B
     ) -> None:
@@ -73,9 +76,13 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
             port_b_constant: PPI port B bits 7-1 (manufacturer, 50 Hz, ...).
         """
         self.clock_us = 0
-        self.memory = MemoryMap(config.unpopulated_rom if config else 0)
+        six_one_two_eight = config is not None and config.model == "6128"
+        self.model = "cpc6128" if six_one_two_eight else "cpc464"
+        self.memory = MemoryMap(
+            config.unpopulated_rom if config else 0, ram_blocks=8 if six_one_two_eight else 4
+        )
         self.keyboard = Keyboard()
-        self.gate_array = GateArray(self.memory.set_rom_enables)
+        self.gate_array = GateArray(self.memory.set_rom_enables, self.memory.set_ram_configuration)
         self.crtc = Crtc()
         self.rom_select = RomSelect(self.memory.select_upper)
         self.system_io = SystemIO(self.keyboard, self._clock, port_b_constant)
@@ -239,6 +246,9 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
             "upper_rom_enabled": memory.upper_enabled,
             "selected_rom": memory.selected_upper,
             "answering_rom": memory.effective_upper_slot(),
+            "ram_kb": memory.ram_blocks * 16,
+            "ram_configuration": memory.ram_configuration,
+            "ram_blocks_mapped": [memory.ram_block_at(page << 14) for page in range(4)],
             "screen_mode": self.gate_array.mode,
             "skipped_roms": list(self.skipped_roms),
         }
@@ -257,9 +267,13 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
         return self._key_map
 
     def snapshot(self) -> ScreenSnapshot:
-        """Copy RAM, mode, inks and CRTC registers for the renderer (D-13, §6.10)."""
+        """Copy RAM, mode, inks and CRTC registers for the renderer (D-13, §6.10).
+
+        The RAM is blocks 0-3: the CRTC ignores banking (a 6128 shows block 3 at &C000 even
+        while block 7 is mapped there).
+        """
         return ScreenSnapshot(
-            ram=bytes(self.memory.ram),
+            ram=self.memory.base_ram(),
             mode=self.gate_array.mode,
             inks=tuple(self.gate_array.inks),
             crtc=tuple(self.crtc.registers),

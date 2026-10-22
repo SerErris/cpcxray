@@ -1,0 +1,15 @@
+# Test configuration of the emulator's test suite: CPC 464 with OS, BASIC 1.0 and AMSDOS.
+# No drives: tests insert the disk images they need (tests/machines.py).
+
+[machine]
+model = "464"
+unpopulated_rom = 0          # D-10
+
+[rom.lower]
+file = "roms/os464.rom"
+
+[rom.upper.0]
+file = "roms/basic10.rom"
+
+[rom.upper.7]
+file = "roms/amsdos.rom"

@@ -1,4 +1,4 @@
-"""Memory map and ROM slots of the CPC 464 (design.md §5.1, §6.4; FR-MCH-01..06, D-09, D-10, D-14).
+"""Memory map, ROM slots and 6128 RAM banking (design.md §5.1, §6.4; FR-MCH-01..06, 10; D-14).
 
 | Range       | Read                                              | Write |
 |-------------|---------------------------------------------------|-------|
@@ -6,10 +6,28 @@
 | &4000-&BFFF | RAM                                               | RAM   |
 | &C000-&FFFF | selected upper ROM if enabled, else RAM (screen)  | RAM   |
 
-Reads go through a 4-entry table, one entry per 16 KB bank (`addr >> 14`), holding either None
+Reads go through a 4-entry table, one entry per 16 KB page (`addr >> 14`), holding either None
 (RAM) or the ROM slot that answers. The table is recomputed only when the Gate Array changes
-the ROM enables or a new upper ROM is selected. Writes always go to RAM (FR-MCH-06); 6128
-banking will add a write table without changing this structure (D-14).
+the ROM enables or a new upper ROM is selected. Writes always go to RAM (FR-MCH-06).
+
+6128 RAM banking (FR-MCH-10, D-14): the 6128 has 128 KB RAM in eight 16 KB blocks. A RAM
+configuration o = 0-7 (Gate Array function 11, `OUT &7Fxx` with &C0 + o) chooses the block seen
+in each page:
+
+| o | &0000 | &4000 | &8000 | &C000 | use                                       |
+|---|-------|-------|-------|-------|-------------------------------------------|
+| 0 | 0     | 1     | 2     | 3     | firmware default                          |
+| 1 | 0     | 1     | 2     | 7     | CP/M Plus                                 |
+| 2 | 4     | 5     | 6     | 7     | CP/M Plus (own interrupt handler at &0038)|
+| 3 | 0     | 3     | 2     | 7     | CP/M Plus (screen block 3 at &4000)       |
+| 4-7 | 0   | 4-7   | 2     | 3     | one extra block at &4000                  |
+
+`ram` is the CPU's view of the 64 KB address space: it holds the blocks mapped now, so every
+read and write path stays as it is on the 464. A configuration change swaps only the pages
+whose block changes: their contents go back to the block store and the new blocks come in
+(16 KB slice copies; banking is rare compared with memory accesses). No configuration maps
+one block twice, so the view never aliases. Enabled ROMs still hide the banked RAM; writes go
+to the banked block. The CRTC ignores banking: it always shows blocks 0-3 (`base_ram`).
 
 Upper ROM selection follows the owner's CE/OE model (D-09): the last value written to &DFxx
 selects a slot 0-15; an unpopulated number, or a value above 15, makes the slot configured as
@@ -29,6 +47,17 @@ from cpcxray.decoding.shadow_rom import ShadowRom
 
 ROM_SIZE = 0x4000
 UPPER_SLOTS = range(16)
+BLOCK_SIZE = 0x4000
+RAM_CONFIGURATIONS = (  # block number per page &0000/&4000/&8000/&C000, per configuration
+    (0, 1, 2, 3),
+    (0, 1, 2, 7),
+    (4, 5, 6, 7),
+    (0, 3, 2, 7),
+    (0, 4, 2, 3),
+    (0, 5, 2, 3),
+    (0, 6, 2, 3),
+    (0, 7, 2, 3),
+)
 
 
 @dataclass
@@ -90,7 +119,9 @@ class MemoryMap:  # pylint: disable=too-many-instance-attributes  # the paging s
     """RAM, the lower ROM and the upper ROM slots, with the CPC paging logic.
 
     Attributes:
-        ram: 64 KB of RAM.
+        ram: The CPU's view of RAM: the 64 KB of the blocks mapped now.
+        ram_blocks: Number of 16 KB RAM blocks: 4 (464, no banking) or 8 (6128).
+        ram_configuration: The banking configuration 0-7 (always 0 without banking).
         lower_rom: The OS ROM, or None (then &0000-&3FFF always reads RAM).
         upper_roms: Populated upper ROM slots.
         unpopulated_rom: Slot that answers for unpopulated ROM numbers (D-10).
@@ -99,9 +130,20 @@ class MemoryMap:  # pylint: disable=too-many-instance-attributes  # the paging s
         selected_upper: Last value written to the ROM select port (&DFxx).
     """
 
-    def __init__(self, unpopulated_rom: int = 0) -> None:
-        """Create the map with cleared RAM, no ROMs and both ROMs enabled (power-on state)."""
+    def __init__(self, unpopulated_rom: int = 0, ram_blocks: int = 4) -> None:
+        """Create the map with cleared RAM, no ROMs and both ROMs enabled (power-on state).
+
+        Args:
+            unpopulated_rom: Slot that answers for unpopulated ROM numbers (D-10).
+            ram_blocks: 4 for the 464 (64 KB), 8 for the 6128 (128 KB with banking).
+        """
+        if ram_blocks not in (4, 8):
+            raise ValueError(f"ram_blocks must be 4 or 8, got {ram_blocks}")
         self.ram = bytearray(0x10000)
+        self.ram_blocks = ram_blocks
+        self.ram_configuration = 0
+        # the store of every block; a mapped block's current contents are in `ram`
+        self._block_store = [bytearray(BLOCK_SIZE) for _ in range(ram_blocks)]
         self.lower_rom: RomSlot | None = None
         self.upper_roms: dict[int, RomSlot] = {}
         self.unpopulated_rom = unpopulated_rom
@@ -142,6 +184,56 @@ class MemoryMap:  # pylint: disable=too-many-instance-attributes  # the paging s
         if number != self.selected_upper:
             self.selected_upper = number
             self._recompute()
+
+    def set_ram_configuration(self, configuration: int) -> None:
+        """Map the RAM blocks of configuration 0-7 (Gate Array function 11; 6128 only).
+
+        Without banking (464) the write is ignored, as on the real machine. Pages whose block
+        changes are swapped: all outgoing contents are saved first, then the new blocks are
+        loaded, so a block that moves to another page (configuration 3) arrives intact.
+        """
+        configuration &= 0x07
+        if self.ram_blocks == 4 or configuration == self.ram_configuration:
+            return
+        old_blocks = RAM_CONFIGURATIONS[self.ram_configuration]
+        new_blocks = RAM_CONFIGURATIONS[configuration]
+        changed = [page for page in range(4) if old_blocks[page] != new_blocks[page]]
+        for page in changed:
+            start = page * BLOCK_SIZE
+            self._block_store[old_blocks[page]][:] = self.ram[start : start + BLOCK_SIZE]
+        for page in changed:
+            start = page * BLOCK_SIZE
+            self.ram[start : start + BLOCK_SIZE] = self._block_store[new_blocks[page]]
+        self.ram_configuration = configuration
+
+    def ram_block_at(self, address: int) -> int:
+        """Return the RAM block mapped at `address` now (0-3 without banking)."""
+        return RAM_CONFIGURATIONS[self.ram_configuration][(address & 0xFFFF) >> 14]
+
+    def block(self, number: int) -> bytes:
+        """Return the 16 KB contents of RAM block `number` (mapped or not)."""
+        if not 0 <= number < self.ram_blocks:
+            raise ValueError(f"RAM block {number} not in 0-{self.ram_blocks - 1}")
+        mapped = RAM_CONFIGURATIONS[self.ram_configuration]
+        if number in mapped:
+            start = mapped.index(number) * BLOCK_SIZE
+            return bytes(self.ram[start : start + BLOCK_SIZE])
+        return bytes(self._block_store[number])
+
+    def set_block(self, number: int, data: bytes) -> None:
+        """Replace the 16 KB contents of RAM block `number` (mapped or not; snapshot loading)."""
+        if not 0 <= number < self.ram_blocks or len(data) != BLOCK_SIZE:
+            raise ValueError(f"RAM block {number}: expected 0-{self.ram_blocks - 1}, 16 KB")
+        mapped = RAM_CONFIGURATIONS[self.ram_configuration]
+        if number in mapped:
+            start = mapped.index(number) * BLOCK_SIZE
+            self.ram[start : start + BLOCK_SIZE] = data
+        else:
+            self._block_store[number][:] = data
+
+    def base_ram(self) -> bytes:
+        """Return blocks 0-3 as 64 KB: the RAM the CRTC displays, whatever is banked in."""
+        return b"".join(self.block(number) for number in range(4))
 
     def effective_upper_slot(self) -> int | None:
         """Return the slot that answers for the selected number (D-10), or None if none."""

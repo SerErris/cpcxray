@@ -63,7 +63,7 @@ software.
 | FR-MCH-07 | Gate Array: only the I/O-visible behaviour (pen, inks, border, screen mode, ROM enables, interrupt generation), stored as parameters in a GA object. |
 | FR-MCH-08 | A 300 Hz interrupt and a VSYNC flag (readable at &F5xx bit 0), so the firmware can derive its 50 Hz frame-flyback events. |
 | FR-MCH-09 | Keyboard input through the I/O path the firmware uses to read the key matrix. No sound chip, no PPI device. |
-| FR-MCH-10 | 6128 RAM banking is later scope; the memory design allows adding it without restructuring. |
+| FR-MCH-10 | CPC 6128 (`model = "6128"`): 128 KB RAM in eight 16 KB blocks with the eight banking configurations of the Firmware Guide §2.5 (Gate Array function 11); the CRTC always shows blocks 0–3. |
 | FR-MCH-11 | No additional memory expansions. |
 
 ### 2.3 Decoding of scrambled ROMs
@@ -117,7 +117,7 @@ software.
 | FR-DBG-04 | Disassembly view around PC and at any address; raw and clear bytes for scrambled ROMs. |
 | FR-DBG-05 | Device view: Gate Array, CRTC, SystemIO, ROM selection, interrupt state; later FDC. |
 | FR-DBG-06 | Run, pause, step, step over, step out, run to address, reset. |
-| FR-DBG-07 | Breakpoints: PC; M1 at address/range; memory read/write at address/range ("who accesses this byte": stops after the accessing instruction and reports its PC); I/O by mask; ROM-select change; interrupt accepted. Every address-based breakpoint takes a location qualifier: `any` (whatever is paged in), `rom` (any ROM), `rom:<n>` / `lower` (one ROM), `ram` (RAM only), `ram:<page>` (one RAM bank, for 6128 banking later). |
+| FR-DBG-07 | Breakpoints: PC; M1 at address/range; memory read/write at address/range ("who accesses this byte": stops after the accessing instruction and reports its PC); I/O by mask; ROM-select change; interrupt accepted. Every address-based breakpoint takes a location qualifier: `any` (whatever is paged in), `rom` (any ROM), `rom:<n>` / `lower` (one ROM), `ram` (RAM only), `ram:<block>` (the 16 KB RAM block mapped at the address: 0–3 on a 464, 0–7 by banking on a 6128). |
 | FR-DBG-08 | Bus trace view of M1/MREQ/IORQ/RD/WR accesses (switchable ring buffer). |
 | FR-DBG-09 | Symbols and comments (annotation file), with firmware jumpblock names preloaded. |
 | FR-DBG-10 | Snapshots in `.sna` format (save and load). |
@@ -165,7 +165,7 @@ software.
 | D-11 | **Per-slot decoder and decode switch.** The decoder is a pure function `decode(addr, raw)`; the slot applies the M1 rule (M1 → raw, otherwise decoded). `decode_enabled` is set in the config and can be toggled at runtime, effective from the next read. | The decode function knows nothing about M1; the decision is made where the access kind is known. Toggling lets the owner compare scrambled and clear behaviour live. |
 | D-12 | **Bus observers are opt-in.** The bus has an unobserved fast path; observer variants are swapped in when observers are registered. | Satisfies NFR-05 without per-access checks. |
 | D-13 | **Single-threaded emulation in time slices** (GUI mode: in the GUI thread, e.g. 20 ms emulated per frame). Other threads (MCP server) communicate only through a command queue (D-29). | No locking; the renderer reads a consistent snapshot. |
-| D-14 | **6128 RAM banking designed in** (per-16 KB read/write page tables), not implemented now. | FR-MCH-10. |
+| D-14 | **6128 RAM banking** (phase 11): `MemoryMap.ram` stays the CPU's 64 KB view, holding the blocks mapped now; a configuration change swaps only the pages whose block changes between the view and a block store (all outgoing pages saved first, then the new ones loaded). Debugger, renderer and `.sna` reach physical blocks through `block(n)` / `base_ram()`. | FR-MCH-10. The read and write paths stay exactly as on the 464 (no per-access table lookup), and every user of `memory.ram` keeps working; banking is rare compared with memory accesses, and no configuration maps one block twice, so the view never aliases. |
 | D-15 | **CPU verification in three layers:** per-opcode JSON tests, ZEXDOC/ZEXALL, raxoft z80test. | Fast, precise failure localisation first; the acceptance test last. |
 | D-16 | **Analysis targets are explicit.** A target is a ROM slot (upper 0–15 or lower ROM) or a RAM range. Targets are marked in the config (`analyse = true`, `[[analysis.ram]]`) or set at runtime (GUI, debugger API, MCP). Several targets may be active; each has its own analysis database and source output. Everything else runs normally and is not analysed. The default config marks only VDOS. The live disassembly view works on any address. | The owner decides what is analysed. The standard ROMs are fully documented; analysing them would only cost time and produce noise. |
 | D-17 | **Shadow ROM and M1/data access map exist only for scrambled ROMs** (targets with a decoder; in practice VDOS). Unscrambled targets are disassembled directly; their code/data distinction comes from the per-byte data kind in the analysis database. | Their purpose is decoding; for clear code they would only duplicate information. |
@@ -212,7 +212,7 @@ software.
 
 | Device | Decode | Ports | Function |
 |---|---|---|---|
-| Gate Array | A15 = 0, A14 = 1 | &7Fxx | Data bits 7–6 select the function. 00: pen select (bit 4 = border). 01: ink colour (bits 0–4). 10 (RMR): bits 1–0 mode, bit 2 lower ROM disable, bit 3 upper ROM disable (1 = disabled), bit 4 interrupt control. 11: RAM config (6128, later). |
+| Gate Array | A15 = 0, A14 = 1 | &7Fxx | Data bits 7–6 select the function. 00: pen select (bit 4 = border). 01: ink colour (bits 0–4). 10 (RMR): bits 1–0 mode, bit 2 lower ROM disable, bit 3 upper ROM disable (1 = disabled), bit 4 interrupt control. 11: RAM configuration (6128 banking: bits 2–0, FR-MCH-10; ignored by a 464). |
 | CRTC | A14 = 0 | &BCxx select, &BDxx write, &BFxx read | 6845 register file |
 | Upper ROM select | A13 = 0 | &DFxx | ROM number latch |
 | PPI 8255 (emulated only as `SystemIO`, D-07) | A11 = 0 | &F4xx A, &F5xx B, &F6xx C, &F7xx control | A: PSG data bus (register number out, keyboard row in). B: bit 0 VSYNC, bits 1–3 manufacturer, bit 4 50 Hz, bit 5 /EXP, bit 6 printer busy, bit 7 cassette — emulated as constant + VSYNC. C: bits 0–3 keyboard row, bits 7–6 PSG function; bits 4–5 cassette (ignored). Control port ignored. |
@@ -376,12 +376,17 @@ cpu.reset()
 
 ### 6.4 MemoryMap and ROM slots (`machine/memory.py`)
 
-- `ram: bytearray(65536)`; `lower_rom: RomSlot`; `upper_roms: dict[int, RomSlot]` for slots 0–15;
-  fallback to slot 0 for unpopulated numbers (D-10).
+- `ram: bytearray(65536)` (the CPU's view; on a 6128 the blocks mapped now, D-14);
+  `lower_rom: RomSlot`; `upper_roms: dict[int, RomSlot]` for slots 0–15; fallback to slot 0 for
+  unpopulated numbers (D-10).
 - Mapping state: `lower_enabled`, `upper_enabled` (GA RMR), `selected_upper` (&DFxx).
 - Read path: a 4-entry table `read_bank[addr >> 14]` (RAM view or ROM slot), recomputed only when
-  the GA configuration or the ROM selection changes. Writes always go to RAM; 6128 banking later
-  adds a write table (D-14).
+  the GA configuration or the ROM selection changes. Writes always go to RAM.
+- 6128 banking (D-14): `set_ram_configuration(o)` maps block `RAM_CONFIGURATIONS[o][page]` into
+  each page (o = 0: 0,1,2,3; 1: 0,1,2,7; 2: 4,5,6,7; 3: 0,3,2,7; 4–7: 0,o,2,3); enabled ROMs
+  still hide the banked RAM, writes go to the banked block; `ram_block_at`, `block(n)`,
+  `set_block`, `base_ram()` (blocks 0–3, what the CRTC shows) serve debugger, renderer and
+  `.sna` (128 KB, CPC type 6128). A 464 (4 blocks) ignores configuration writes.
 - The read path passes `is_m1` to the ROM slot: `bus.fetch()` → `True`, `bus.read()` → `False`.
 
 ```python
@@ -516,8 +521,8 @@ with the runtime value; the owner can recapture.
 
 - Decode: A15 = 0, A14 = 1.
 - State: `pen`, `inks[16]`, `border`, `mode` (applied at the next frame for rendering),
-  `lower_rom_enabled`, `upper_rom_enabled`, `int_pending`, `next_int_us`, `ram_config` (6128,
-  later).
+  `lower_rom_enabled`, `upper_rom_enabled`, `int_pending`, `next_int_us`, `ram_config` (function
+  11, passed to the memory map for 6128 banking; reset to 0).
 - Interrupt generation per D-05: `tick(clock_us)` latches INT, `int_ack()` clears it.
 - Changing the ROM enables notifies the `MemoryMap`.
 
@@ -615,11 +620,13 @@ Responsible for reset, configuration and wiring; provides `snapshot()` for rende
   address/range (also per ROM number); memory read/write; I/O by mask/value; ROM-select change;
   interrupt accepted.
 - Location qualifier per address-based breakpoint (FR-DBG-07), checked against what the memory
-  map has paged in at the access: `any`, `rom`, `rom:<n>`, `lower`, `ram`, `ram:<page>` (464: only
-  page 0; 6128 banking in phase 11). PC breakpoints check it before `step()`; memory-access
-  breakpoints check it in the observer, so a write to RAM under a paged-in ROM is matched as
-  `ram`, a read of the ROM as `rom:<n>`. A memory-access hit finishes the current instruction and
-  stops with the accessing PC, access kind, address, value and location in the result.
+  map has paged in at the access: `any`, `rom`, `rom:<n>`, `lower`, `ram`, `ram:<block>` (the
+  RAM block mapped at the address: 0–3 by address on a 464, 0–7 by banking on a 6128; memory
+  view `ram:<block>` reads a block, mapped or not). PC breakpoints check it before `step()`;
+  memory-access breakpoints check it in the observer, so a write to RAM under a paged-in ROM is
+  matched as `ram`, a read of the ROM as `rom:<n>`. A memory-access hit finishes the current
+  instruction and stops with the accessing PC, access kind, address, value and location in the
+  result.
 - Stepping: step, step over (CALL/RST/DJNZ/LDIR → temporary breakpoint after the instruction), run
   to address, step out.
 - Disassembler: table-driven, sharing opcode metadata with the CPU; works on any byte source (CPU
@@ -854,7 +861,7 @@ next phase.
 | 8 | Analysis database (save/merge), RST-operand and far-address observers, sjasmplus source generator, round-trip check | **Generated VDOS source reassembles byte-identically** | `source_verify` lists differing addresses |
 | 9 | Full debugger UI: all panels and breakpoint types; `.sna` snapshots | All FR-DBG requirements met | — |
 | 10 | FDC µPD765 and disk images (DSK/EDSK/raw, read/write), drive A: 3", drive B: Vortex 80T DS | AMSDOS `CAT` on A:; Vortex format on B:; VDOS disk code paths reached and decoded | FDC command log in the device view |
-| 11 | Later scope: 6128 RAM banking (D-14, FR-MCH-10); the native CPU / Rust port only if CPython speed becomes a real blocker | Banking configurations work; full test suite passes | Banking tests per configuration |
+| 11 | 6128 RAM banking (D-14, FR-MCH-10), `model = "6128"`, `config/cpc6128.toml`; the native CPU / Rust port only if CPython speed becomes a real blocker | **Done:** the 6128 boots to BASIC 1.1; banking configurations work (every configuration tested; `OUT &7F00,&C4` from BASIC); full test suite passes | Banking tests per configuration |
 
 ### 9.1 Repository layout
 

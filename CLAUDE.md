@@ -98,14 +98,14 @@ Implement strictly one phase of design.md §9 at a time. A phase is finished onl
 milestone tests pass together with the full suite, `ruff check` and `ruff format --check`.
 Do not start the next phase without the owner's go-ahead.
 
-**Status:** Phases 0-10 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
+**Status:** Phases 0-11 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
 pass); CPU validation (ZEXDOC/ZEXALL, z80test); disassembler, CPC RST profile, symbols, Session,
 MCP server; CPC 464 booting to BASIC; renderer and GUI (real time, MCP over HTTP); keyboard;
 decoding and analysis (VDOS decoded and initialised); analysis database, classifier, sjasmplus
 source generator and round-trip check (VDOS source reassembles byte-identically); full debugger
 (breakpoints with location qualifiers, bus trace, memory views, `.sna`, GUI panels); µPD765 FDC
-with DSK/EDSK/raw images (VDOS reads the 3" CP/M disk in A: and the Vortex disk in B:).
-Next: Phase 11 (later scope: 6128 banking) - only with the owner's go-ahead.
+with DSK/EDSK/raw images (VDOS reads the 3" CP/M disk in A: and the Vortex disk in B:); CPC 6128
+with RAM banking (boots to BASIC 1.1). Open work: docs/todo.md - only with the owner's go-ahead.
 
 Validation runtimes on CPython (8 cores): z80test ~1 min for all variants; ZEXDOC+ZEXALL ~30 min,
 dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on one core).
@@ -232,6 +232,18 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
 - Claude attaches to a running GUI with
   `claude mcp add --transport http cpcxray-gui http://127.0.0.1:8765/mcp` (not in .mcp.json,
   because it fails while no GUI is running). `screen_image` returns MCP image content.
+
+## CPC 6128 notes (phase 11)
+
+- `model = "6128"` (config/cpc6128.toml: os6128.rom, basic11.rom; AMSDOS as on the 464) makes
+  `CPC464` a 6128 (`model` "cpc6128"): `MemoryMap(ram_blocks=8)`. Gate Array function 11
+  (`OUT &7Fxx`, &C0 + o) sets the configuration; a 464 ignores it; reset restores 0.
+- machine/memory.py: `ram` is the CPU's 64 KB view; a configuration change swaps the changed
+  pages with the block store (D-14), so read/write paths are as on the 464. `ram_block_at`,
+  `block(n)`, `set_block`, `base_ram()` (blocks 0-3: renderer and `screen_text`, the CRTC ignores
+  banking). Breakpoint locations / memory views: `ram:<block>` (464: block 0-3 by address).
+- `.sna`: 128 KB dump + RAM configuration, CPC type 2; MEM0/MEM1 chunks load. Provenance and RAM
+  analysis targets key on CPU addresses and do not follow bank switches.
 
 ## CPC 464 notes (phase 4)
 

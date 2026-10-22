@@ -95,10 +95,16 @@ class DebuggerMixin:
         self._bus_trace_observing = False
 
     def _location(self, address: int, kind: Cycle) -> str:
-        """Where a memory access goes: "lower", "romN" or "ram:0" (writes always RAM)."""
-        if kind == Cycle.MEM_WR:
-            return "ram:0"
-        return self.machine.symbol_scope(address & 0xFFFF) or "ram:0"
+        """Where a memory access goes: "lower", "romN" or "ram:<block>" (writes always RAM).
+
+        The RAM block is the one mapped at the address now (6128 banking, D-14; the 464 has
+        blocks 0-3 at fixed places).
+        """
+        rom = None if kind == Cycle.MEM_WR else self.machine.symbol_scope(address & 0xFFFF)
+        if rom:
+            return rom
+        memory = getattr(self.machine, "memory", None)
+        return f"ram:{memory.ram_block_at(address)}" if memory is not None else "ram:0"
 
     def _observable_bus(self) -> Any:
         """Return the machine's bus if it supports observers, else None (FlatMachine)."""
@@ -167,7 +173,9 @@ class DebuggerMixin:
                 after the instruction that made the access and report its PC.
             end: Last address of a range (address kinds).
             location: What must be paged in at the access: "any", "rom", "lower",
-                "rom:<n>", "ram" or "ram:<page>". Writes always go to RAM.
+                "rom:<n>", "ram" or "ram:<block>" (the RAM block mapped at the
+                address: 0-3 by address on a 464, 0-7 by banking on a 6128). Writes always go
+                to RAM.
             port_mask: Port bits compared with `address` (I/O kinds), e.g. &FF00.
             rom: "rom_select": only when this ROM number is selected.
         """
@@ -272,6 +280,8 @@ class DebuggerMixin:
             address: Start address (in a ROM view: the CPU address or the ROM offset).
             length: Number of bytes (max 4096).
             view: "cpu" (what the CPU reads now), "ram" (RAM even under a paged-in ROM),
+                "ram:N" (RAM block N, mapped or not, at offset address & &3FFF: 0-3, 0-7 on
+                a 6128),
                 "lower" / "romN" (the ROM image, decoded for data reads if scrambled),
                 "raw:romN" (a scrambled ROM image as stored), "shadow:romN" (the clear values
                 recorded by the shadow ROM; never-read bytes "--"; "shadow": the only
@@ -286,6 +296,16 @@ class DebuggerMixin:
         return {"address": f"{start:04X}", "length": length, "view": view, "hex": hex_text,
                 "lines": hex_dump(start, data)}  # fmt: skip
 
+    def _block_reader(self, view: str) -> Any:
+        """Return a reader for the view "ram:N": RAM block N at offset address & &3FFF."""
+        memory = getattr(self.machine, "memory", None)
+        number_text = view.partition(":")[2]
+        blocks = memory.ram_blocks if memory is not None else 0
+        if not number_text.isdigit() or not 0 <= int(number_text) < blocks:
+            raise SessionError(f"unknown view {view!r}: RAM blocks are ram:0-ram:{blocks - 1}")
+        contents = memory.block(int(number_text))  # type: ignore[union-attr]
+        return lambda address: contents[address & 0x3FFF]
+
     def _view_reader(self, view: str) -> Any:
         """Return a function address → byte (or None if unknown) for a memory view."""
         if view == "cpu":
@@ -294,13 +314,15 @@ class DebuggerMixin:
             memory = getattr(self.machine, "memory", None)
             ram = memory.ram if memory is not None else None
             return (lambda a: ram[a]) if ram is not None else self.machine.peek
+        if view.startswith("ram:"):
+            return self._block_reader(view)
         mode, _, slot = view.rpartition(":")
         if view == "shadow":  # the only scrambled ROM
             mode, slot = "shadow", ""
         try:
             rom = self._rom_slot(self._slot_name(slot or None))
         except (SessionError, ValueError):
-            raise SessionError(f"unknown view {view!r}: cpu, ram, lower, romN, raw:romN, "
+            raise SessionError(f"unknown view {view!r}: cpu, ram, ram:N, lower, romN, raw:romN, "
                                "shadow:romN") from None  # fmt: skip
         if mode == "":
             return lambda a: rom.peek(a & 0x3FFF)

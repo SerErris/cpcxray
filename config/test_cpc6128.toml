@@ -1,0 +1,16 @@
+# Test configuration of the emulator's test suite: CPC 6128 (128 KB RAM, banking) with the
+# 6128 OS, BASIC 1.1 and AMSDOS (the same AMSDOS as on the 464). No drives (see
+# test_cpc464.toml).
+
+[machine]
+model = "6128"
+unpopulated_rom = 0          # D-10
+
+[rom.lower]
+file = "roms/os6128.rom"
+
+[rom.upper.0]
+file = "roms/basic11.rom"
+
+[rom.upper.7]
+file = "roms/amsdos.rom"

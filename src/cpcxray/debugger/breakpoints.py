@@ -20,9 +20,10 @@ caused the access ("who accesses this byte"); the stop reports that instruction'
 address, value and location.
 
 Location qualifier (address kinds): what was paged in at the access. `any`; `rom` (any ROM);
-`lower`; `rom:<n>` (upper ROM slot n as it answers, D-10); `ram`; `ram:<page>` (RAM bank; the
-464 has page 0 only, banking comes with the 6128, D-14). Writes always go to RAM (FR-MCH-06), so
-a write under a paged-in ROM matches `ram`, a read of the same address `rom:<n>`.
+`lower`; `rom:<n>` (upper ROM slot n as it answers, D-10); `ram`; `ram:<block>` (the 16 KB
+RAM block mapped at the address: 0-3 on the 464, by address; 0-7 on a 6128, by the banking
+configuration, D-14). Writes always go to RAM (FR-MCH-06), so a write under a paged-in ROM
+matches `ram`, a read of the same address `rom:<n>`.
 
 The bus observer is registered only while such breakpoints are enabled (D-12); PC breakpoints
 cost one set lookup per instruction.
@@ -56,7 +57,7 @@ CYCLE_NAMES = {Cycle.M1: "M1", Cycle.MEM_RD: "read", Cycle.MEM_WR: "write",
                Cycle.IO_RD: "in", Cycle.IO_WR: "out", Cycle.INT_ACK: "interrupt"}  # fmt: skip
 
 type Locator = Callable[[int, Cycle], str]
-"""Returns where an access went: "lower", "rom5", "ram:0" (see `location_matches`)."""
+"""Returns where an access went: "lower", "rom5", "ram:2" (see `location_matches`)."""
 
 
 def location_matches(qualifier: str, location: str) -> bool:
@@ -219,7 +220,7 @@ class Breakpoints:
         if kind not in KINDS:
             raise ValueError(f"kind must be one of {', '.join(KINDS)}")
         if not LOCATION_PATTERN.match(location):
-            raise ValueError("location must be any, rom, ram, lower, rom:<0-15> or ram:<page>")
+            raise ValueError("location must be any, rom, ram, lower, rom:<0-15> or ram:<block>")
         last = first if last is None else last
         if not 0 <= first <= last <= 0xFFFF:
             raise ValueError("address range must satisfy 0 <= first <= last <= &FFFF")

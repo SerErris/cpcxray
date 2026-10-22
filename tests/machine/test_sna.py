@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from cpcxray.machine.config import MachineConfig
+from cpcxray.machine.cpc464 import CPC464
 from cpcxray.machine.sna import (
     HEADER_SIZE,
     SnapshotError,
@@ -85,6 +87,22 @@ def test_version_3_memory_chunk(tmp_path: Path) -> None:
     machine = make_test_cpc(OS, UPPER)
     assert load_sna(machine, path)["pc"] == 0x4000
     assert machine.memory.ram[0x4000:0x4004] == b"\xe5\x01\x02\x03"
+
+
+def test_version_3_mem1_chunk_fills_6128_blocks(tmp_path: Path) -> None:
+    """Uncompressed MEM0 and MEM1 chunks load into blocks 0-3 and 4-7 of a 6128; config 4."""
+    header = bytearray(HEADER_SIZE)
+    header[0:8], header[0x10], header[0x41] = b"MV - SNA", 3, 0x04
+    chunks = b"".join(
+        name + (0x10000).to_bytes(4, "little") + bytes([fill]) * 0x10000
+        for name, fill in ((b"MEM0", 0x11), (b"MEM1", 0x44))
+    )
+    path = tmp_path / "v3_6128.sna"
+    path.write_bytes(bytes(header) + chunks)
+    machine = CPC464(MachineConfig(Path("."), model="6128"))
+    load_sna(machine, path)
+    assert machine.memory.block(3)[0] == 0x11 and machine.memory.block(4)[0] == 0x44
+    assert machine.memory.ram_configuration == 4 and machine.memory.ram[0x4000] == 0x44
 
 
 def test_bad_files(tmp_path: Path) -> None:

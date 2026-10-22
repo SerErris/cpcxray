@@ -62,6 +62,6 @@ def test_load_config_switches_to_cpc(tmp_path: Path) -> None:
     session = Session(project_dir=tmp_path)
     assert session.load_config()["model"] == "cpc464"
     assert session.rom_list()["roms"][0]["slot"] == "lower"
-    (tmp_path / "config" / "bad.toml").write_text('[machine]\nmodel = "6128"\n')
+    (tmp_path / "config" / "bad.toml").write_text('[machine]\nmodel = "664"\n')
     with pytest.raises(SessionError, match="model"):
         session.load_config("config/bad.toml")

@@ -1,0 +1,22 @@
+# CPC 6128: 128 KB RAM with banking (FR-MCH-10, D-14).
+# Start: cpcxray gui --config config/cpc6128.toml
+# The 6128 has its own OS ROM and BASIC 1.1; AMSDOS is the same as on the 464 with DDI-1.
+# The ROM files are not in git (NFR-07): put them into roms/ under these names.
+
+[machine]
+model = "6128"
+unpopulated_rom = 0          # D-10
+
+[rom.lower]
+file = "roms/os6128.rom"
+
+# Upper ROM slots 0-15 (D-09)
+[rom.upper.0]
+file = "roms/basic11.rom"
+
+[rom.upper.7]
+file = "roms/amsdos.rom"
+
+# Disk image inserted at power-on; read-only unless writable = true. A: 3" drive.
+[drive.A]
+file = "disk/464_cpm_22_orig.dsk"

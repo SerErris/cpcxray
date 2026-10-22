@@ -36,13 +36,13 @@ def run(session: Session) -> dict:
     ("arguments", "expected"),
     [
         ({"kind": "write", "address": "4000"},
-         {"pc": "C003", "access": "write", "value": "55", "location": "ram:0"}),
+         {"pc": "C003", "access": "write", "value": "55", "location": "ram:1"}),
         ({"kind": "read", "address": "4000", "location": "ram"},
-         {"pc": "C005", "access": "read", "value": "55", "location": "ram:0"}),
+         {"pc": "C005", "access": "read", "value": "55", "location": "ram:1"}),
         ({"kind": "read", "address": "C020", "location": "rom:3"},
          {"pc": "C006", "access": "read", "value": "AA", "location": "rom3"}),
         ({"kind": "write", "address": "C020", "location": "ram"},
-         {"pc": "C009", "access": "write", "value": "AA", "location": "ram:0"}),
+         {"pc": "C009", "access": "write", "value": "AA", "location": "ram:3"}),
         ({"kind": "access", "address": "C010", "end": "C030", "location": "rom"},
          {"pc": "C006", "access": "read", "address": "C020"}),
         ({"kind": "m1", "address": "C006"}, {"pc": "C006", "access": "M1"}),
@@ -125,8 +125,8 @@ def test_bus_trace() -> None:
     session.step(8)  # 3 OS instructions, then ROM 3 up to ld (&C020),a
     lines = session.bus_trace_read()["lines"]
     assert len(lines) == 2
-    assert "PC=C003  write     4000  55  ram:0" in lines[0]
-    assert "PC=C009  write     C020  AA  ram:0" in lines[1]
+    assert "PC=C003  write     4000  55  ram:1" in lines[0]
+    assert "PC=C009  write     C020  AA  ram:3" in lines[1]
     assert not session.bus_trace_stop()["tracing"]
     with pytest.raises(SessionError, match="kinds"):
         session.bus_trace_start(kinds=["fetch"])

@@ -10,7 +10,7 @@ function:
 | 01       | set the colour (hardware colour number, bits 4-0) of the selected pen       |
 | 10       | RMR: bits 1-0 mode, bit 2 lower ROM off, bit 3 upper ROM off, bit 4 resets  |
 |          | the interrupt counter and clears a pending interrupt                        |
-| 11       | RAM configuration (6128, later scope)                                       |
+| 11       | RAM configuration (6128 banking): bits 2-0 the configuration (FR-MCH-10)    |
 
 Interrupts (D-05): INT is latched every 3,328 µs (300 Hz: 52 scan lines of 64 µs) and stays
 pending until the CPU acknowledges it, so one interrupt survives a long DI phase. A down-counter
@@ -22,7 +22,9 @@ resynchronisation at VSYNC is not modelled.
 
 Reset state (researched for phase 4: MAME writes &89 on reset; the 464 OS ROM's first
 instruction writes &89 as well): mode 1, lower ROM enabled, upper ROM disabled, interrupt
-counter at zero and no interrupt pending.
+counter at zero and no interrupt pending, RAM configuration 0. On the 6128 the RAM
+configuration belongs to a separate chip (PAL) at the same port; it is part of this device here
+because the CPU sees it through the same writes. The memory map ignores it on a 464.
 """
 
 from __future__ import annotations
@@ -46,18 +48,24 @@ class GateArray:  # pylint: disable=too-many-instance-attributes  # the device's
         mode: Screen mode 0-2 (3 is undocumented and treated like 0 by the renderer).
         lower_rom_enabled: RMR bit 2 clear.
         upper_rom_enabled: RMR bit 3 clear.
-        ram_config: Last RAM configuration value (function 11; used by the 6128 only).
+        ram_config: Last RAM configuration value, bits 5-0 (function 11; banking uses 2-0).
         interrupt_pending: An interrupt is waiting for the CPU.
         interrupt_in_us: µs left until the next interrupt (counts down from 3,328).
     """
 
-    def __init__(self, set_rom_enables: Callable[[bool, bool], None]) -> None:
+    def __init__(
+        self,
+        set_rom_enables: Callable[[bool, bool], None],
+        set_ram_configuration: Callable[[int], None] | None = None,
+    ) -> None:
         """Create the Gate Array.
 
         Args:
             set_rom_enables: Called with (lower enabled, upper enabled) when RMR changes them.
+            set_ram_configuration: Called with the configuration 0-7 of a function 11 write.
         """
         self._set_rom_enables = set_rom_enables
+        self._set_ram_configuration = set_ram_configuration
         self.pen = 0
         self.inks = [0] * 17
         self.mode = 1
@@ -71,7 +79,7 @@ class GateArray:  # pylint: disable=too-many-instance-attributes  # the device's
         """Hardware reset: mode 1, lower ROM on, upper ROM off, interrupt timer restarted."""
         self.pen = 0
         self.inks = [0] * 17
-        self.ram_config = 0
+        self.write_ram_config(0)
         self.write_rmr(0x89 & 0x1F)  # same state the OS ROM sets with its first instruction
         self.interrupt_pending = False
         self.interrupt_in_us = INTERRUPT_PERIOD_US
@@ -97,7 +105,13 @@ class GateArray:  # pylint: disable=too-many-instance-attributes  # the device's
         elif function == 2:
             self.write_rmr(value & 0x1F)
         else:
-            self.ram_config = value & 0x3F
+            self.write_ram_config(value & 0x3F)
+
+    def write_ram_config(self, value: int) -> None:
+        """Apply a RAM configuration (function 11): bits 2-0 select the 6128 banking."""
+        self.ram_config = value
+        if self._set_ram_configuration is not None:
+            self._set_ram_configuration(value & 0x07)
 
     def write_rmr(self, rmr: int) -> None:
         """Apply RMR bits 4-0: mode, ROM enables, interrupt reset."""
@@ -134,6 +148,7 @@ class GateArray:  # pylint: disable=too-many-instance-attributes  # the device's
             "border": self.inks[BORDER_PEN],
             "lower_rom_enabled": self.lower_rom_enabled,
             "upper_rom_enabled": self.upper_rom_enabled,
+            "ram_config": self.ram_config,
             "interrupt_pending": self.interrupt_pending,
             "interrupt_in_us": self.interrupt_in_us,
             "line_counter_r52": self.line_counter,

@@ -138,7 +138,7 @@ capture = "manual"
 @pytest.mark.parametrize(
     ("text", "match"),
     [
-        ('[machine]\nmodel = "6128"\n', r"machine\.model"),
+        ('[machine]\nmodel = "664"\n', r"machine\.model"),
         ("[machine]\nunpopulated_rom = 16\n", r"machine\.unpopulated_rom"),
         ("[machine]\nunpopulated_rom = true\n", r"machine\.unpopulated_rom"),
         ('[rom.upper.16]\nfile = "x.rom"\n', r"rom\.upper\.16"),
