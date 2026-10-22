@@ -372,3 +372,97 @@ def variable_range_hint(name: str, variables: list[dict[str, Any]]) -> str:
     size = f"{match['size']} byte{'s' if match['size'] != 1 else ''}"
     return (f"end empty: the whole variable {match['label']} ({match['address']}-"
             f"{match['last']}, {size})")  # fmt: skip
+
+
+def disk_name(disk: str | None) -> str:
+    """The file name of a drive's image ("draft", "no disk")."""
+    if disk is None:
+        return "no disk"
+    return disk.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def drive_chip(drive: dict[str, Any]) -> str:
+    """A drive chip: "● A: 464_cpm_22_orig.dsk" with a disk, "○ B: no disk" without."""
+    mark = "●" if drive["disk"] is not None else "○"
+    return f"{mark} {drive['drive']}: {disk_name(drive['disk'])}"
+
+
+def drive_geometry(drive: dict[str, Any]) -> str:
+    """The drive mechanism: '3" · 40 tracks · 1 side' (A:), '80 tracks · 2 sides' (B:)."""
+    sides = 2 if drive["double_sided"] else 1
+    size = '3" · ' if drive["cylinders"] == 40 and sides == 1 else ""
+    return f"{size}{drive['cylinders']} tracks · {sides} side{'s' if sides > 1 else ''}"
+
+
+def catalog_header(catalog: dict[str, Any]) -> str:
+    """The file list's header: "26 files · 119K used · 50K free"."""
+    count = len(catalog["files"])
+    return (f"{count} file{'s' if count != 1 else ''} · {catalog['used_kb']}K used "
+            f"· {catalog['free_kb']}K free")  # fmt: skip
+
+
+def _hex_ascii(data: bytes) -> list[str]:
+    """16 bytes in one line: hex in two groups of 8, then ASCII (dots for unprintable bytes).
+
+    Compact, so the line fits the detail panel as in the mock-up.
+    """
+    text = "".join(chr(b) if 0x20 <= b < 0x7F else "." for b in data)
+    hex_text = data.hex().upper()
+    return [" ".join(part for part in (hex_text[:16], hex_text[16:], text) if part)]
+
+
+def _is_text(data: bytes) -> bool:
+    """True if the bytes look like a text file (printable ASCII, tabs and line ends)."""
+    sample = data.split(b"\x1a", 1)[0][:512]
+    return bool(sample) and all(0x20 <= b < 0x7F or b in (9, 10, 13) for b in sample)
+
+
+def file_detail(info: dict[str, Any], user: int) -> dict[str, Any]:
+    """The detail panel of a disk file (`disk_read_file`): key/value rows and text blocks.
+
+    Returns:
+        "rows": (label, value) pairs - size and user, the AMSDOS header, where the program goes
+        (load, entry: from the header, or CP/M's &0100 for .COM, BASIC's &0170 for ASCII .BAS);
+        "blocks": (title, lines) - the bytes after the header, the bytes at the entry, or the
+        first lines (text) or bytes; "code": the disassembly at the entry (address, text, label
+        and its type), shown under the last block.
+    """
+    data = bytes.fromhex(info.get("hex", ""))
+    rows = [("on disk", f"{info['size']} bytes \u00b7 user {user}")]
+    header = info.get("amsdos_header")
+    program = info.get("program")
+    blocks: list[tuple[str, list[str]]] = []
+    if header is not None:
+        rows += [("header", f"AMSDOS, {header['type']}"), ("name", header["name"])]
+    else:
+        rows.append(("header", f"none \u00b7 {program['type']}" if program else "none"))
+    if program is not None:
+        load, entry = program["load_address"], program["entry_address"]
+        where = {"CP/M": " (CP/M)", "BASIC": " (BASIC program)"}.get(program["source"], "")
+        rows.append(("load", f"&{load:04X}{where}"))
+        if entry is not None:
+            rows.append(("entry", f"&{entry:04X}"))
+    if header is not None:
+        rows.append(("length", f"{header['length']} (&{header['length']:04X})"))
+        blocks.append((f"after the header (load &{header['load_address']:04X})",
+                       _hex_ascii(data[128:144])))  # fmt: skip
+    elif _is_text(data):
+        lines = info.get("text", "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        blocks.append(("first lines", lines[:8]))
+    elif info.get("entry") is None:
+        blocks.append(("first bytes", _hex_ascii(data[:16])))
+    code = info.get("entry")
+    if code is not None and program is not None:
+        same = " (entry = load)" if program["entry_address"] == program["load_address"] else ""
+        blocks.append((f"at the entry &{program['entry_address']:04X}{same}", [code["bytes"]]))
+    return {"rows": rows, "blocks": blocks, "code": code["code"] if code else []}
+
+
+def split_label(line: dict[str, Any]) -> tuple[str, str, str]:
+    """A code line's text around its name: (before, name, after); the name may be ""."""
+    label = line.get("label")
+    text = line["text"]
+    if not label or label not in text:
+        return text, "", ""
+    before, _, after = text.partition(label)
+    return before, label, after

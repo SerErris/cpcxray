@@ -9,9 +9,13 @@ from cpcxray.ui.panels.text import (
     AREA,
     breakpoint_condition,
     breakpoint_where,
+    catalog_header,
     colour_numbers,
     crtc_footer,
+    drive_chip,
     drive_flags,
+    drive_geometry,
+    file_detail,
     flags_text,
     gate_array_lines,
     keyboard_summary,
@@ -26,6 +30,7 @@ from cpcxray.ui.panels.text import (
     ppi_lines,
     registers_lines,
     rom_select_lines,
+    split_label,
     stop_texts,
     variable_range_hint,
     with_paging,
@@ -200,3 +205,58 @@ def test_device_texts() -> None:
              {"line": 8, "keys": ["1"] * 5 + ["A", "Caps", "Z"], "held": [5]}]  # fmt: skip
     assert keyboard_summary(lines, False) == "Shift + A held \u00b7 not typing"
     assert keyboard_summary([], True) == "no key held \u00b7 typing"
+
+
+def test_disk_texts() -> None:
+    """Drive chips, geometry, the catalogue header and the file detail of the Disks tab."""
+    drive_a = {"drive": "A", "disk": "/x/disk/464_cpm_22_orig.dsk", "cylinders": 40,
+               "double_sided": False}  # fmt: skip
+    assert drive_chip(drive_a) == "\u25cf A: 464_cpm_22_orig.dsk"
+    assert drive_chip({"drive": "B", "disk": None}) == "\u25cb B: no disk"
+    assert drive_geometry(drive_a) == '3" \u00b7 40 tracks \u00b7 1 side'
+    assert drive_geometry({"cylinders": 80, "double_sided": True}) == "80 tracks \u00b7 2 sides"
+    catalog = {"files": [{}] * 26, "used_kb": 119, "free_kb": 50}
+    assert catalog_header(catalog) == "26 files \u00b7 119K used \u00b7 50K free"
+    header = {"type": "binary", "name": "RITDEMO.BIN", "load_address": 0x2950,
+              "entry_address": 0x2950, "length": 26432}  # fmt: skip
+    data = bytes(128) + bytes.fromhex("AF010000CD32BC3E01011818CD32BCAF")
+    program = {"type": "binary", "load_address": 0x2950, "entry_address": 0x2950,
+               "source": "AMSDOS header"}  # fmt: skip
+    info = {
+        "size": 26624,
+        "amsdos_header": header,
+        "hex": data.hex(),
+        "program": program,
+        "entry": {"bytes": "AF 01", "code": [{"address": "2950", "text": "xor a"}]},
+    }
+    detail = file_detail(info, 0)
+    assert detail["rows"][0] == ("on disk", "26624 bytes \u00b7 user 0")
+    assert ("length", "26432 (&6740)") in detail["rows"]
+    assert detail["blocks"][0] == (
+        "after the header (load &2950)",
+        ["AF010000CD32BC3E 01011818CD32BCAF .....2.>.....2.."],
+    )
+    assert detail["blocks"][1] == ("at the entry &2950 (entry = load)", ["AF 01"])
+    assert detail["code"] == [{"address": "2950", "text": "xor a"}]
+    call = {"address": "2954", "text": "call SCR_SET_INK", "label": "SCR_SET_INK"}
+    assert split_label(call) == ("call ", "SCR_SET_INK", "")
+    assert split_label({"text": "ld (KL_TIME+1),a", "label": "KL_TIME+1"}) == (
+        "ld (", "KL_TIME+1", "),a")  # fmt: skip
+    assert split_label({"text": "xor a"}) == ("xor a", "", "")
+    text = file_detail({"size": 1152, "amsdos_header": None, "hex": b"10 CLS\r\n".hex(),
+                        "text": "10 CLS\r\n20 END"}, 0)  # fmt: skip
+    assert text["blocks"] == [("first lines", ["10 CLS", "20 END"])]
+    binary = file_detail({"size": 2, "amsdos_header": None, "hex": "00ff"}, 3)
+    assert binary["blocks"] == [("first bytes", ["00FF .."])]
+    cpm = {"type": "CP/M program", "load_address": 0x100, "entry_address": 0x100,
+           "source": "CP/M"}  # fmt: skip
+    com = file_detail({"size": 128, "amsdos_header": None, "hex": "c3ce04", "program": cpm,
+                       "entry": {"bytes": "C3 CE 04", "code": []}}, 0)  # fmt: skip
+    assert com["rows"][1:] == [("header", "none \u00b7 CP/M program"),
+                               ("load", "&0100 (CP/M)"), ("entry", "&0100")]  # fmt: skip
+    assert com["blocks"] == [("at the entry &0100 (entry = load)", ["C3 CE 04"])]
+    basic = {"type": "BASIC, ASCII text", "load_address": 0x170, "entry_address": None,
+             "source": "BASIC"}  # fmt: skip
+    ascii_basic = file_detail({"size": 128, "amsdos_header": None, "hex": b"10 CLS".hex(),
+                               "text": "10 CLS", "program": basic}, 0)  # fmt: skip
+    assert ("load", "&0170 (BASIC program)") in ascii_basic["rows"]

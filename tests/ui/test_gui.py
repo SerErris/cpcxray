@@ -10,6 +10,7 @@ import pytest
 
 from cpcxray.machine.cpc464 import CPC464
 from cpcxray.session.session import Session
+from cpcxray.ui.panels.tabs import list_key_codes
 from tests.machines import CONFIG_464, VORTEX_DISK, with_disks
 
 pytestmark = pytest.mark.skipif(
@@ -57,7 +58,7 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     """Exercise the debugger panels of a booted machine (called inside the one GUI test)."""
     panels = app.panels
     tabs = panels.tabs
-    assert "read-only" in dpg.get_value(panels.items["drives"])  # filled at start while running
+    assert dpg.get_item_label(panels.items["disk_mode"]) == "read-only"  # filled at start
     dpg.set_value(panels.items["disk_path"], "")
     tabs["Disks"].call(lambda: app.session.disk_save("B", ""))
     assert dpg.get_value(panels.items["disk_message"]).startswith("error: give a file name")
@@ -100,6 +101,8 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     tabs["CPU"].call(tabs["CPU"].set_registers)
     assert dpg.get_value(panels.items["cpu_message"]).startswith("error:")
     assert not panels.typing()
+    # no list key may read as held at rest (Dear PyGui's mvKey_Prior/Next did: lists jumped back)
+    assert not any(dpg.is_key_down(code) for code in list_key_codes().values())
     check_symbols_list(panels, dpg)
     check_file_selector(panels, dpg, tmp_path)
     check_toggles_and_freeze(app, dpg)
@@ -136,8 +139,13 @@ def check_toggles_and_freeze(app: Any, dpg: Any) -> None:
     panels.refresh()
     assert dpg.get_value(panels.items["registers"]).startswith("AF ")
     panels.refresh(force=True)
-    assert "read-only" in dpg.get_value(panels.items["drives"])  # the owner's real images
-    assert "format" in dpg.get_value(panels.items["catalog"])
+    assert dpg.get_item_label(panels.items["disk_mode"]) == "read-only"  # the real images
+    assert "K free" in dpg.get_value(panels.items["catalog_header"])
+    disks = panels.tabs["Disks"]
+    disks.select_drive("B")  # the Vortex test disk
+    assert dpg.get_item_label(panels.items["disk_insert"]) == "Eject"
+    disks.file_list.select(0, notify=True)
+    assert dpg.get_value(panels.items["file_title"]) == disks.files[0]["name"]
 
 
 def check_memory_variables(panels: Any, dpg: Any) -> None:

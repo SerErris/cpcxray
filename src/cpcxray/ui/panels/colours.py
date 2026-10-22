@@ -35,6 +35,7 @@ TRACK: Final = rgb("#3a3a40")  # bars and plain badges
 # -- text -------------------------------------------------------------------------------------
 TEXT: Final = rgb("#dcdcdc")
 TEXT_DIM: Final = rgb("#a0a0a8")  # labels, explanations, numbers of secondary interest
+TEXT_BYTES: Final = rgb("#c8c8cc")  # hex dumps beside other text
 TEXT_OFF: Final = rgb("#6a6a72")  # unused (pens the mode does not use, "unknown" bytes)
 HEADING: Final = rgb("#8fb8ff")  # section titles
 HEADING_HOVER: Final = rgb("#b8d2ff")

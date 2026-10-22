@@ -55,11 +55,18 @@ TAB_CLASSES: tuple[type[Tab], ...] = (
 )  # fmt: skip
 
 
+# Dear PyGui 2.3 still defines mvKey_Prior/Next (Page Up/Down) with old values (266, 267) that
+# are no ImGui keys: it reports them as held all the time and "pressed" on other input such as a
+# mouse click, which sent every list back to its first row. These are the ImGui key codes.
+IMGUI_KEY_PAGE_UP = 517
+IMGUI_KEY_PAGE_DOWN = 518
+
+
 def list_key_codes() -> dict[str, int]:
     """Dear PyGui key codes of the list keys (scroll_list.LIST_KEYS)."""
     return {
-        "up": dpg.mvKey_Up, "down": dpg.mvKey_Down, "page_up": dpg.mvKey_Prior,
-        "page_down": dpg.mvKey_Next, "home": dpg.mvKey_Home, "end": dpg.mvKey_End,
+        "up": dpg.mvKey_Up, "down": dpg.mvKey_Down, "page_up": IMGUI_KEY_PAGE_UP,
+        "page_down": IMGUI_KEY_PAGE_DOWN, "home": dpg.mvKey_Home, "end": dpg.mvKey_End,
         "enter": dpg.mvKey_Return,
     }  # fmt: skip
 

@@ -88,3 +88,43 @@ def test_save_as_moves_the_drive_to_the_new_file(tmp_path: Path) -> None:
     assert session.disk_save("A")["path"] == str(tmp_path / "copy.dsk")  # Save: the copy
     assert not session.disk_list()["drives"][0]["modified"]
     assert real.read_bytes() == original  # the old file stays untouched
+
+
+def test_binary_file_entry_code(tmp_path: Path) -> None:
+    """A binary file's entry is disassembled with symbol names; numbers stay numbers."""
+    session = Session(make_test_cpc({}, {}), project_dir=tmp_path)
+    session.disk_new("A", "data")
+    header = bytearray(128)
+    header[1:12] = b"PROG    BIN"
+    header[18] = 2  # binary
+    header[21:23] = header[26:28] = (0x4000).to_bytes(2, "little")  # load = entry
+    code = bytes.fromhex("010000 CD5ABB C9")  # ld bc,#0000 / call TXT_OUTPUT / ret
+    header[64:67] = len(code).to_bytes(3, "little")
+    header[67:69] = (sum(header[:67]) & 0xFFFF).to_bytes(2, "little")
+    image = session.machine.fdc.drives[0].image  # type: ignore[attr-defined]
+    write_file(CpmDisk(image), 0, b"PROG    BIN", [2], bytes(header) + code)
+    entry = session.disk_read_file("PROG.BIN", "A")["entry"]
+    assert entry["address"] == "4000" and entry["bytes"].startswith("01 00 00 CD 5A BB C9")
+    assert entry["code"][:3] == [
+        {"address": "4000", "text": "ld bc,#0000"},
+        {"address": "4003", "text": "call TXT_OUTPUT", "label": "TXT_OUTPUT", "label_type": "FW"},
+        {"address": "4006", "text": "ret"},
+    ]
+    catalog = session.disk_catalog("A")
+    assert (catalog["capacity_kb"], catalog["used_kb"], catalog["free_kb"]) == (178, 1, 177)
+
+
+def test_cpm_and_ascii_basic_programs(tmp_path: Path) -> None:
+    """Files without a header: a .COM file goes to &0100 (CP/M), ASCII BASIC to &0170."""
+    session = Session(make_test_cpc({}, {}), project_dir=tmp_path)
+    session.disk_new("A", "data")
+    image = session.machine.fdc.drives[0].image  # type: ignore[attr-defined]
+    write_file(CpmDisk(image), 0, b"HELLO   COM", [2], bytes.fromhex("0E09 110901 CD0500 C9"))
+    write_file(CpmDisk(image), 1, b"LIST    BAS", [3], b"10 PRINT 1\r\n\x1a")
+    com = session.disk_read_file("HELLO.COM", "A")
+    assert com["program"] == {"type": "CP/M program", "load_address": 0x100,
+                              "entry_address": 0x100, "source": "CP/M"}  # fmt: skip
+    assert [line["text"] for line in com["entry"]["code"][:4]] == [
+        "ld c,#09", "ld de,#0109", "call #0005", "ret"]  # fmt: skip
+    basic = session.disk_read_file("LIST.BAS", "A")
+    assert basic["program"]["load_address"] == 0x170 and "entry" not in basic

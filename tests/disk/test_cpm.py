@@ -54,6 +54,13 @@ def test_extent_mask() -> None:
     assert FORMATS["vortex"].extent_mask == 3 and FORMATS["data"].extent_mask == 0
 
 
+def test_capacity() -> None:
+    """Space for files as CAT counts it: data blocks without the directory."""
+    assert FORMATS["system"].capacity_kb == 169  # 38 tracks, 2 KB directory
+    assert FORMATS["data"].capacity_kb == 178  # 40 tracks
+    assert FORMATS["vortex"].capacity_kb == 704  # 158 tracks of 2 sides, 4 KB directory block
+
+
 def test_amsdos_header() -> None:
     """The header is recognised by its checksum."""
     header = bytearray(128)

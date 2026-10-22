@@ -131,11 +131,20 @@ class Tab:
         width: int,
         default_folder: str,
         extensions: Sequence[str],
+        *,
+        placement: Callable[[], tuple[int, int, int]] | None = None,
         **options: Any,
     ) -> Iterator[None]:
         """Add a path input with ▾ (file selector) as `name`; the block adds its buttons."""
-        with widgets.path_field(self.styles, width, self.session.project_dir, default_folder,
-                                extensions, **options) as (path_input, selector):  # fmt: skip
+        with widgets.path_field(
+            self.styles,
+            width,
+            self.session.project_dir,
+            default_folder,
+            extensions,
+            placement=placement,
+            **options,
+        ) as (path_input, selector):
             self.items[name] = path_input
             self.context.inputs.append(path_input)
             self.context.selectors.append(selector)

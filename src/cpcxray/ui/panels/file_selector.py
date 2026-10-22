@@ -23,7 +23,7 @@ from pathlib import Path
 
 import dearpygui.dearpygui as dpg
 
-from cpcxray.ui.panels.colours import TEXT_DIM, Colour
+from cpcxray.ui.panels.colours import BORDER, HERE, TEXT_DIM, Colour
 from cpcxray.ui.panels.scroll_list import ScrollList
 
 DIALOG_WIDTH = 600
@@ -120,6 +120,7 @@ class FileSelector:  # pylint: disable=too-many-instance-attributes  # dialog wi
         extensions: Sequence[str],
         row_theme: Callable[[Colour | None, bool], int | str] | None = None,
         on_selected: Callable[[str], None] | None = None,
+        placement: Callable[[], tuple[int, int, int]] | None = None,
     ) -> None:
         """Prepare the dialog for a path input (the window is built on the first `open`).
 
@@ -131,8 +132,12 @@ class FileSelector:  # pylint: disable=too-many-instance-attributes  # dialog wi
                 filter.
             row_theme: Themes for the list rows (widgets.Styles.row_theme).
             on_selected: Called with the new field text after Select.
+            placement: Where the dialog opens: (x, y, width) in the viewport, asked at every
+                `open` (the Disks tab: over the drive card, owner 2026-10-22); default just
+                below the path field.
         """
         self.path_input = path_input
+        self.placement = placement
         self.project_dir = project_dir
         self.default_folder = Path(default_folder)
         self.extensions = tuple(extensions)
@@ -154,6 +159,7 @@ class FileSelector:  # pylint: disable=too-many-instance-attributes  # dialog wi
         with dpg.window(label="Select a file", modal=True, show=False, width=DIALOG_WIDTH,
                         no_collapse=True, on_close=self.close) as window:  # fmt: skip
             self.window = window
+            dpg.bind_item_theme(window, _dialog_theme())
             self.folder_text = dpg.add_text("", color=TEXT_DIM)
             self.filter = dpg.add_combo(filters, default_value=filters[0], width=160,
                                         callback=lambda: self._show(self.folder))  # fmt: skip
@@ -181,7 +187,17 @@ class FileSelector:  # pylint: disable=too-many-instance-attributes  # dialog wi
         dpg.set_value(self.name, name if not (self.folder / name).is_dir() else "")
         dpg.set_value(self.message, "")
         self._clicked_file = None
+        x, y, width = self.placement() if self.placement else self._below_field()
+        viewport_width = dpg.get_viewport_client_width()
+        x = max(0, min(x, viewport_width - width)) if viewport_width else x
+        dpg.configure_item(self.window, pos=(x, y), width=width)
         dpg.show_item(self.window)
+
+    def _below_field(self) -> tuple[int, int, int]:
+        """The default place: just below the path field, the dialog's own width."""
+        x, y = dpg.get_item_rect_min(self.path_input)
+        height = dpg.get_item_rect_size(self.path_input)[1]
+        return int(x), int(y + height + 2), DIALOG_WIDTH
 
     def close(self) -> None:
         """Hide the dialog without changing the field."""
@@ -232,3 +248,14 @@ class FileSelector:  # pylint: disable=too-many-instance-attributes  # dialog wi
         elif by_key or index == self._clicked_file:
             self.select()
         self._clicked_file = None if by_key or entry.is_folder else index
+
+
+def _dialog_theme() -> int | str:
+    """The dialog's frame: yellow, as the selected things of the tabs (owner, 2026-10-22)."""
+    with dpg.theme() as theme:
+        with dpg.theme_component(dpg.mvWindowAppItem):
+            dpg.add_theme_color(dpg.mvThemeCol_Border, HERE)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 1)
+        with dpg.theme_component(dpg.mvChildWindow):  # the file list keeps the normal frame
+            dpg.add_theme_color(dpg.mvThemeCol_Border, BORDER)
+    return theme

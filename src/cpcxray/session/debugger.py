@@ -15,11 +15,13 @@ the bare `FlatMachine` has no observable bus, so it supports PC breakpoints only
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from cpcxray.analysis.operands import Role, immediate_role, loaded_pair
 from cpcxray.analysis.source_gen import FIRMWARE_JUMPBLOCKS
 from cpcxray.cpu.bus import Cycle
+from cpcxray.cpu.disasm import disassemble
 from cpcxray.debugger.breakpoints import (
     ADDRESS_KINDS,
     PORT_KINDS,
@@ -137,15 +139,22 @@ class DebuggerMixin:
         """Normalise a slot name (implemented by AnalysisMixin)."""
         raise NotImplementedError
 
-    def _instruction_labels(self, instruction: Instruction) -> SymbolLookup:
+    def _instruction_labels(
+        self, instruction: Instruction, following: Callable[[int], Instruction] | None = None
+    ) -> SymbolLookup:
         """The operand lookup for one instruction: `_operand_label`, judged for `ld rr,nn`.
 
         The immediate of `ld rr,nn` may be a number: `ld bc,#0000` must not read
         `ld bc,RESET_ENTRY`. As in the source generator (analysis/operands.py), a value used
         as a number gets no name; one of unknown use keeps the owner's labels and variables
         but not a firmware name below the jumpblocks (the restarts at &0000-&003F).
+
+        Args:
+            instruction: The instruction.
+            following: Decodes the code after it (default: memory, `_disassemble`; a file's
+                bytes for code read from a disk).
         """
-        role = immediate_role(instruction, self._disassemble)  # UNKNOWN if no ld rr,nn
+        role = immediate_role(instruction, following or self._disassemble)  # UNKNOWN: no ld rr,nn
         if loaded_pair(instruction) is None or role == Role.ADDRESS:
             return self._operand_label
         if role == Role.NUMBER:
@@ -160,6 +169,52 @@ class DebuggerMixin:
             return next((hit.name for hit in self._variable_hits(word)), None)
 
         return unknown_use
+
+    def _code_lines(
+        self, read: Callable[[int], int], address: int, count: int
+    ) -> list[dict[str, Any]]:
+        """Disassemble `count` instructions of bytes that are not in memory (a disk file).
+
+        Args:
+            read: The byte at an address (as if the bytes were loaded there).
+            address: Where to start.
+            count: Number of instructions.
+
+        Returns:
+            Per instruction "address" and "text" (names as in the live disassembly, numbers
+            stay numbers), and for a named operand "label" and "label_type" (FW, VAR, own).
+        """
+
+        def decode(at: int) -> Instruction:
+            """The instruction at an address of the bytes."""
+            return disassemble(read, at, self.machine.disassembly_profile(), self._operand_label)
+
+        code = []
+        for _ in range(count):
+            instruction = decode(address)
+            names = self._instruction_labels(instruction, decode)
+            word = instruction.word_operand
+            label = names(word) if word is not None else None
+            line: dict[str, Any] = {"address": f"{address:04X}", "text": instruction.text(names)}
+            if word is not None and label is not None:
+                line |= {"label": label, "label_type": self._label_type(word)}
+            code.append(line)
+            address = instruction.next_address
+        return code
+
+    def _label_type(self, address: int) -> str:
+        """The type of the name `_operand_label` gives an address (task 5g colours).
+
+        "FW" for a firmware name (the owner's comment over it changes nothing), "own" for the
+        owner's label, "VAR" for a known variable.
+        """
+        scope = self.machine.symbol_scope(address)
+        owner = self.symbols.owner_at(address, scope)
+        if owner is not None and owner.label:
+            return "own"
+        if self.symbols.firmware_at(address) is not None:
+            return "FW"
+        return "VAR"
 
     def _instruction_text(self, instruction: Instruction) -> str:
         """The instruction's first line with operand names (`_instruction_labels`)."""

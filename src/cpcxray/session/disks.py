@@ -13,6 +13,7 @@ write protected, and `disk_save` refuses to overwrite the file a read-only image
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from cpcxray.disk.cpm import CpmDisk, CpmError, amsdos_header
@@ -32,6 +33,10 @@ if TYPE_CHECKING:
     from cpcxray.machine.cpc464 import CPC464
 
 MAX_FILE_PREVIEW = 4096
+CPM_TPA = 0x0100  # CP/M loads a transient program (.COM) here and starts it here
+BASIC_PROGRAM = 0x0170  # where Locomotive BASIC keeps its program (464, 664, 6128)
+HEADER_SIZE = 128  # the AMSDOS header before a file's bytes
+ENTRY_INSTRUCTIONS = 7  # disassembled at a binary file's entry
 
 
 class DiskMixin:
@@ -45,6 +50,12 @@ class DiskMixin:
 
     def _cpc(self) -> CPC464:
         """Return the machine as a CPC 464 (implemented by Session)."""
+        raise NotImplementedError
+
+    def _code_lines(
+        self, read: Callable[[int], int], address: int, count: int
+    ) -> list[dict[str, Any]]:
+        """Disassemble bytes that are not in memory (implemented by DebuggerMixin)."""
         raise NotImplementedError
 
     @staticmethod
@@ -180,9 +191,10 @@ class DiskMixin:
             for f in files
             if include_system or not f.system
         ]  # fmt: skip
-        used_blocks = sum(len(f.blocks) for f in files)
-        return {"format": disk.format.name, "files": entries,
-                "used_kb": used_blocks * disk.format.block_size // 1024}  # fmt: skip
+        used_kb = sum(len(f.blocks) for f in files) * disk.format.block_size // 1024
+        capacity_kb = disk.format.capacity_kb
+        return {"format": disk.format.name, "files": entries, "used_kb": used_kb,
+                "capacity_kb": capacity_kb, "free_kb": max(0, capacity_kb - used_kb)}  # fmt: skip
 
     def disk_read_file(
         self, name: str, drive: str | None = "A", path: str | None = None, user: int = 0,
@@ -196,6 +208,14 @@ class DiskMixin:
             path: An image file instead of a drive.
             user: CP/M user number.
             out_path: Write the file there; otherwise up to 4 KB are returned (text and hex).
+
+        "program" says where the file goes in memory: from the AMSDOS header; for a CP/M
+        program (.COM, no header) &0100, where CP/M loads and starts every transient program;
+        for a BASIC program saved as ASCII text (.BAS, no header) &0170, where Locomotive
+        BASIC keeps its program. For a file with an entry address inside it (a binary with a
+        header, a .COM file), "entry" gives the 16 bytes there and their disassembly as at
+        that address ("code": address, text, and the symbol name in it with its type: FW,
+        VAR or own).
         """
         disk = self._cpm(drive, path)
         try:
@@ -211,6 +231,47 @@ class DiskMixin:
             result["path"] = str(file)
             return result
         preview = data[:MAX_FILE_PREVIEW]
+        program = _program(result["name"], result["amsdos_header"])
+        if program is not None:
+            result["program"] = program
+            if (entry := self._entry_code(data, program)) is not None:
+                result["entry"] = entry
         result["hex"] = preview.hex()
         result["text"] = preview.split(b"\x1a", 1)[0].decode("latin-1")
         return result
+
+    def _entry_code(self, data: bytes, program: dict[str, Any]) -> dict[str, Any] | None:
+        """The bytes at a program's entry address and their disassembly (or None)."""
+        if program["entry_address"] is None:
+            return None
+        load, entry = program["load_address"], program["entry_address"]
+        skip = HEADER_SIZE if program["source"] == "AMSDOS header" else 0  # bytes before code
+        start = skip + entry - load
+        if not skip <= start < len(data):
+            return None
+
+        def read(address: int) -> int:
+            """A byte of the file as if loaded at `load` (0 beyond its end)."""
+            offset = skip + ((address - load) & 0xFFFF)
+            return data[offset] if offset < len(data) else 0
+
+        code = self._code_lines(read, entry, ENTRY_INSTRUCTIONS)
+        return {"address": f"{entry:04X}", "bytes": data[start : start + 16].hex(" ").upper(),
+                "code": code}  # fmt: skip
+
+
+def _program(name: str, header: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Where a file goes in memory: type, load and entry address and where they come from."""
+    if header is not None:
+        binary = str(header["type"]).startswith("binary")
+        return {"type": header["type"], "load_address": header["load_address"],
+                "entry_address": header["entry_address"] if binary else None,
+                "source": "AMSDOS header"}  # fmt: skip
+    extension = name.rpartition(".")[2].upper()
+    if extension == "COM":
+        return {"type": "CP/M program", "load_address": CPM_TPA, "entry_address": CPM_TPA,
+                "source": "CP/M"}  # fmt: skip
+    if extension == "BAS":
+        return {"type": "BASIC, ASCII text", "load_address": BASIC_PROGRAM,
+                "entry_address": None, "source": "BASIC"}  # fmt: skip
+    return None

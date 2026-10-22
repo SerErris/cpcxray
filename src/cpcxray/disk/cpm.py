@@ -47,6 +47,7 @@ class CpmFormat:  # pylint: disable=too-many-instance-attributes  # one field pe
         reserved_tracks: Logical tracks (cylinder x heads) before the directory.
         block_size: Allocation block size in bytes.
         directory_entries: Number of directory entries.
+        cylinders: Cylinders of the format (40 on a 3" disk, 80 in the Vortex format).
     """
 
     name: str
@@ -57,17 +58,33 @@ class CpmFormat:  # pylint: disable=too-many-instance-attributes  # one field pe
     directory_entries: int
     sectors_per_track: int = 9
     sector_size: int = 512
+    cylinders: int = 40
 
     @property
     def extent_mask(self) -> int:
         """EXM: logical 16 KB extents per directory entry minus one (8-bit block pointers)."""
         return 16 * self.block_size // 16384 - 1
 
+    @property
+    def directory_blocks(self) -> int:
+        """Blocks taken by the directory (32 bytes per entry)."""
+        return -(-self.directory_entries * 32 // self.block_size)
+
+    @property
+    def capacity_kb(self) -> int:
+        """Space for files in KB, as CAT counts it (data blocks without the directory).
+
+        A system disk: 38 tracks x 9 x 512 bytes = 171 KB, less 2 KB directory = 169 KB.
+        """
+        tracks = self.cylinders * self.heads - self.reserved_tracks
+        blocks = tracks * self.sectors_per_track * self.sector_size // self.block_size
+        return (blocks - self.directory_blocks) * self.block_size // 1024
+
 
 FORMATS = {
     "system": CpmFormat("system", 0x41, 1, 2, 1024, 64),
     "data": CpmFormat("data", 0xC1, 1, 0, 1024, 64),
-    "vortex": CpmFormat("vortex", 0x01, 2, 2, 4096, 128),
+    "vortex": CpmFormat("vortex", 0x01, 2, 2, 4096, 128, cylinders=80),
 }
 
 

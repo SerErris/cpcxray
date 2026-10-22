@@ -64,6 +64,7 @@ class Styles:  # pylint: disable=too-many-instance-attributes  # one theme per l
         self.primary_button = _button_theme(colours.ACCENT, colours.WHITE)
         self.plain_button = _button_theme(colours.BUTTON, colours.TEXT)
         self.remove_button = _button_theme(colours.PANEL, colours.ERROR)
+        self.disabled_button = _button_theme(colours.TRACK, colours.TEXT_OFF, small=False)
         self.swatch = _swatch_theme(colours.TEXT_OFF, 1)
         self.swatch_here = _swatch_theme(colours.HERE, 2)  # e.g. the pen selected for ink writes
         self._badges: dict[str, int | str] = {}
@@ -82,16 +83,21 @@ class Styles:  # pylint: disable=too-many-instance-attributes  # one theme per l
         return self._badges[style]
 
     def row_theme(self, colour: Colour | None, selected: bool) -> int | str:
-        """The theme of a list row: its text colour; selected rows framed yellow."""
+        """The theme of a list row: its text colour; the selected row yellow on a yellow bar.
+
+        Yellow marks the selected thing in every tab (owner, 2026-10-22: the selected disk
+        file in yellow).
+        """
         key = (colour, selected)
         if key not in self._rows:
             with dpg.theme() as theme, dpg.theme_component(dpg.mvSelectable):
-                if colour is not None:
-                    dpg.add_theme_color(dpg.mvThemeCol_Text, colour)
                 if selected:
-                    dpg.add_theme_color(dpg.mvThemeCol_Header, colours.SELECTED_ROW)
-                    dpg.add_theme_color(dpg.mvThemeCol_Border, colours.HERE)
-                    dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 1)
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, colours.HERE)
+                    for target in (dpg.mvThemeCol_Header, dpg.mvThemeCol_HeaderHovered,
+                                   dpg.mvThemeCol_HeaderActive):  # fmt: skip
+                        dpg.add_theme_color(target, colours.HERE_BACKGROUND)
+                elif colour is not None:
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, colour)
             self._rows[key] = theme
         return self._rows[key]
 
@@ -141,6 +147,7 @@ def _window_theme() -> int | str:
         (dpg.mvThemeCol_CheckMark, colours.HERE), (dpg.mvThemeCol_ScrollbarBg, colours.PANEL),
         (dpg.mvThemeCol_ScrollbarGrab, colours.TRACK),
         (dpg.mvThemeCol_ModalWindowDimBg, (0, 0, 0, 120)),
+        (dpg.mvThemeCol_Separator, colours.TRACK),
     )  # fmt: skip
     with dpg.theme() as theme, dpg.theme_component(dpg.mvAll):
         for target, colour in pairs:
@@ -360,20 +367,23 @@ def path_field(  # pylint: disable=too-many-arguments  # field, folders, filters
     project_dir: Path,
     default_folder: str,
     extensions: Sequence[str],
+    *,
+    placement: Callable[[], tuple[int, int, int]] | None = None,
     **options: object,
 ) -> Iterator[tuple[int | str, FileSelector]]:
     """A path input with a ▾ button that opens the file selector (module docstring).
 
-    The `with` block may add the field's buttons on the same row.
+    The `with` block may add the field's buttons on the same row; `placement` says where the
+    dialog opens (`FileSelector`).
 
     Yields:
         (the text input, its file selector).
     """
-    with dpg.group(horizontal=True, horizontal_spacing=0):
-        field = dpg.add_input_text(width=width, **options)  # type: ignore[arg-type]
-        selector = FileSelector(field, project_dir, default_folder, extensions,
-                                row_theme=styles.row_theme)  # fmt: skip
-        # the same arrow button as a combo box's (owner, 2026-10-22), in the combos' colour
-        dpg.add_button(arrow=True, direction=dpg.mvDir_Down, callback=selector.open)
-        dpg.add_spacer(width=8)
+    with dpg.group(horizontal=True):  # the field's own buttons: normal spacing
+        with dpg.group(horizontal=True, horizontal_spacing=0):  # the ▾ joins the field
+            field = dpg.add_input_text(width=width, **options)  # type: ignore[arg-type]
+            selector = FileSelector(field, project_dir, default_folder, extensions,
+                                    row_theme=styles.row_theme, placement=placement)  # fmt: skip
+            # the same arrow button as a combo box's (owner, 2026-10-22), in its colour
+            dpg.add_button(arrow=True, direction=dpg.mvDir_Down, callback=selector.open)
         yield field, selector
