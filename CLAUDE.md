@@ -139,8 +139,10 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   stop before the instruction (set lookup in the run loop); all others are a bus observer that
   stops *after* the accessing instruction, the stop result carries `breakpoint` = access, address,
   value, PC, location. Writes always count as `ram` (they go to RAM under a ROM).
-- debugger/bus_trace.py: ring buffer of bus accesses (FR-DBG-08). Both observers are registered
-  only while needed (D-12); `load_config` moves them to the new bus. FlatMachine: PC only.
+- debugger/bus_trace.py: ring buffer of bus accesses (FR-DBG-08); `bus_trace_read` appends the
+  variable of a RAM read/write (looked up on reading, cached per address). Both observers are
+  registered only while needed (D-12); `load_config` moves them to the new bus. FlatMachine: PC
+  only.
 - session/debugger.py `DebuggerMixin`: breakpoint_*, bus_trace_*, memory_view (cpu, ram,
   lower/romN, raw:romN, shadow:romN), sna_load/sna_save. machine/sna.py: load v1-v3 (MEM0 RLE
   chunks), save v3 with a plain 64 KB dump; SystemIO now stores PSG register writes for it.
@@ -195,7 +197,10 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
 - Owner symbols (project/annotations.txt): an owner label replaces generated names incl.
   `rsx_<name>`; owner comments also on data lines (a commented data byte starts a line).
 - analysis/source_gen.py: one item per instruction / far object / header field, data merged
-  into lines; labels only at line starts (else hex), firmware symbols outside via EQU.
+  into lines; labels only at line starts (else hex), firmware symbols outside via EQU; other
+  outside references by known variables (`LABEL+n`, `variables=` from
+  `Session._known_variables`, own EQU block); immediates of unknown role only at a variable's
+  first byte. `_equ` keeps a space before EQU for labels of 24+ characters.
   analysis/verify.py runs sjasmplus (`--raw`, temp dir). CLI: `cpcxray source-verify SRC BIN`.
 - Outputs: output/<rom>.asm (`source_generate`), checked by `source_verify` (fill policy read
   from the source's header line).

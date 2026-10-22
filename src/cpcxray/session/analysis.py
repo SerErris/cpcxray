@@ -54,6 +54,7 @@ from cpcxray.machine.memory import RomSlot
 from cpcxray.session.errors import SessionError
 
 if TYPE_CHECKING:
+    from cpcxray.debugger.variables import Variable, VariableMap
     from cpcxray.machine.cpc464 import CPC464
 
 
@@ -175,6 +176,11 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
         if text == "lower" or text.startswith("rom"):
             return text
         return f"rom{int(text)}"
+
+    def _known_variables(self) -> tuple[Variable, ...]:
+        """The known OS/AMSDOS variables of the machine now (FR-DBG-11), for the source."""
+        variables: VariableMap | None = getattr(self, "variables", None)
+        return tuple(variables.variables(self.machine.peek)) if variables is not None else ()
 
     def _rom_slot(self, slot_name: str) -> RomSlot:
         """Return the installed ROM of a slot name."""
@@ -698,6 +704,7 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
             view.resolve(database, fill_policy), database, self.symbols, title=title,
             output_name=f"{stem}.bin" if is_ram else f"{stem}_clear.rom",
             fill_policy=fill_policy, conflict=conflict, alternative_blocks=all_blocks,
+            variables=self._known_variables(),
         )  # fmt: skip
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(generated.text, encoding="utf-8")

@@ -27,10 +27,11 @@ class BusRecord(Access):
 
     sequence: int = 0
 
-    def line(self) -> str:
-        """Format the record as one text line."""
-        return (f"{self.sequence:8}  PC={self.pc:04X}  {self.access:<9} {self.address:04X}  "
+    def line(self, variable: str = "") -> str:
+        """Format the record as one text line, ending with the variable it touched, if known."""
+        text = (f"{self.sequence:8}  PC={self.pc:04X}  {self.access:<9} {self.address:04X}  "
                 f"{self.value:02X}  {self.location}")  # fmt: skip
+        return f"{text:<46}{variable}" if variable else text
 
 
 class BusTrace:

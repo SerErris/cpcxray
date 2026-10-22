@@ -30,11 +30,16 @@ reference to an address that is not a line start is written in hex; a reference 
 outside the source that has a global (firmware or owner) symbol uses it, defined by an `EQU`. A
 label always has the value of the number it replaces, so the bytes stay the same.
 
+Known RAM variables of the firmware and AMSDOS (FR-DBG-11, D-34; passed in by the session for
+the machine and, for AMSDOS, where it is installed) name referenced addresses outside the source
+that have no owner or firmware symbol: the smallest variable containing the address, written
+`LABEL` or `LABEL+n`, with one `EQU` per variable in its own block of the header.
+
 Immediate loads `ld rr,nn` get a label only where the value is an address (analysis/operands.py):
 the code after the load uses it as one (LDIR's HL/DE, `(hl)`, ...), or - without evidence - it
-is a line start of the source, lies in the target's own address range, or is a firmware
-jumpblock entry (&B900 and up). Counters (LDIR's BC, DJNZ, `dec bc` loops) and other plain
-numbers stay hex: `ld bc,#0016`, not `ld bc,JP_DE`.
+is a line start of the source, lies in the target's own address range, is a firmware
+jumpblock entry (&B900 and up) or the first byte of a known variable. Counters (LDIR's BC,
+DJNZ, `dec bc` loops) and other plain numbers stay hex: `ld bc,#0016`, not `ld bc,JP_DE`.
 
 A far address (RST 3) that selects another upper ROM points into that ROM's code: it never
 gets a label of this target (`defw #C1DC ; ROM 7` for an AMSDOS routine called from another ROM,
@@ -68,6 +73,7 @@ from cpcxray.analysis.provenance import RelocatedBlock
 from cpcxray.cpu.disasm import Flow, Instruction, hex_byte, hex_word
 from cpcxray.debugger.firmware_symbols import FIRMWARE_464
 from cpcxray.debugger.symbols import GLOBAL, Symbol, SymbolTable
+from cpcxray.debugger.variables import Variable
 from cpcxray.decoding.shadow_rom import ERROR, UNKNOWN
 
 INDENT = " " * 8
@@ -226,6 +232,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         fill_policy: str,
         conflict: str = "m1",
         alternative_blocks: tuple[RelocatedBlock, ...] = (),
+        variables: tuple[Variable, ...] = (),
     ) -> None:
         """Prepare the generator.
 
@@ -238,6 +245,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             fill_policy: Fill policy of never-read bytes (recorded in the header).
             conflict: Conflict choice (recorded in the header).
             alternative_blocks: Further RAM copies of the blocks, listed as comments.
+            variables: Known firmware/AMSDOS RAM variables of the machine (FR-DBG-11).
         """
         self.view = view
         self.database = database
@@ -258,6 +266,9 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         self._copy_marks: dict[int, RelocatedBlock] = {}
         self._roles: dict[int, Role] = {}  # immediate loads: offset → address or number
         self.references: dict[int, tuple[str, str]] = {}  # unused low-kernel EQUs: label, name
+        self.variables = variables
+        self._variable_starts = {v.address for v in variables if not v.area}
+        self.variable_equs: dict[str, Variable] = {}  # variables used: label → variable
         self._access_edges: set[int] = set()
         self._in_never_read = False
         self._lines: list[str] = []
@@ -394,7 +405,8 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         if role == Role.NUMBER:
             return False
         context = self.view.block_at(item.offset)
-        return self.view.offset_of_target(word, context) is not None or word >= FIRMWARE_JUMPBLOCKS
+        return (self.view.offset_of_target(word, context) is not None
+                or word >= FIRMWARE_JUMPBLOCKS or word in self._variable_starts)  # fmt: skip
 
     def _item_references(self, item: _Item) -> list[tuple[int, str]]:
         """Addresses an item refers to, with their use ("call", "jump", "far", "data")."""
@@ -521,9 +533,12 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             if self._inside_source(address):
                 continue
             symbol = self.symbols.at(address, GLOBAL)
-            if symbol is not None and symbol.label and symbol.label not in used_names:
-                self.externals[address] = symbol.label
-                used_names.add(symbol.label)
+            if symbol is not None and symbol.label:
+                if symbol.label not in used_names:
+                    self.externals[address] = symbol.label
+                    used_names.add(symbol.label)
+                continue
+            self._name_by_variable(address, used_names)
         for entry in LOW_KERNEL:  # the reference block (module docstring)
             symbol = self.symbols.at(entry.address, GLOBAL)
             label = symbol.label if symbol is not None and symbol.label else entry.label
@@ -532,6 +547,20 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             if label not in used_names:
                 self.references[entry.address] = (label, entry.name)
                 used_names.add(label)
+
+    def _name_by_variable(self, address: int, used_names: set[str]) -> None:
+        """Name an outside address by the smallest variable containing it (`LABEL+n`)."""
+        containing = [v for v in self.variables if v.address <= address <= v.last]
+        if not containing:
+            return
+        variable = min(containing, key=lambda v: v.size)
+        if variable.label not in self.variable_equs:
+            if variable.label in used_names:
+                return  # the name is taken by a label of the source
+            used_names.add(variable.label)
+            self.variable_equs[variable.label] = variable
+        offset = address - variable.address
+        self.externals[address] = variable.label + (f"+{offset}" if offset else "")
 
     def _same_rom(self, address: int, select: int) -> bool:
         """True unless a far address selects another upper ROM for an upper-ROM address.
@@ -686,16 +715,24 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             for address, name in sorted(low_kernel.items()):
                 label = self.externals.get(address) or self.references.get(address, ("",))[0]
                 if label:
-                    lines.append(
-                        f"{f'{label:<24}EQU {hex_word(address)}':<{COMMENT_COLUMN}}; {name}"
-                    )
+                    lines.append(f"{_equ(label, address):<{COMMENT_COLUMN}}; {name}")
             lines.append("")
-        used = {a: label for a, label in self.externals.items() if a not in low_kernel}
+        named = set(self.variable_equs)  # externals named by variables get their own block
+        used = {a: label for a, label in self.externals.items()
+                if a not in low_kernel and label.partition("+")[0] not in named}  # fmt: skip
         if used:
             lines.append("; firmware entries used by this code")
         for address, label in sorted(used.items()):
-            lines.append(f"{label:<24}EQU {hex_word(address)}")
+            lines.append(_equ(label, address))
         if used:
+            lines.append("")
+        if self.variable_equs:
+            lines.append("; firmware and AMSDOS variables used by this code")
+            for variable in sorted(self.variable_equs.values(), key=lambda v: v.address):
+                equ = _equ(variable.label, variable.address)
+                size = f"{variable.size} byte" + ("s" if variable.size > 1 else "")
+                comment = f"{size}: {variable.description}"
+                lines.append(f"{equ:<{COMMENT_COLUMN}}; {comment}")
             lines.append("")
         lines += [f'{INDENT}OUTPUT "{self.output_name}"', f"{INDENT}ORG {hex_word(view.start)}", ""]
         return lines
@@ -868,6 +905,11 @@ def _excluding(lookup: Callable[[int], str | None], excluded: int) -> Callable[[
     return wrapped
 
 
+def _equ(label: str, address: int) -> str:
+    """An EQU line; the label is padded to 24 columns but always followed by a space."""
+    return f"{label:<23} EQU {hex_word(address)}"
+
+
 def _no_label(_address: int) -> None:
     """Symbol lookup that never finds a label (numbers stay hex)."""
 
@@ -882,9 +924,10 @@ def generate_source(  # pylint: disable=too-many-arguments  # forwards the gener
     fill_policy: str,
     conflict: str = "m1",
     alternative_blocks: tuple[RelocatedBlock, ...] = (),
+    variables: tuple[Variable, ...] = (),
 ) -> GeneratedSource:
     """Generate the sjasmplus source of a target (see `SourceGenerator`)."""
     return SourceGenerator(
         view, database, symbols, title=title, output_name=output_name, fill_policy=fill_policy,
-        conflict=conflict, alternative_blocks=alternative_blocks,
+        conflict=conflict, alternative_blocks=alternative_blocks, variables=variables,
     ).generate()  # fmt: skip

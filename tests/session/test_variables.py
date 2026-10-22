@@ -83,3 +83,14 @@ def test_memory_view_reports_paging_and_the_variables_it_shows() -> None:
     rom = session.memory_view("C000", 4, "rom3")
     assert rom["paging"][0]["text"].startswith("upper ROM 3 (") and not rom["variables"]
     assert session.memory_view("BFFC", 8)["paging"][1]["source"] == "rom3"  # CPU view at &C000
+
+
+def test_bus_trace_names_the_variables_it_touched() -> None:
+    """A RAM write to KL_TIME+2 ends with the name; ROM reads and M1 fetches stay plain."""
+    session = make_session()
+    session.bus_trace_start(kinds=["write", "read"])
+    session.run(max_instructions=5)
+    lines = session.bus_trace_read(50)["lines"]
+    assert any(line.endswith("write     B189  07  ram:2  KL_TIME+2") for line in lines)
+    reads = [line for line in lines if " read " in line]
+    assert reads and all(line.endswith(("lower", "rom3")) for line in reads)  # ROM: no names

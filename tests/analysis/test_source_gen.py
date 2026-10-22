@@ -10,9 +10,10 @@ from pathlib import Path
 
 from cpcxray.analysis.provenance import RelocatedBlock
 from cpcxray.analysis.source_gen import generate_source, split_data, string_operands
-from cpcxray.analysis.verify import compare
+from cpcxray.analysis.verify import compare, verify_source
 from cpcxray.cpu.disasm import disassemble
 from cpcxray.debugger.symbols import SymbolTable
+from cpcxray.debugger.variables import VariableMap
 from tests.analysis.helpers import classified, plain_view, round_trip
 from tests.analysis.test_classifier import scrambled_view
 
@@ -295,3 +296,57 @@ def test_far_call_into_another_rom_gets_no_own_label(tmp_path: Path) -> None:
     assert "call sub_c008" in lines and "sub_c008:" in lines  # own code: labelled
     assert "defw #C008                      ; far address: to #C008" in lines  # ROM 7: hex
     assert any(line.startswith("defw far_c00b") and "to #C008 [ROM 7]" in line for line in lines)
+
+
+def test_variables_name_outside_addresses(tmp_path: Path) -> None:
+    """Known variables name outside references (LABEL+n), with one EQU each (FR-DBG-11)."""
+    image = bytes.fromhex(
+        "3A D9 B8"  # ld a,(&B8D9): KL_FOREGROUND_ROM
+        "32 B6 B8"  # ld (&B8B6),a: inside KL_TIME
+        "21 B4 B8"  # ld hl,&B8B4: no evidence, but the first byte of KL_TIME
+        "21 B5 B8"  # ld hl,&B8B5: no evidence, inside a variable: a number
+        "2A 5A BB"  # ld hl,(&BB5A): a firmware symbol wins
+        "C9"
+    )
+    view = plain_view(image)
+    database = classified(view, starts=[0, 3, 6, 9, 12, 15])
+    variables = tuple(VariableMap("6128").variables(bytes(0x10000).__getitem__))
+    generated = generate_source(
+        view.resolve(database, "static"), database, SymbolTable(model="6128"), title="t",
+        output_name="t.bin", fill_policy="static", variables=variables,
+    )  # fmt: skip
+    lines = code_lines(generated.text)
+    assert "ld a,(KL_FOREGROUND_ROM)" in lines and "ld (KL_TIME+2),a" in lines
+    assert "ld hl,KL_TIME" in lines and "ld hl,#B8B5" in lines
+    assert "ld hl,(TXT_OUTPUT)" in lines
+    assert "; firmware and AMSDOS variables used by this code" in lines
+    equ = "KL_TIME                 EQU #B8B4"
+    assert any(line.startswith(equ) and "4 bytes: elapsed time" in line for line in lines)
+    assert sum(line.startswith("KL_TIME ") for line in lines) == 1
+    source = tmp_path / "vars.asm"
+    source.write_text(generated.text, encoding="utf-8")
+    result = verify_source(source, view.final_image(database, "static"), view.start,
+                           generated.line_of_offset)  # fmt: skip
+    assert result.identical, result.differences
+
+
+def test_long_labels_keep_a_space_before_equ(tmp_path: Path) -> None:
+    """A label of 24 characters or more is still separated from EQU (sjasmplus needs it)."""
+    image = bytes.fromhex("3A 60 BE C9")  # ld a,(&BE60): AMSDOS_RECORD_BUFFER_POINTER
+    view = plain_view(image)
+    database = classified(view, starts=[0, 3])
+    memory = bytearray(0x10000)
+    memory[0xB1A6:0xB1A8] = (0xA6FC).to_bytes(2, "little")  # 464 ROM chain: AMSDOS's block
+    memory[0xBE7D:0xBE7F] = (0xA700).to_bytes(2, "little")
+    variables = tuple(VariableMap("464").variables(memory.__getitem__))
+    generated = generate_source(
+        view.resolve(database, "static"), database, SymbolTable(), title="t",
+        output_name="t.bin", fill_policy="static", variables=variables,
+    )  # fmt: skip
+    lines = code_lines(generated.text)
+    assert any(line.startswith("AMSDOS_RECORD_BUFFER_POINTER EQU #BE60") for line in lines)
+    source = tmp_path / "long.asm"
+    source.write_text(generated.text, encoding="utf-8")
+    result = verify_source(source, view.final_image(database, "static"), view.start,
+                           generated.line_of_offset)  # fmt: skip
+    assert result.identical, result.differences

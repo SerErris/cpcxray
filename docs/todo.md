@@ -3,15 +3,11 @@
 Open tasks for later sessions, in the owner's words, with notes on where they apply.
 
 Order (2026-10-22): tasks that share code come one after the other, so no part is built twice.
-The variable tables (1, done) are the base for the disassembly and memory view work (2, 3, 4);
+The variable tables (1) were the base for the disassembly and memory view work (2, 3, 4);
 the CPU and Memory tabs are changed once each (2, 3 done); the user documentation (7) is
 written when the GUI and the MCP tools are stable; the Rust core (8) comes last, because it
 freezes everything that runs per instruction or per bus access (breakpoints, traces,
 observers).
-
-4. **Known variables in the bus trace and the generated source.** Bus trace entries name the
-   variable they access; the source generator defines the OS/AMSDOS variables a ROM uses with
-   `EQU` (like the firmware entries today). Small; finishes task 1.
 
 5. **More graphical Devices page.** Today the Devices tab is a text dump of `devices_get`.
    - Draw a framed box per device (Gate Array, CRTC, ROM select, SystemIO/PSG, keyboard, FDC
@@ -79,6 +75,9 @@ observers).
 
 ## Done
 
+- Task 4, variables in the bus trace and the source (FR-DBG-11): bus trace lines end with the
+  variable a RAM read/write touched; the source generator names outside references by known
+  variables (`LABEL+n`) with an EQU block (the AMSDOS source still reassembles byte for byte).
 - Task 3, memory view (FR-DBG-11, -12): `memory_view` reports what the view shows (paging)
   and the known variables in its range; the Memory tab shows the paging, colours each
   variable's bytes (area-only bytes grey) and lists them in a colour-matched legend.

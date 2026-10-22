@@ -288,11 +288,28 @@ class DebuggerMixin:
         return {"tracing": False, "records": len(self.bus_trace.records)}
 
     def bus_trace_read(self, last: int = 100) -> dict[str, Any]:
-        """Return the last accesses: sequence, PC, access, address, value, location."""
+        """Return the last accesses: sequence, PC, access, address, value, location, variable.
+
+        A read or write that went to RAM ends with the known OS/AMSDOS variable it touched
+        (`NAME` or `NAME+n`, FR-DBG-11), looked up when reading - recording stays as fast as
+        before. AMSDOS's names use its workspace as it is now.
+        """
         if not 1 <= last <= MAX_BUS_TRACE_READ:
             raise SessionError(f"last must be 1-{MAX_BUS_TRACE_READ}")
+        names: dict[int, str] = {}  # address → variable name, looked up once per address
+
+        def variable(record: Any) -> str:
+            """The variable a RAM read or write touched, or ""."""
+            if record.access not in ("read", "write") or not record.location.startswith("ram"):
+                return ""
+            if record.address not in names:
+                hits = self._variable_hits(record.address)
+                names[record.address] = hits[0].name if hits else ""
+            return names[record.address]
+
         records = self.bus_trace.last(last)
-        return {"tracing": self.bus_trace.enabled, "lines": [r.line() for r in records]}
+        return {"tracing": self.bus_trace.enabled,
+                "lines": [record.line(variable(record)) for record in records]}  # fmt: skip
 
     # == memory views ==========================================================================
 
