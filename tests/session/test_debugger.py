@@ -174,7 +174,9 @@ def test_steps_are_recorded_runs_only_when_switched_on(tmp_path: Path) -> None:
     lines = session.trace_read(10)["lines"]
     assert len(lines) == 4 and not session.trace_read()["tracing"]
     session.run(max_instructions=20)
-    assert len(session.trace_read(100)["lines"]) == 4  # a free run with the trace off: nothing
+    session.run(max_instructions=10)  # a free run with the trace off: one gap, merged
+    lines = session.trace_read(100)["lines"]
+    assert len(lines) == 5 and lines[-1].startswith("---- free run not recorded: 30 instructions")
     session.trace_start(path="out/trace.txt")
     session.run(max_instructions=5)
     session.trace_stop()
@@ -208,3 +210,45 @@ def test_trace_records_with_memory_accesses(tmp_path: Path) -> None:
     assert load["accesses"] == [{"access": "read", "address": "8000", "value": "3E"}]
     assert call["accesses"] == [{"access": "write", "address": "9FFF", "value": "90"},
                                 {"access": "write", "address": "9FFE", "value": "06"}]  # fmt: skip
+
+
+def test_bus_trace_view(tmp_path: Path) -> None:
+    """Grouped per instruction; roles, words, stack meanings; the window; clearing."""
+    session = Session(make_test_cpc({}, {}), project_dir=tmp_path)
+    session.memory_write("9000", "C5 CD0590 76 C9")  # push bc / call #9005 / halt / ret
+    session.registers_set({"pc": 0x9000, "sp": 0xA000, "bc": 0x7F85})
+    session.bus_trace_start()
+    for _ in range(3):
+        session.step()
+    view = session.bus_trace_view()
+    groups = view["groups"]
+    assert len(groups) == 3
+    push, call, ret = groups[0], groups[1], groups[2]
+    assert (push["pc"], push["mnemonic"], push["operands"]) == ("9000", "push", "bc")
+    assert [(a["access"], a["address"], a["value"], a["word"], a["meaning"])
+            for a in push["accesses"]] == [("write", "9FFE", "7F85", True, "stack")]  # fmt: skip
+    assert call["accesses"][0]["meaning"] == "stack: return address"
+    assert ret["accesses"][0]["meaning"] == "stack: returns to 9004"
+    detailed = session.bus_trace_view(fetches=True, combine=False)["groups"][1]["accesses"]
+    assert [a["role"] for a in detailed] == ["fetch", "operand", "operand", "data", "data"]
+    window = session.bus_trace_view(top=1, count=2)
+    assert window["top"] == 1 and window["count"] == 2 and window["total"] == view["total"]
+    writes = session.bus_trace_view(types=["write"])["groups"]  # the view filter
+    assert [g["pc"] for g in writes] == ["9000", "9001"]  # ret only reads: left out
+    with pytest.raises(SessionError, match="unknown access types"):
+        session.bus_trace_view(types=["fetch"])
+    assert session.bus_trace_clear()["cleared"] and session.bus_trace_view()["total"] == 0
+
+
+def test_bus_trace_records_steps_without_recording(tmp_path: Path) -> None:
+    """Stepping always lands in the bus trace; free runs only while "Recording" is on."""
+    session = Session(make_test_cpc({}, {}), project_dir=tmp_path)
+    session.memory_write("9000", "C5 C5 18FE")  # push bc / push bc / jr $
+    session.registers_set({"pc": 0x9000, "sp": 0xA000})
+    session.step()
+    assert not session.bus_trace.enabled and session.bus_trace_view()["groups"][0]["pc"] == "9000"
+    assert not session._bus_trace_observing  # pylint: disable=protected-access  # off the bus again
+    before = session.bus_trace_view()["total"]
+    session.run(max_instructions=50)  # a free run: not recorded with the switch off - a gap
+    view = session.bus_trace_view()
+    assert view["total"] == before + 1 and view["groups"][-1]["gap"]["instructions"] == 50

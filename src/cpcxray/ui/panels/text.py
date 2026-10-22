@@ -523,7 +523,8 @@ class TraceRow:  # pylint: disable=too-many-instance-attributes  # one field per
     """One row of the Trace tab's list.
 
     Attributes:
-        kind: "separator" (execution moves to `where`) or "instruction".
+        kind: "separator" (execution moves to `where`), "gap" (a free run that was not
+            traced: `where` says how much) or "instruction".
         index: The record's index in `trace_records` (-1 for a separator).
         address: The instruction's address.
         depth: Call depth (calls and returns taken inside the trace; a reading aid).
@@ -550,10 +551,22 @@ class TraceRow:  # pylint: disable=too-many-instance-attributes  # one field per
 
 def registers_after(records: list[dict[str, Any]], after: dict[str, str] | None,
                     index: int) -> dict[str, str] | None:  # fmt: skip
-    """The registers after record `index`: those before the next one (or `after`)."""
+    """The registers after record `index`: those before the next one (or `after`).
+
+    None if a gap follows: what ran in between was not recorded.
+    """
     if index + 1 < len(records):
-        return records[index + 1]["registers"] | {"pc": records[index + 1]["address"]}
+        following = records[index + 1]
+        if following.get("kind") == "gap":
+            return None
+        return following["registers"] | {"pc": following["address"]}
     return after
+
+
+def gap_text(gap: dict[str, Any]) -> str:
+    """A gap in a trace: "---- free run not recorded: 51,240 instructions, 20,000 µs"."""
+    return (f"---- free run not recorded: {gap['instructions']:,} instructions, "
+            f"{gap['emulated_us']:,} \u00b5s")  # fmt: skip
 
 
 def trace_rows(records: list[dict[str, Any]], after: dict[str, str] | None) -> list[TraceRow]:
@@ -567,6 +580,10 @@ def trace_rows(records: list[dict[str, Any]], after: dict[str, str] | None) -> l
     depth = 0
     where = None
     for index, record in enumerate(records):
+        if record.get("kind") == "gap":
+            rows.append(TraceRow("gap", index, where=gap_text(record)))
+            where = None  # the next instruction says again where it runs
+            continue
         if record["where_text"] != where:
             where = record["where_text"]
             rows.append(TraceRow("separator", where=f"; ---- {where}"))
@@ -614,3 +631,68 @@ def trace_detail(records: list[dict[str, Any]], after: dict[str, str] | None,
     return {"position": f"{row.index + 1} / {len(records)}",
             "bytes": f"{record['address']}  {record['bytes']}", "line": " · ".join(parts),
             "registers": registers}  # fmt: skip
+
+
+@dataclass(frozen=True)
+class BusLine:  # pylint: disable=too-many-instance-attributes  # one field per column
+    """One line of the Bus trace tab's list.
+
+    Attributes:
+        kind: "separator" (the ROM / RAM context changes: `text`), "gap" (a free run that was
+            not recorded: `text`), "instruction" or "access".
+        record: Index in the bus trace buffer of the record the line starts with.
+        text: The separator's text.
+        pc: The instruction's address ("" on access lines).
+        mnemonic, before, name, after, name_type: The instruction around the name in it.
+        access: The access type ("read", "write", "M1", "in", "out", "interrupt").
+        body: "address = value" (a word: the low address and the 16-bit value).
+        meaning: What it means (variable, stack, port device and value, fetch, operand).
+        quiet: An instruction's own fetch or operand byte (shown greyed).
+    """
+
+    kind: str
+    record: int
+    text: str = ""
+    pc: str = ""
+    mnemonic: str = ""
+    before: str = ""
+    name: str = ""
+    after: str = ""
+    name_type: str = ""
+    access: str = ""
+    body: str = ""
+    meaning: str = ""
+    quiet: bool = False
+
+
+def bus_lines(view: dict[str, Any]) -> list[BusLine]:
+    """The lines of a `bus_trace_view` window: per instruction a line, then its accesses."""
+    lines: list[BusLine] = []
+    where = None
+    for group in view["groups"]:
+        if "gap" in group:
+            lines.append(BusLine("gap", group["first"], text=gap_text(group["gap"])))
+            where = None  # the next instruction says again where it runs
+            continue
+        if group["where"] != where:
+            where = group["where"]
+            lines.append(BusLine("separator", group["first"], text=f"; ---- {where}"))
+        name, operands = group.get("name", ""), group.get("operands", "")
+        before, _, after = operands.partition(name) if name else (operands, "", "")
+        lines.append(BusLine("instruction", group["first"], pc=group["pc"],
+                             mnemonic=group.get("mnemonic", ""), before=before, name=name,
+                             after=after, name_type=group.get("name_type", "")))  # fmt: skip
+        for access in group["accesses"]:
+            lines.append(BusLine("access", access["index"], access=access["access"],
+                                 body=f"{access['address']} = {access['value']}",
+                                 meaning=access["meaning"],
+                                 quiet=access["role"] != "data"))  # fmt: skip
+    return lines
+
+
+def bus_position(lines: list[BusLine], total: int) -> str:
+    """The position line: "records 9,973-10,000 of 10,000" for the lines shown."""
+    if not lines or not total:
+        return "no records"
+    first, last = lines[0].record + 1, lines[-1].record + 1
+    return f"records {first:,}-{last:,} of {total:,}"

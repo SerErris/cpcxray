@@ -100,6 +100,8 @@ class DebuggerPanels:
                 with dpg.tab(label=tab.title) as tab_id:
                     tab.build()
                 self._tab_ids[tab_id] = tab
+        with dpg.handler_registry():  # the mouse wheel over a list that draws its own window
+            dpg.add_mouse_wheel_handler(callback=self._wheel)
 
     def show_tab(self, title: str) -> None:
         """Open the tab with this title (and fill it)."""
@@ -129,6 +131,13 @@ class DebuggerPanels:
         for name, code in list_key_codes().items():
             if dpg.is_key_pressed(code):
                 target.handle_key(name)
+
+    def _wheel(self, _sender: int | str, delta: float) -> None:
+        """The mouse wheel: to the list under the mouse if it scrolls by itself (`wheel`)."""
+        for scroll_list in self.context.lists:
+            wheel = getattr(scroll_list, "wheel", None)
+            if wheel is not None and scroll_list.hovered():
+                wheel(int(delta))
 
     def _list_under_mouse(self) -> ScrollList | None:
         """The scroll list under the mouse, if any (an open file selector's list first)."""

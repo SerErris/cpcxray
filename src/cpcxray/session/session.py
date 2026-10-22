@@ -41,6 +41,7 @@ from cpcxray.machine.cpc464 import CPC464, build_cpc464
 from cpcxray.machine.flat import FlatMachine, Machine
 from cpcxray.machine.screen import FONT_ADDRESS, screen_text
 from cpcxray.session.analysis import AnalysisMixin
+from cpcxray.session.bus_view import BusViewMixin
 from cpcxray.session.disks import DiskMixin
 from cpcxray.session.errors import SessionError
 from cpcxray.session.trace_view import TraceViewMixin
@@ -77,7 +78,7 @@ class _RunLimits:
 
 
 # The façade owns all debugger state and offers one public method per MCP tool (D-27).
-class Session(AnalysisMixin, TraceViewMixin, DiskMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
+class Session(AnalysisMixin, TraceViewMixin, BusViewMixin, DiskMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
     """Owns a machine and offers every debugger operation (D-27).
 
     Attributes:
@@ -272,6 +273,7 @@ class Session(AnalysisMixin, TraceViewMixin, DiskMixin):  # pylint: disable=too-
                 reason = finished()
         if instructions:
             self._trace_tail_fresh = traced  # the last record is the last executed instruction
+            self._note_gaps(instructions, emulated_us, tracing)
         return self._stop_result(reason, instructions, emulated_us, breakpoint_hit)
 
     def _scrambled_bytes(self, address: int, length: int) -> bytes | None:

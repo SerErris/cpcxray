@@ -376,10 +376,11 @@ class DebuggerMixin:
         elif not wanted and self._breakpoint_observer is not None:
             bus.remove_observer(self._breakpoint_observer)
             self._breakpoint_observer = None
-        if self.bus_trace.enabled and not self._bus_trace_observing:
+        recording = self.bus_trace.enabled or self.bus_trace.stepping
+        if recording and not self._bus_trace_observing:
             bus.add_observer(self.bus_trace)
             self._bus_trace_observing = True
-        elif not self.bus_trace.enabled and self._bus_trace_observing:
+        elif not recording and self._bus_trace_observing:
             bus.remove_observer(self.bus_trace)
             self._bus_trace_observing = False
         bus.refresh_observers()  # breakpoint kinds or trace filters may have changed
@@ -575,8 +576,9 @@ class DebuggerMixin:
             return names[record.address]
 
         records = self.bus_trace.last(last)
-        return {"tracing": self.bus_trace.enabled,
-                "lines": [record.line(variable(record)) for record in records]}  # fmt: skip
+        lines = [record if isinstance(record, str) else record.line(variable(record))
+                 for record in records]  # fmt: skip  # a str: a gap's line
+        return {"tracing": self.bus_trace.enabled, "lines": lines}
 
     # == memory views ==========================================================================
 

@@ -7,7 +7,11 @@ memory access went ("lower", "romN", "ram:0"). For a scrambled ROM the M1/data d
 visible here directly.
 
 The trace is a bus observer, registered only while it runs (D-12). Filters: access kinds and an
-address range (memory addresses; ports are compared against the range as well).
+address range (memory addresses; ports are compared against the range as well). `enabled`
+records free runs (the "Recording" switch); stepping is recorded in any case (`stepping`, set by
+the session while it steps), like the instruction trace (owner, 2026-10-22). A free run that is
+not recorded leaves a gap record (kind None: the instructions and µs it ran), so the buffer shows
+that something is missing; consecutive gaps merge.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ class BusRecord(Access):
         return f"{text:<46}{variable}" if variable else text
 
 
-class BusTrace:
+class BusTrace:  # pylint: disable=too-many-instance-attributes  # buffer, filters and switches
     """The ring buffer and its filters; `on_cycle` is the observer callback.
 
     `cycles` is the kinds filter, so the bus calls the trace only for the wanted kinds.
@@ -44,11 +48,12 @@ class BusTrace:
         """Create a stopped trace; `locate(address, kind)` tells where a memory access went."""
         self.locate = locate
         # (sequence, kind, address, value, pc, location): records are built on reading
-        self.records: deque[tuple[int, Cycle, int, int, int, str]] = deque(maxlen=capacity)
+        self.records: deque[tuple[int, Cycle | None, int, int, int, str]] = deque(maxlen=capacity)
         self.kinds: frozenset[Cycle] = frozenset(Cycle)
         self.cycles = self.kinds
         self.address_range = (0x0000, 0xFFFF)
         self.enabled = False
+        self.stepping = False  # the session steps: record although `enabled` is off
         self._sequence = 0
 
     def start(
@@ -76,11 +81,34 @@ class BusTrace:
         location = "io" if port else self.locate(address, kind)
         self.records.append((self._sequence, kind, address, value, pc, location))
 
-    def last(self, count: int) -> list[BusRecord]:
-        """Return the last `count` records, oldest first."""
+    def gap(self, instructions: int, emulated_us: int) -> None:
+        """A free run was not recorded: note it (merged into a gap just before; none at start).
+
+        A gap record is (sequence, None, instructions, emulated µs, 0, "gap").
+        """
+        if not self.records:
+            return
+        last = self.records[-1]
+        if last[1] is None:
+            self.records[-1] = (last[0], None, last[2] + instructions, last[3] + emulated_us, 0,
+                                "gap")  # fmt: skip
+            return
+        self._sequence += 1
+        self.records.append((self._sequence, None, instructions, emulated_us, 0, "gap"))
+
+    def last(self, count: int) -> list[BusRecord | str]:
+        """Return the last `count` records, oldest first (a gap as its text line)."""
         if count <= 0:
             return []
         return [
             BusRecord(CYCLE_NAMES[kind], address, value, pc, location, sequence)
+            if kind is not None
+            else _gap_line(sequence, address, value)
             for sequence, kind, address, value, pc, location in list(self.records)[-count:]
         ]
+
+
+def _gap_line(sequence: int, instructions: int, emulated_us: int) -> str:
+    """A gap record as a text line."""
+    return (f"{sequence:8}  ---- free run not recorded: {instructions:,} instructions, "
+            f"{emulated_us:,} \u00b5s")  # fmt: skip

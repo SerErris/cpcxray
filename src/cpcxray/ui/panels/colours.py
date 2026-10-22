@@ -99,6 +99,18 @@ BREAKPOINT_TYPE_CATEGORY: Final = {
     "io_in": "io", "io_out": "io", "io": "io", "rom_select": "system", "interrupt": "system",
 }  # fmt: skip
 
+# -- bus access types (task 5f; the same in Follow CPU, 5c): (text and frame, background) ---
+ACCESS_COLOURS: Final[dict[str, tuple[Colour, Colour]]] = {
+    "M1": (TEXT_DIM, ROW_ALTERNATE),  # opcode fetch
+    "read": (rgb("#78b4ff"), SELECTED_ROW),
+    "write": (ERROR, ERROR_BACKGROUND),
+    "in": (rgb("#c8a0ff"), rgb("#3a2a4a")),
+    "out": (rgb("#c8a0ff"), rgb("#3a2a4a")),
+    "interrupt": (HERE, HERE_BACKGROUND),
+}
+ACCESS_LETTERS: Final = {"M1": "F", "read": "R", "write": "W", "in": "IN", "out": "OUT",
+                         "interrupt": "INT"}  # fmt: skip
+
 # -- known variables in the memory view (FR-DBG-11): taken in turn ---------------------------
 VARIABLE_COLOURS: Final = (
     (255, 200, 90), (120, 200, 255), (150, 230, 120), (255, 140, 170), (200, 160, 255),
@@ -108,3 +120,11 @@ AREA_COLOUR: Final = (140, 140, 140)  # inside a pack's area, in no named variab
 
 # Dear PyGui reads a colour with a negative first component as "use the theme's colour"
 THEME_DEFAULT: Final = (-255, 0, 0, 255)
+
+# the access type chips of the Bus trace tab, as badges
+BADGE_STYLES.update(
+    {
+        f"access_{name}": (text, background, None)
+        for name, (text, background) in ACCESS_COLOURS.items()
+    }
+)

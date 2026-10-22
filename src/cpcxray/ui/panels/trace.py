@@ -55,14 +55,22 @@ class TraceList:
         return bool(dpg.is_item_hovered(self.box))
 
     def handle_key(self, key: str) -> None:
-        """↑/↓, Page Up/Down, Home, End move the selection (instructions, not separators)."""
-        if key != "enter" and self.state.move(key):
-            self.tab.select(self.state.selected)
+        """↑/↓, Page Up/Down, Home, End move the selection (instructions, not gaps)."""
+        if key == "enter" or not self.state.move(key):
+            return
+        step = {"up": "up", "page_up": "up", "end": "up"}.get(key, "down")
+        while self.tab.is_gap(self.state.selected) and self.state.move(step):
+            pass  # a gap is no instruction: go on in the same direction
+        if self.tab.is_gap(self.state.selected):  # gaps up to the end: back the other way
+            other = "down" if step == "up" else "up"
+            while self.tab.is_gap(self.state.selected) and self.state.move(other):
+                pass
+        self.tab.select(self.state.selected)
 
     def show(self, rows: list[TraceRow], select: int | None) -> None:
         """Rebuild the table for new rows and select a record (its index)."""
         self.rows = rows
-        self.state.set_count(sum(1 for row in rows if row.kind == "instruction"))
+        self.state.set_count(len(self.tab.records))  # by record index (gaps are skipped)
         dpg.delete_item(self.table, children_only=True, slot=1)
         self.row_items = []
         self._marked = None
@@ -103,6 +111,12 @@ class TraceList:
 
     def _cells(self, row: TraceRow) -> int | str:
         """The cells of one row; returns its selectable (0 for a separator)."""
+        if row.kind == "gap":  # orange: something is missing here; the numbers beside it
+            text, _, numbers = row.where.partition(": ")
+            dpg.add_text("")
+            dpg.add_text(text, color=colours.CHANGED)
+            dpg.add_text(numbers, color=colours.CHANGED)
+            return 0
         if row.kind == "separator":
             dpg.add_text("")
             dpg.add_text(row.where, color=colours.TEXT_DIM)
@@ -231,9 +245,13 @@ class TraceTab(Tab):  # pylint: disable=too-many-instance-attributes  # trace st
         self._show_switch()
         return result
 
+    def is_gap(self, index: int | None) -> bool:
+        """True if record `index` is a gap (not selectable)."""
+        return index is not None and self.records[index].get("kind") == "gap"
+
     def select(self, index: int | None) -> None:
         """Select a record (by index): the bar in the list and the detail."""
-        if index is None or not self.records:
+        if index is None or not self.records or self.is_gap(index):
             return
         self.list.state.select(index)
         self.list.mark(index)
@@ -267,8 +285,9 @@ class TraceTab(Tab):  # pylint: disable=too-many-instance-attributes  # trace st
         if shown == self._shown and result["after"] == self.after:
             return
         self._shown, self.records, self.after = shown, records, result["after"]
-        self.list.show(trace_rows(records, self.after), len(records) - 1 if records else None)
-        self.select(len(records) - 1 if records else None)
+        newest = next((i for i in range(len(records) - 1, -1, -1) if not self.is_gap(i)), None)
+        self.list.show(trace_rows(records, self.after), newest)
+        self.select(newest)
 
     def _show_switch(self) -> None:
         """The switch: "● Trace runs" lit green while on."""

@@ -10,6 +10,8 @@ from cpcxray.ui.panels.text import (
     CodeRow,
     breakpoint_condition,
     breakpoint_where,
+    bus_lines,
+    bus_position,
     catalog_header,
     colour_numbers,
     cpu_state_lines,
@@ -20,6 +22,7 @@ from cpcxray.ui.panels.text import (
     drive_geometry,
     file_detail,
     flag_bits,
+    gap_text,
     gate_array_lines,
     keyboard_summary,
     location_text,
@@ -287,3 +290,38 @@ def test_trace_rows_and_detail() -> None:
     detail = trace_detail(records, None, rows[5])
     assert detail["position"] == "4 / 4" and detail["registers"][0][2] == ""  # no "after"
     assert detail["line"].endswith("memory accesses: stepped instructions only")
+
+
+def test_bus_lines() -> None:
+    """A separator, the instruction with its name split, its accesses; the position line."""
+    view = {"groups": [{"pc": "1BD6", "first": 40, "where": "lower ROM (os6128.rom)",
+                        "mnemonic": "call", "operands": "TXT_OUTPUT", "name": "TXT_OUTPUT",
+                        "name_type": "FW",
+                        "accesses": [{"index": 43, "access": "write", "address": "BFE6",
+                                      "value": "1BD9", "role": "data",
+                                      "meaning": "stack: return address", "word": True},
+                                     {"index": 41, "access": "read", "address": "1BD7",
+                                      "value": "5A", "role": "operand", "meaning": "operand",
+                                      "word": False}]}]}  # fmt: skip
+    lines = bus_lines(view)
+    assert [line.kind for line in lines] == ["separator", "instruction", "access", "access"]
+    assert lines[0].text == "; ---- lower ROM (os6128.rom)" and lines[1].name == "TXT_OUTPUT"
+    assert lines[2].body == "BFE6 = 1BD9" and lines[2].meaning == "stack: return address"
+    assert not lines[2].quiet
+    assert lines[3].quiet
+    assert bus_position(lines, 10_000) == "records 41-42 of 10,000"
+    assert bus_position([], 0) == "no records"
+
+
+def test_gaps_in_both_traces() -> None:
+    """A gap is a row / line of its own; the registers after the record before it are unknown."""
+    gap = {"kind": "gap", "sequence": 3, "instructions": 51240, "emulated_us": 20000}
+    assert gap_text(gap) == "---- free run not recorded: 51,240 instructions, 20,000 \u00b5s"
+    records = [_record("4000", "nop", "", "4001", "BFE6"), gap,
+               _record("5000", "nop", "", "5001", "BFE6")]  # fmt: skip
+    rows = trace_rows(records, None)  # type: ignore[arg-type]
+    assert [row.kind for row in rows] == ["separator", "instruction", "gap", "separator",
+                                          "instruction"]  # fmt: skip
+    assert rows[1].changes == ""  # what came after it was not traced
+    view = {"groups": [{"gap": {"instructions": 50, "emulated_us": 100}, "first": 7}]}
+    assert bus_lines(view)[0].kind == "gap" and bus_lines(view)[0].record == 7

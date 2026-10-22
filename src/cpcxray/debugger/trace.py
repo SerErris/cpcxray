@@ -18,6 +18,11 @@ in one of three formats: "text" (one aligned line per instruction, for reading),
 "jsonl" (JSON Lines, for scripts). Filters: an address range for the PC, and "analysis targets
 only" (decided by the session: code in a target ROM, its RAM copies and RAM targets).
 
+Gaps: when instructions run untraced after something was recorded (a free run with the trace
+off), the session adds a `TraceGap` - "free run not recorded: n instructions" - so the buffer
+shows that something is missing between its neighbours; consecutive gaps merge (the GUI runs in
+time slices).
+
 Tracing costs nothing when off: the session checks a single flag per instruction. Free runs
 are traced only while the trace is switched on (it costs about 5x speed); the session records
 stepping (step, step over, step out) into the ring buffer anyway. The file sink is written
@@ -113,6 +118,26 @@ class Capture:  # pylint: disable=too-many-instance-attributes  # one field per 
     rom_bytes: bytes | None = None
 
 
+@dataclass
+class TraceGap:
+    """Instructions that ran but were not traced (a free run with the trace off).
+
+    Attributes:
+        sequence: Running number (shared with the captures).
+        instructions: How many instructions ran.
+        emulated_us: How long they ran (emulated µs).
+    """
+
+    sequence: int
+    instructions: int
+    emulated_us: int
+
+    def line(self) -> str:
+        """The gap as one text line."""
+        return (f"---- free run not recorded: {self.instructions:,} instructions, "
+                f"{self.emulated_us:,} \u00b5s")  # fmt: skip
+
+
 type Formatter = Callable[[Capture], TraceRecord]
 """Turns a capture into a readable record (disassembly with symbols; provided by the session)."""
 
@@ -124,7 +149,7 @@ class Trace:  # pylint: disable=too-many-instance-attributes  # sink, filters an
         """Create a stopped trace keeping the last `capacity` captures."""
         self.formatter = formatter
         self.enabled = False
-        self.records: deque[Capture] = deque(maxlen=capacity)
+        self.records: deque[Capture | TraceGap] = deque(maxlen=capacity)
         self.address_range: tuple[int, int] = (0x0000, 0xFFFF)
         self.targets_only = False
         self.path: Path | None = None
@@ -206,8 +231,21 @@ class Trace:  # pylint: disable=too-many-instance-attributes  # sink, filters an
         elif self._csv is not None:
             self._csv.writerow(record.as_dict())
 
-    def last(self, count: int) -> list[TraceRecord]:
-        """Return the last `count` records, oldest first, formatted now."""
+    def gap(self, instructions: int, emulated_us: int) -> None:
+        """Instructions ran untraced: note it (merged into a gap just before; none at the start)."""
+        if not self.records:
+            return
+        last = self.records[-1]
+        if isinstance(last, TraceGap):
+            last.instructions += instructions
+            last.emulated_us += emulated_us
+            return
+        self._sequence += 1
+        self.records.append(TraceGap(self._sequence, instructions, emulated_us))
+
+    def last(self, count: int) -> list[TraceRecord | TraceGap]:
+        """Return the last `count` records, oldest first, formatted now (gaps as they are)."""
         if count <= 0:
             return []
-        return [self.formatter(capture) for capture in list(self.records)[-count:]]
+        return [record if isinstance(record, TraceGap) else self.formatter(record)
+                for record in list(self.records)[-count:]]  # fmt: skip

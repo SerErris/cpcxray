@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from cpcxray.cpu.disasm import Flow, Instruction, disassemble
 from cpcxray.debugger.step_accesses import StepAccesses
-from cpcxray.debugger.trace import CAPTURE_BYTES, Capture
+from cpcxray.debugger.trace import CAPTURE_BYTES, Capture, TraceGap
 from cpcxray.session.debugger import DebuggerMixin
 from cpcxray.session.errors import SessionError
 
@@ -48,19 +48,34 @@ class TraceViewMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Sessi
 
     @contextmanager
     def _collecting_step_accesses(self) -> Iterator[None]:
-        """Register the step access observer while stepping (D-12), then remove it."""
+        """While stepping: the step access observer, and the bus trace (always on for steps).
+
+        Both are registered only for the step (D-12); the bus trace keeps recording afterwards
+        only if its "Recording" switch is on (free runs).
+        """
         bus = self._observable_bus()
         if bus is None:  # e.g. the bare test machine: nothing to watch
             yield
             return
         bus.add_observer(self.step_accesses)
         self.step_accesses.active = True
+        self.bus_trace.stepping = True
+        self._sync_debug_observers()
         try:
             yield
         finally:
             self.step_accesses.end()
             self.step_accesses.active = False
             bus.remove_observer(self.step_accesses)
+            self.bus_trace.stepping = False
+            self._sync_debug_observers()
+
+    def _note_gaps(self, instructions: int, emulated_us: int, traced: bool) -> None:
+        """After a run: a gap in each trace that did not record it (a free run, switch off)."""
+        if not traced:
+            self.trace.gap(instructions, emulated_us)
+        if not (self.bus_trace.enabled or self.bus_trace.stepping):
+            self.bus_trace.gap(instructions, emulated_us)
 
     # -- reading ---------------------------------------------------------------------------------
 
@@ -86,8 +101,11 @@ class TraceViewMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Sessi
     def trace_records(self, last: int = 50) -> dict[str, Any]:
         """The last `last` trace records (max 1000) split into fields, oldest first.
 
-        Per record: "sequence", "address", "bytes", "mnemonic", "operands" (with "name" and
-        "name_type" FW / VAR / own where an operand is named, "comment"), "registers" before
+        A gap - instructions that ran untraced (a free run with the trace off) - is a record
+        {"kind": "gap", "sequence", "instructions", "emulated_us"}. Per instruction record
+        ("kind" "instruction"): "sequence", "address", "bytes", "mnemonic", "operands" (with
+        "name" and "name_type" FW / VAR / own where an operand is named, "comment"), "registers"
+        before
         it (af, bc, de, hl, ix, iy, sp as 4-digit hex), "where" ("lower", "romN", "RAM") and
         "where_text", "flow" ("call", "return" or ""), "next" (the address after it), and for
         stepped instructions "accesses" (access, address, value, variable). "after": the
@@ -96,7 +114,8 @@ class TraceViewMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Sessi
         if not 1 <= last <= MAX_TRACE_RECORDS:
             raise SessionError(f"last must be 1-{MAX_TRACE_RECORDS}")
         captures = list(self.trace.records)[-last:]
-        records = [self._trace_record(capture) for capture in captures]
+        records = [_gap(capture) if isinstance(capture, TraceGap) else self._trace_record(capture)
+                   for capture in captures]  # fmt: skip
         after = None
         if records and self._trace_tail_fresh:
             cpu = self.machine.cpu
@@ -116,7 +135,8 @@ class TraceViewMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Sessi
         record = {key: row[key] for key in ("mnemonic", "operands", "name", "name_type",
                                             "comment") if key in row}  # fmt: skip
         record |= {
-            "sequence": capture.sequence, "address": f"{capture.pc:04X}", "bytes": row["bytes"],
+            "kind": "instruction", "sequence": capture.sequence,
+            "address": f"{capture.pc:04X}", "bytes": row["bytes"],
             "registers": {n: f"{v:04X}" for n, v in zip(TRACED_REGISTERS, capture.registers,
                                                         strict=True)},
             "where": where, "where_text": where_text, "flow": flow,
@@ -141,3 +161,9 @@ class TraceViewMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Sessi
                 entry["variable"] = hits[0].name
             result.append(entry)
         return result
+
+
+def _gap(gap: TraceGap) -> dict[str, Any]:
+    """A gap of the trace as a record (see `trace_records`)."""
+    return {"kind": "gap", "sequence": gap.sequence, "instructions": gap.instructions,
+            "emulated_us": gap.emulated_us}  # fmt: skip

@@ -65,6 +65,7 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     app.loop.stop()
     panels.refresh(force=True)
     check_cpu(app, dpg)
+    check_bus_trace(app, dpg)
     assert dpg.get_value(panels.items["crtc_1"]).startswith("R1  H displayed")
     assert dpg.get_value(panels.items["ga_header"]).startswith("mode 1")
     assert dpg.get_value(panels.items["fdc_disk_B"]).startswith("B: ")  # the Vortex test disk
@@ -200,3 +201,22 @@ def check_cpu(app: Any, dpg: Any) -> None:
     dpg.set_value(items["show_bytes"], False)
     app.panels.tabs["CPU"]._bytes_switched()  # pylint: disable=protected-access  # its callback
     assert not dpg.get_item_configuration(items["bytes_column"])["enabled"]
+
+
+def check_bus_trace(app: Any, dpg: Any) -> None:
+    """The Bus trace tab: recording, grouped lines, Home into the history, End to the newest."""
+    tab = app.panels.tabs["Bus trace"]
+    tab.call(tab.toggle)
+    assert app.session.bus_trace.enabled
+    for _ in range(30):
+        app.session.step()
+    tab.refresh()
+    assert dpg.get_value(app.panels.items["bus_summary"]).startswith("Bus trace \u00b7")
+    tab.handle_key("home")
+    assert not tab.following and dpg.get_value(app.panels.items["bus_position"]).startswith(
+        "records 1-"
+    )
+    tab.handle_key("end")
+    assert tab.following
+    tab.call(tab.toggle)
+    assert not app.session.bus_trace.enabled
