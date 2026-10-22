@@ -2,7 +2,8 @@
 
 A mixin of `Session`; every public method is an MCP tool as well (D-27):
 
-* breakpoints of all kinds with location qualifiers (debugger/breakpoints.py);
+* breakpoints of all kinds with location qualifiers (debugger/breakpoints.py); a memory
+  breakpoint on a known OS/AMSDOS variable covers it and names it when it stops (FR-DBG-11);
 * the bus trace (debugger/bus_trace.py);
 * memory views: CPU, RAM, a ROM image, the shadow ROM of a scrambled ROM;
 * `.sna` snapshots (machine/sna.py, D-25).
@@ -31,6 +32,7 @@ from cpcxray.session.errors import SessionError
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from cpcxray.debugger.variables import Variable, VariableHit
     from cpcxray.machine.cpc464 import CPC464
     from cpcxray.machine.flat import Machine
     from cpcxray.machine.memory import RomSlot
@@ -73,6 +75,14 @@ class DebuggerMixin:
 
     def _label(self, address: int) -> str | None:
         """Label of an address (implemented by Session)."""
+        raise NotImplementedError
+
+    def _variable_hits(self, address: int) -> list[VariableHit]:
+        """Known variables containing an address (implemented by Session)."""
+        raise NotImplementedError
+
+    def _variable_named(self, label: str) -> Variable | None:
+        """The known variable with a label (implemented by Session)."""
         raise NotImplementedError
 
     def _cpc(self) -> CPC464:
@@ -150,7 +160,12 @@ class DebuggerMixin:
         if observer is None or observer.hit is None:
             return None
         hit: Hit | None = observer.take()
-        return hit.describe() if hit is not None else None
+        if hit is None:
+            return None
+        detail = hit.describe()
+        if hit.access in ("read", "write") and (hits := self._variable_hits(hit.address)):
+            detail["variable"] = hits[0].name  # FR-DBG-11: "write to NAME+n"
+        return detail
 
     # == breakpoints ===========================================================================
 
@@ -171,7 +186,9 @@ class DebuggerMixin:
             kind: "pc" (before the instruction), "m1", "read", "write", "access" (data read or
                 write), "io_in", "io_out", "io", "rom_select", "interrupt". All but "pc" stop
                 after the instruction that made the access and report its PC.
-            end: Last address of a range (address kinds).
+            end: Last address of a range (address kinds). Without it, a read, write or
+                access breakpoint on the name of a known OS/AMSDOS variable covers the whole
+                variable (FR-DBG-11).
             location: What must be paged in at the access: "any", "rom", "lower",
                 "rom:<n>", "ram" or "ram:<block>" (the RAM block mapped at the
                 address: 0-3 by address on a 464, 0-7 by banking on a 6128). Writes always go
@@ -189,6 +206,10 @@ class DebuggerMixin:
             raise SessionError(f"a {kind} breakpoint needs an address or port")
         first = self._address(address) if address is not None and needs_address else 0
         last = self._address(end) if end is not None and kind in ADDRESS_KINDS else first
+        if end is None and kind in ("read", "write", "access") and isinstance(address, str):
+            variable = self._variable_named(address)
+            if variable is not None and variable.address == first:
+                last = variable.last
         try:
             breakpoint_ = self.breakpoints.add(kind, first, last, location=location,
                                                port_mask=port_mask, rom_number=rom)  # fmt: skip
@@ -225,6 +246,8 @@ class DebuggerMixin:
         entry = breakpoint_.describe()
         if breakpoint_.kind in ADDRESS_KINDS:
             entry["label"] = self._label(breakpoint_.first)
+            if hits := self._variable_hits(breakpoint_.first):
+                entry["variable"] = hits[0].name
         return entry
 
     # == bus trace =============================================================================

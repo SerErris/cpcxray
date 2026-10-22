@@ -123,6 +123,7 @@ software.
 | FR-DBG-08 | Bus trace view of M1/MREQ/IORQ/RD/WR accesses (switchable ring buffer). |
 | FR-DBG-09 | Symbols and comments (annotation file), with firmware jumpblock names preloaded. |
 | FR-DBG-10 | Snapshots in `.sna` format (save and load). |
+| FR-DBG-11 | Known firmware (OS) and AMSDOS RAM variables per machine (464/664/6128): an address is explained as `NAME` or `NAME+offset` (`address_explain`, `variable_list`), operands in disassembly and trace are named, memory breakpoints accept variable names (covering the whole variable) and name the variable when they stop. BASIC's variables are not included. |
 
 ### 2.8 MCP interface
 
@@ -187,6 +188,7 @@ software.
 | D-31 | **The sjasmplus source is generated from a persistent analysis database, not from the trace.** One entry per target byte (clear value, access flags, data kind, classification source), plus symbols, comments, owner overrides, relocated blocks and runtime observations. Saved and merged across runs. | The trace is chronological, repeats loops and contains nothing about never-executed bytes; the database has exactly one entry per byte and accumulates knowledge from many runs. |
 | D-32 | **Byte-exact encoding rule:** an instruction is emitted as a mnemonic only if sjasmplus re-encodes it to identical bytes; non-canonical encodings (e.g. `ED 6B nn` for `ld hl,(nn)`, duplicate `neg`/`retn`/`im`, redundant prefixes) are emitted as `defb` with the mnemonic in a comment. | Guarantees FR-DIS-05. |
 | D-33 | **Built-in round-trip check** (`source_verify`): generate source → sjasmplus → compare byte for byte with the clear dump → report differing addresses. CLI, `Session` method and MCP tool. | Makes "reassemblable" a tested property. |
+| D-34 | **RAM variables as sized, per-machine tables from `docs/memory.md`** (generated into `debugger/variable_tables.py`), separate from the symbol table: a variable has a size and pack areas cover bytes of unknown meaning, so any address inside resolves to `NAME+offset` (smallest variable first). Firmware variables have one address per machine; the undocumented 664 column is derived by aligning the OS ROMs' code (a test repeats it). AMSDOS's variables exist only when AMSDOS is installed: the workspace base comes from AMSDOS_MEMORY_POOL (&BE7D) and counts only if its RSX block is in the firmware's ROM chain; the workspace names follow that base. Owner and firmware labels win over variable names. | Variables are ranges, not points, and depend on the machine and (for AMSDOS) on the running system; a debugger must say "this is the cursor column" for any byte of it. |
 
 ---
 
@@ -912,6 +914,10 @@ cpcxray/
   https://www.cantrell.org.uk/david/tech/cpc/cpc-firmware/firmware.pdf); CPCWiki, BIOS Function
   Summary (https://www.cpcwiki.eu/index.php/BIOS_Function_Summary) and Amstrad Whole Memory Guide -
   BASIC support (saved locally as HTML in `docs/`, not committed)
+- Firmware and AMSDOS variables (`docs/memory.md`, FR-DBG-11): Taylor/Defoe (above), "Use of
+  memory by the Operating System"; Bread80, CPC6128 firmware source, `Includes/MemoryFirmware.txt`
+  (https://github.com/Bread80/CPC6128-Firmware-Source); CPCWiki, AMSDOS Memory Map
+  (https://www.cpcwiki.eu/index.php/AMSDOS_Memory_Map; saved locally as HTML in `docs/`)
 - sjasmplus documentation: https://z00m128.github.io/sjasmplus/documentation.html
 - Z80 timings on Amstrad CPC, cheat sheet V1.3 (CPCWiki, 2023-07-09), basis of the NOP timing
   table (D-04): https://www.cpcwiki.eu/imgs/b/b4/Z80_CPC_Timings_cheat_sheet.20230709.pdf

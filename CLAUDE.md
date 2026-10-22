@@ -9,7 +9,7 @@ Software-compatible, not cycle-exact.
 
 ## Design documents
 
-- **`docs/design.md` is authoritative**: requirements (FR-*/NFR-*), decisions **D-01..D-33**,
+- **`docs/design.md` is authoritative**: requirements (FR-*/NFR-*), decisions **D-01..D-34**,
   architecture (§6), test strategy (§8), implementation plan (§9). Read the relevant sections
   before working on a component.
 - `docs/vortex_decrypt.md` (scrambling rule) and `docs/cpc_rst.md` (RST conventions) are
@@ -58,6 +58,7 @@ cpcxray gui                       # window, starts running (--paused: stopped at
                                   #   HTTP on 127.0.0.1:8765 (--mcp-port 0: off)
 CPCXRAY_UPDATE_GOLDEN=1 pytest tests/disasm   # regenerate the disassembler golden listing
 python -m tools.extract_firmware_symbols      # firmware names (464/664/6128); then ruff format
+python -m tools.extract_memory_variables      # OS/AMSDOS variables (docs/memory.md); ruff format
 ```
 
 `sjasmplus` must be on the PATH (round-trip check, D-33); `tests/test_tools.py` checks it.
@@ -285,6 +286,15 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
 - Symbols (debugger/symbols.py): firmware names preloaded per machine (`SymbolTable(model=)`,
   `set_firmware` on `load_config`) from debugger/firmware_symbols.py
   (generated); user symbols in project/annotations.txt (`[scope:]address label ; comment`).
+- Variables (FR-DBG-11, D-34; debugger/variables.py `VariableMap`): firmware and AMSDOS RAM
+  variables from docs/memory.md (generated debugger/variable_tables.py), sized, one address per
+  machine, pack areas (`*_WORKSPACE`) for unknown bytes; lookup gives `NAME+offset`, smallest
+  first. AMSDOS only when installed: base from &BE7D, valid if its RSX block is in the ROM chain.
+  Session: `address_explain`, `variable_list`; `_operand_label` (symbol label, else variable)
+  names disassembly/trace operands; labels of variables work as addresses; a read/write/access
+  breakpoint on a variable name without `end` covers it; stops and breakpoints carry
+  `variable`. The 664 column was derived by aligning os6128/os664 code
+  (tests/machine/test_memory_variables.py repeats it, also against the 464 column).
 
 ## Z80 core notes (`src/cpcxray/cpu/`)
 

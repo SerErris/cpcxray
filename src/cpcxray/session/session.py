@@ -34,6 +34,7 @@ from cpcxray.analysis.provenance import RamTag
 from cpcxray.cpu.disasm import Flow, Instruction, disassemble
 from cpcxray.debugger.symbols import GLOBAL, SymbolError, SymbolTable, parse_address
 from cpcxray.debugger.trace import CAPTURE_BYTES, Capture, Trace, TraceRecord
+from cpcxray.debugger.variables import Variable, VariableHit, VariableMap
 from cpcxray.devices.key_map import KeyMap, KeyMapError
 from cpcxray.machine.config import ConfigError
 from cpcxray.machine.cpc464 import CPC464, build_cpc464
@@ -96,6 +97,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         self.machine: Machine = machine if machine is not None else FlatMachine()
         self.project_dir = Path(project_dir).resolve()
         self.symbols = SymbolTable(model=getattr(self.machine, "firmware_model", "464"))
+        self.variables = self._variable_map(self.machine)
         self._setup_debugger()
         self.analysis_enabled = True  # the analysis observers run while targets exist
         self.trace = Trace(self._format_capture)
@@ -126,20 +128,47 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
             return parse_address(value)
         except SymbolError:
             symbol = self.symbols.find(value.strip())
-            if symbol is None:
-                raise SessionError(
-                    f"{value!r} is neither a hex address nor a known label"
-                ) from None
-            return symbol.address
+            if symbol is not None:
+                return symbol.address
+            variable = self._variable_named(value)
+            if variable is not None:
+                return variable.address
+            raise SessionError(f"{value!r} is neither a hex address nor a known label") from None
 
     def _label(self, address: int) -> str | None:
         """Return the label for `address` in the scope that applies to it now."""
         return self.symbols.label_at(address, self.machine.symbol_scope(address))
 
+    @staticmethod
+    def _variable_map(machine: Machine) -> VariableMap | None:
+        """The known OS/AMSDOS variables of a CPC (FR-DBG-11); None for the flat machine."""
+        model = getattr(machine, "firmware_model", None)
+        return VariableMap(model) if model is not None else None
+
+    def _variable_hits(self, address: int) -> list[VariableHit]:
+        """The known variables containing `address` now, the smallest first."""
+        if self.variables is None:
+            return []
+        return self.variables.lookup(address, self.machine.peek)
+
+    def _variable_named(self, label: str) -> Variable | None:
+        """The known variable with this label, if it exists now (AMSDOS only when installed)."""
+        if self.variables is None:
+            return None
+        return self.variables.find(label.strip(), self.machine.peek)
+
+    def _operand_label(self, address: int) -> str | None:
+        """Name an operand: a symbol label, else a known variable (`NAME` or `NAME+n`)."""
+        label = self._label(address)
+        if label is not None:
+            return label
+        hits = self._variable_hits(address)
+        return hits[0].name if hits else None
+
     def _disassemble(self, address: int) -> Instruction:
         """Decode the instruction at `address` from the CPU's view of memory."""
         return disassemble(
-            self.machine.peek, address, self.machine.disassembly_profile(), self._label,
+            self.machine.peek, address, self.machine.disassembly_profile(), self._operand_label,
             read_opcode=self.machine.peek_opcode,
         )  # fmt: skip
 
@@ -161,7 +190,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
             "reason": reason,
             "pc": hex4(pc),
             "label": self._label(pc),
-            "next": self._disassemble(pc).text(self._label),
+            "next": self._disassemble(pc).text(self._operand_label),
             "instructions": instructions,
             "emulated_us": emulated_us,
             "registers": self._register_summary(),
@@ -287,7 +316,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
             return read
 
         instruction = disassemble(
-            reader(capture.data_bytes), pc, self.machine.disassembly_profile(), self._label,
+            reader(capture.data_bytes), pc, self.machine.disassembly_profile(), self._operand_label,
             read_opcode=reader(capture.opcode_bytes),
         )  # fmt: skip
         af, bc, de, hl, ix, iy, sp = capture.registers
@@ -295,7 +324,8 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
                      f"IX={hex4(ix)} IY={hex4(iy)} SP={hex4(sp)} PC={hex4(pc)}")  # fmt: skip
         rom_raw = capture.rom_bytes[: instruction.length] if capture.rom_bytes else None
         origin = capture.origin.text() if capture.origin is not None else None
-        return TraceRecord(capture.sequence, pc, instruction.raw, instruction.text(self._label),
+        return TraceRecord(capture.sequence, pc, instruction.raw,
+                           instruction.text(self._operand_label),
                            registers, capture.where, origin, rom_raw)  # fmt: skip
 
     def _in_analysis_target(self, pc: int, where: str, origin: RamTag | None) -> bool:
@@ -403,6 +433,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
             raise SessionError(str(error)) from None
         self.machine = machine
         self.symbols.set_firmware(machine.firmware_model)
+        self.variables = self._variable_map(machine)
         self._breakpoint_observer = None
         self._bus_trace_observing = False
         self._sync_debug_observers()
@@ -763,7 +794,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         scope = self.machine.symbol_scope(instruction.address)
         user_comment = self.symbols.comment_at(instruction.address, scope)
         lines = []
-        for number, (text, comment) in enumerate(instruction.lines(self._label)):
+        for number, (text, comment) in enumerate(instruction.lines(self._operand_label)):
             if number == 0:
                 raw = " ".join(f"{byte:02X}" for byte in instruction.raw)
                 prefix = f"{hex4(instruction.address)}  {raw:<11}"
@@ -887,6 +918,39 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
             for s in found[:limit]
         ]  # fmt: skip
         return {"symbols": entries, "total": len(found)}
+
+    def address_explain(self, address: int | str) -> dict[str, Any]:
+        """Tell what an address is: its symbol and the known OS/AMSDOS variables containing it.
+
+        Variables (FR-DBG-11) are the firmware's of this machine (464/664/6128) and AMSDOS's
+        when it is installed (its workspace where AMSDOS put it); the smallest one comes first,
+        named `LABEL` or `LABEL+offset`.
+        """
+        value = self._address(address)
+        result: dict[str, Any] = {"address": hex4(value), "label": self._label(value),
+                                  "variables": []}  # fmt: skip
+        if self.variables is not None:
+            result["model"] = self.variables.model
+            result["variables"] = [{"name": hit.name, **hit.variable.describe()}
+                                   for hit in self._variable_hits(value)]  # fmt: skip
+        return result
+
+    def variable_list(self, text: str = "", limit: int = 100) -> dict[str, Any]:
+        """List the known OS/AMSDOS variables (FR-DBG-11) whose label or description has `text`.
+
+        Args:
+            text: Search text (case-insensitive); empty lists all.
+            limit: Maximum number of entries (max 1000).
+        """
+        if not 1 <= limit <= 1000:
+            raise SessionError("limit must be 1-1000")
+        if self.variables is None:
+            return {"variables": [], "total": 0}
+        wanted = text.lower()
+        found = [v for v in self.variables.variables(self.machine.peek)
+                 if wanted in v.label.lower() or wanted in v.description.lower()]  # fmt: skip
+        return {"model": self.variables.model, "variables": [v.describe() for v in found[:limit]],
+                "total": len(found)}  # fmt: skip
 
     def symbols_load(self, path: str = str(ANNOTATIONS_FILE)) -> dict[str, Any]:
         """Merge an annotation file (default project/annotations.txt) into the symbols."""
