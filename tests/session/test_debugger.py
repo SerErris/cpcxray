@@ -11,7 +11,7 @@ from cpcxray.machine.memory import RomSlot
 from cpcxray.session.errors import SessionError
 from cpcxray.session.session import Session
 from tests.analysis.helpers import make_test_cpc
-from tests.vdos import REPO, requires_roms
+from tests.machines import REPO, requires_roms
 
 # OS ROM: upper ROM on, JP &C000; interrupt handler at &0038: EI / RET.
 OS = {0x0000: "01817F ED49 C300C0", 0x0038: "FB C9"}
@@ -158,8 +158,8 @@ def test_memory_views() -> None:
 def test_load_config_moves_observers() -> None:
     """Replacing the machine moves the breakpoint observer to the new bus."""
     session = make_session()
-    session.breakpoint_add("BF00", kind="write")
-    session.load_config(str(REPO / "config" / "machine.toml"))
+    session.breakpoint_add("BFFE", kind="write")
+    session.load_config(str(REPO / "config" / "test_cpc464.toml"))
     observer = session._breakpoint_observer  # pylint: disable=protected-access
     assert observer is not None
     assert observer in session.machine.bus._observers  # type: ignore[attr-defined]  # pylint: disable=protected-access

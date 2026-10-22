@@ -1,6 +1,6 @@
 """Tests of the µPD765 with two drives (design.md §6.11; FR-FDC-01..05).
 
-Commands are sent through the ports exactly as AMSDOS/VDOS do: command bytes to &FB7F while
+Commands are sent through the ports exactly as AMSDOS does: command bytes to &FB7F while
 the MSR shows RQM, execution data and results read while DIO is set.
 """
 

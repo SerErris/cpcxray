@@ -37,8 +37,8 @@ jumpblock entry (&B900 and up). Counters (LDIR's BC, DJNZ, `dec bc` loops) and o
 numbers stay hex: `ld bc,#0016`, not `ld bc,JP_DE`.
 
 A far address (RST 3) that selects another upper ROM points into that ROM's code: it never
-gets a label of this target (`defw #C1DC ; ROM 7` for an AMSDOS routine called from VDOS, not
-VDOS's own `sub_c1dc`).
+gets a label of this target (`defw #C1DC ; ROM 7` for an AMSDOS routine called from another ROM,
+not that ROM's own `sub_c1dc`).
 
 The file starts with a reference block of all low-kernel firmware entries (the restarts
 RESET_ENTRY … EXT_INTERRUPT at &0000-&003B, the same on 464, 664 and 6128), whether the code

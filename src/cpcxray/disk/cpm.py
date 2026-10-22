@@ -1,8 +1,8 @@
 """CP/M file system on disk images: directory and file contents (host side, no emulation).
 
-AMSDOS and VDOS store files the CP/M way. With the disk format known, the directory and every
-file can be read straight from the image - the reference against which the emulated FDC, AMSDOS
-and VDOS are checked, and a tool for the owner (`disk_catalog`, `disk_read_file`).
+AMSDOS and other disk ROMs store files the CP/M way. With the disk format known, the directory
+and every file can be read straight from the image - the reference against which the emulated
+FDC and the disk ROMs are checked, and a tool for the owner (`disk_catalog`, `disk_read_file`).
 
 | Format   | Sector IDs | Heads | Reserved tracks          | Block | Directory  |
 |----------|------------|-------|--------------------------|-------|------------|
@@ -12,14 +12,15 @@ and VDOS are checked, and a tool for the owner (`disk_catalog`, `disk_read_file`
 
 All have 9 sectors of 512 bytes per track. Logical order: cylinder by cylinder, head 0 before
 head 1, sectors by ID (the physical interleave does not matter). The Vortex layout was checked
-against a real VDOS disk (Vortex_init.dsk: READ.ME reads as text).
+against a real Vortex-format disk (its text files read as text).
 
 Directory entry: user (&E5 = free), name 8 + type 3 (bit 7 = attributes), EX, S1, S2, RC and
 16 one-byte block numbers (8-bit pointers: fewer than 256 blocks). An entry covers EXM + 1
 logical 16 KB extents; it holds (EX & EXM) * 128 + RC records of 128 bytes.
 
-Files written by AMSDOS/VDOS from BASIC start with a 128-byte AMSDOS header (file type, load
-and entry address, length, checksum over bytes 0-66); `amsdos_header` recognises it.
+Files written from BASIC (AMSDOS and compatible disk ROMs) start with a 128-byte AMSDOS header
+(file type, load and entry address, length, checksum over bytes 0-66); `amsdos_header`
+recognises it.
 """
 
 from __future__ import annotations

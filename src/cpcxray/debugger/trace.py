@@ -3,7 +3,7 @@
 While tracing is on, the session records every executed instruction before executing it:
 
 * PC, where it runs ("lower", "romN" or "RAM") and, for RAM, its provenance (e.g.
-  "rom5:&0105": code copied from VDOS, D-21);
+  "rom5:&0105": code copied from ROM 5, D-21);
 * the instruction bytes as the CPU sees them (clear) and, for a scrambled ROM, the raw bytes
   in the ROM image;
 * the instruction text with symbols and the main registers.

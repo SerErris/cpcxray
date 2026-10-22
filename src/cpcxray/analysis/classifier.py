@@ -600,7 +600,7 @@ def _static_code_possible(
     byte was read as data by the copy to RAM, and the CPU executes the copied (decoded)
     values, so there the data reads say nothing against code (D-21, D-22). The same holds
     for a jump table entry: a table that runs from a RAM copy was read as data by the copy
-    (VDOS's boot jumpblock &C0D2: copied whole, only some entries ran, mostly in RAM).
+    (e.g. a jumpblock handed to a boot sector: copied whole, only some entries run).
     """
     if not view.fits(offset, instruction.length):
         return False

@@ -24,7 +24,7 @@ Open tasks for later sessions, in the owner's words, with notes on where they ap
    - Claude Code MCP integration: headless server over stdio via `.mcp.json`
      (`cpcxray mcp`), attaching to a running GUI over HTTP
      (`claude mcp add --transport http cpcxray-gui http://127.0.0.1:8765/mcp`), typical
-     workflows (boot, type commands, breakpoints, decode and analyse VDOS, generate and
+     workflows (boot, type commands, breakpoints, decode and analyse a scrambled ROM, generate and
      verify the source, work with disk images).
 
 4. ~~Remaining implementation phase 11: 6128 RAM banking~~ - done (design.md §9, D-14,
@@ -33,7 +33,7 @@ Open tasks for later sessions, in the owner's words, with notes on where they ap
 
 5. **Low priority, later - first get the tool running: Rust inner loop** (only if CPython speed
    becomes a real blocker; PyPy was tried and dropped, 2026-10-21).
-   - Today's CPython figures (headless, VDOS as analysis target): analysis on 1.15x real time,
+   - Today's CPython figures (headless, a scrambled 16 KB ROM as analysis target): analysis on 1.15x real time,
      analysis off 2.3x; instruction trace on 0.45x; bus trace 0.69x. GUI: analysis on 0.98x at
      10 fps (0.20 of 50 fps), analysis off 1.00x at 34-41 fps (0.68-0.83 of 50 fps).
    - Cut: everything that runs per instruction or per bus access goes to Rust as one unit -
@@ -48,8 +48,8 @@ Open tasks for later sessions, in the owner's words, with notes on where they ap
    - Python reads the collected data from Rust as shared memory arrays (no copies); binding
      with PyO3. Expected 50-100x today's CPython speed, analysis always on.
    - Verification: the existing tests run against the Rust core through the binding
-     (SingleStepTests, ZEXDOC/ZEXALL, z80test), the analysis and VDOS milestone tests check
-     the Rust observers; the byte-identical VDOS source is the end-to-end check.
+     (SingleStepTests, ZEXDOC/ZEXALL, z80test), the analysis and milestone tests check
+     the Rust observers; a byte-identical generated source is the end-to-end check.
 
 6. **Full keyboard translation (character-based).** A key pressed on the PC keyboard shall give
    the character printed on it on the CPC: on the German keyboard, the key for `|` must type

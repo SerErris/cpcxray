@@ -14,16 +14,15 @@ from pathlib import Path
 
 import pytest
 
-from cpcxray.machine.config import load_config
 from cpcxray.machine.cpc464 import CPC464
 from cpcxray.session.session import Session
 from cpcxray.ui.palette import HARDWARE_RGB
 from cpcxray.ui.renderer import HEIGHT, WIDTH, render
-from tests.vdos import run_until_ready
+from tests.machines import CONFIG_464, run_until_ready
 
 REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / "tests" / "data" / "asm" / "screen_test.asm"
-CONFIG = load_config(REPO / "config" / "machine.toml")
+CONFIG = CONFIG_464
 pytestmark = pytest.mark.skipif(
     CONFIG.lower_rom is None or not CONFIG.lower_rom.exists or shutil.which("sjasmplus") is None,
     reason="ROMs or sjasmplus missing",

@@ -62,7 +62,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--paused", action="store_true", help="start stopped at the reset vector (debug the boot)"
     )
     p_verify = sub.add_parser("source-verify", help="assemble a source and compare with an image")
-    p_verify.add_argument("source", help="the sjasmplus source (e.g. output/vdos211x.asm)")
+    p_verify.add_argument("source", help="the sjasmplus source (e.g. output/rom.asm)")
     p_verify.add_argument("expected", help="the image it must reproduce (e.g. a clear dump)")
     p_verify.add_argument("--start", default="C000", help="address of the first byte (hex)")
 

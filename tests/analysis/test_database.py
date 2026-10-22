@@ -67,7 +67,7 @@ def test_save_and_merge(tmp_path: Path) -> None:
     first.classify(1, Kind.STRING, Source.OWNER)
     first.observe(0xC000, "rst", 2)
     first.add_override(1, 1, Kind.STRING)
-    path = tmp_path / "project" / "vdos.analysis.json"
+    path = tmp_path / "project" / "rom.analysis.json"
     first.save(path, {"flags": "00ff"})
     assert json.loads(path.read_text(encoding="utf-8"))["kinds"].startswith("0105")
 

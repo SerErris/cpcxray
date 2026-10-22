@@ -1,7 +1,8 @@
 """The Vortex ROM scrambling rule (design.md §5.5; docs/vortex_decrypt.md, normative part).
 
-The VDOS ROM stores opcodes in clear and operands/data scrambled. The hardware decodes a byte
-read *without* M1 by XOR with a mask that depends on two address bits:
+A Vortex-scrambled ROM (Vortex X-module) stores opcodes in clear and operands/data scrambled.
+The hardware decodes a byte read *without* M1 by XOR with a mask that depends on two address
+bits:
 
 | A4 | A2 | mask |
 |----|----|------|

@@ -31,3 +31,6 @@ tests/data/asm/*.bin
 
 # Disk images (real images are local only, like ROMs)
 /disk/
+
+# local material of a separate project, not part of cpcxray
+vdos/

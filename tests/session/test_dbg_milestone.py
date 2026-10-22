@@ -2,7 +2,7 @@
 
 Each requirement is checked by the tests named here; this module adds the checklist (every
 requirement has its Session tools, hence its MCP tools, D-27) and an end-to-end case on the real
-VDOS: "who reads this byte of the scrambled ROM?".
+firmware and AMSDOS: "who reads this byte of the ROM?".
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from cpcxray.session.session import Session
-from tests.vdos import boot_vdos, requires_roms
+from tests.machines import boot, requires_roms
 
 # requirement → Session methods (GUI panels call the same methods, ui/panels/tabs.py)
 REQUIREMENTS = {
@@ -57,14 +57,14 @@ def test_requirement_has_tools(requirement: str) -> None:
 
 
 @requires_roms
-def test_who_reads_the_vdos_name_table(tmp_path: Path) -> None:
-    """A ROM read breakpoint finds the firmware routine that walks VDOS's RSX names."""
-    session = boot_vdos(tmp_path)
-    session.breakpoint_add("EA9C", kind="read", location="rom:5")  # hidden name &89
+def test_who_reads_the_amsdos_name_table(tmp_path: Path) -> None:
+    """A ROM read breakpoint finds the firmware routine that walks AMSDOS's RSX names."""
+    session = boot(tmp_path)
+    session.breakpoint_add("C0BE", kind="read", location="rom:7")  # hidden name &89
     session.type_text("|NOSUCH\r", wait=False)
     result = session.run(max_us=3_000_000)
     assert result["reason"] == "breakpoint"
     assert result["breakpoint"] == {
-        "id": 1, "kind": "read", "access": "read", "address": "EA9C", "value": "89",
-        "pc": "0321", "location": "rom5",  # KL FIND COMMAND's compare loop in the OS ROM
+        "id": 1, "kind": "read", "access": "read", "address": "C0BE", "value": "89",
+        "pc": "0321", "location": "rom7",  # KL FIND COMMAND's compare loop in the OS ROM
     }  # fmt: skip

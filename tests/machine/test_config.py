@@ -38,16 +38,29 @@ def test_repo_config_loads() -> None:
     assert cfg.project_dir == REPO
     assert cfg.lower_rom is not None
     assert cfg.lower_rom.file == REPO / "roms" / "os464.rom"
-    assert sorted(cfg.upper_roms) == [0, 5, 7]
-    vdos = cfg.upper_roms[5]
-    assert (vdos.decoder, vdos.decode, vdos.analyse) == ("vortex", True, True)
+    assert sorted(cfg.upper_roms) == [0, 7]
     for slot in (0, 7):
         rom = cfg.upper_roms[slot]
         assert (rom.decoder, rom.analyse) == (None, False)
-    assert not cfg.ram_targets
-    assert cfg.drives["A"].file == REPO / "disk" / "464_cpm_22_vdos.dsk"
-    assert cfg.drives["B"].file == REPO / "disk" / "Vortex_init.dsk"
-    assert not cfg.drives["A"].writable and not cfg.drives["B"].writable  # real images
+    assert not cfg.ram_targets and not cfg.analysis_targets()
+    assert cfg.drives["A"].file == REPO / "disk" / "464_cpm_22_orig.dsk"
+    assert not cfg.drives["A"].writable  # a real image
+
+
+@pytest.mark.parametrize(("name", "model", "os_rom", "basic"), [
+    ("test_cpc464.toml", "464", "os464.rom", "basic10.rom"),
+    ("test_cpc6128.toml", "6128", "os6128.rom", "basic11.rom"),
+    ("cpc6128.toml", "6128", "os6128.rom", "basic11.rom"),
+])  # fmt: skip
+def test_machine_configs(name: str, model: str, os_rom: str, basic: str) -> None:
+    """The test and 6128 configurations hold the plain machine ROMs: OS, BASIC and AMSDOS."""
+    cfg = load_config(REPO / "config" / name)
+    assert cfg.model == model and cfg.lower_rom is not None
+    assert cfg.lower_rom.file.name == os_rom
+    assert {slot: rom.file.name for slot, rom in cfg.upper_roms.items()} == {
+        0: basic, 7: "amsdos.rom",
+    }  # fmt: skip
+    assert not cfg.analysis_targets()
 
 
 def test_drives(tmp_path: Path) -> None:
@@ -60,10 +73,14 @@ def test_drives(tmp_path: Path) -> None:
     assert cfg.missing_disks() == [drive]
 
 
-def test_only_marked_targets_are_analysed() -> None:
+def test_only_marked_targets_are_analysed(tmp_path: Path) -> None:
     """Only slots marked analyse = true are analysis targets (FR-ANA-01, D-16)."""
-    cfg = load_config(REPO_CONFIG)
+    cfg = load_config(write_config(tmp_path, MINIMAL + (
+        '[rom.upper.0]\nfile = "basic.rom"\n'
+        '[rom.upper.5]\nfile = "scrambled.rom"\ndecoder = "vortex"\nanalyse = true\n'
+    )))  # fmt: skip
     assert [rom.slot for rom in cfg.analysis_targets()] == [5]
+    assert (cfg.upper_roms[5].decoder, cfg.upper_roms[5].decode) == ("vortex", True)
 
 
 def test_defaults(tmp_path: Path) -> None:

@@ -266,10 +266,10 @@ def test_http_transport(tmp_path: Path) -> None:
 
 def test_type_text_and_screen_text_over_mcp(tmp_path: Path) -> None:
     """The design's MCP example: type PRINT 1+1 and RETURN, then screen_text contains 2."""
-    from cpcxray.machine.config import load_config  # pylint: disable=import-outside-toplevel
     from cpcxray.machine.cpc464 import CPC464  # pylint: disable=import-outside-toplevel
+    from tests.machines import CONFIG_464  # pylint: disable=import-outside-toplevel
 
-    config = load_config(Path(__file__).resolve().parents[2] / "config" / "machine.toml")
+    config = CONFIG_464
     if config.lower_rom is None or not config.lower_rom.exists:
         pytest.skip("ROMs missing")
     worker = SessionWorker(Session(CPC464(config), project_dir=tmp_path))

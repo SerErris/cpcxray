@@ -9,22 +9,20 @@ file = "roms/os464.rom"
 [rom.upper.0]
 file = "roms/basic10.rom"
 
-[rom.upper.5]                # typical VDOS slot
-file = "roms/vdos211x.rom"  # VDOS 2.11X (raw, scrambled dump)
-decoder = "vortex"           # M1 raw, data reads decoded (§5.5)
-decode = true                # initial state of the decode switch (D-11)
-analyse = true               # analysis target (D-16)
-
 [rom.upper.7]
 file = "roms/amsdos.rom"
+
+# A scrambled ROM is installed with a decoder and can be made an analysis target, e.g.:
+# [rom.upper.5]
+# file = "roms/scrambled.rom"
+# decoder = "vortex"         # M1 raw, data reads decoded (§5.5)
+# decode = true              # initial state of the decode switch (D-11)
+# analyse = true             # analysis target (D-16)
 
 # Disk images inserted at power-on (phase 10); read-only unless writable = true.
 # A: 3" drive (40 tracks, 1 side), B: Vortex 5.25" drive (80 tracks, 2 sides).
 [drive.A]
-file = "disk/464_cpm_22_vdos.dsk"
-
-[drive.B]
-file = "disk/Vortex_init.dsk"
+file = "disk/464_cpm_22_orig.dsk"
 
 # Optional RAM-range analysis targets (D-23)
 # [[analysis.ram]]

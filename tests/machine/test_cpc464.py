@@ -83,7 +83,7 @@ def test_bus_observers_swap_methods() -> None:
 
 def test_decoder_slots_get_decoder_and_shadow(tmp_path: Path) -> None:
     """A slot with a decoder is installed scrambled, with a shadow ROM (phase 7, D-17)."""
-    rom = tmp_path / "vdos.rom"
+    rom = tmp_path / "scrambled.rom"
     rom.write_bytes(bytes(0x4000))
     config = MachineConfig(
         project_dir=tmp_path,

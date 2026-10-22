@@ -5,7 +5,7 @@ Each `Z80.step()` executes one instruction (or accepts one interrupt) atomically
 cost in CPC NOPs (µs, D-04). All bus accesses are issued in the order of the real Z80 and carry
 their signals through the bus method used: opcode and prefix bytes via `fetch()` (M1),
 everything else via `read()`/`write()`/`io_in()`/`io_out()`; `DD CB d op` reads *d* and *op*
-without M1. Correct M1 attribution is what the descrambling of the VDOS ROM relies on (§5.5).
+without M1. Correct M1 attribution is what the descrambling of scrambled ROMs relies on (§5.5).
 
 Structure
 ---------

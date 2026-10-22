@@ -6,7 +6,7 @@ import pytest
 
 from cpcxray.disk.cpm import FORMATS, CpmDisk, CpmError, amsdos_header, detect_format
 from cpcxray.disk.dsk import blank_image, load_image
-from tests.vdos import CPM_DISK, VORTEX_DISK, requires_disks
+from tests.machines import CPM_DISK, VORTEX_DISK, requires_disks
 
 
 def write_file(

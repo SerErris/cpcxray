@@ -17,7 +17,7 @@ Scheduler (D-04, D-05): `step()` executes one instruction, advances the clock by
 µs and lets the Gate Array latch the 300 Hz interrupt; the INT line follows the Gate Array's
 request before every instruction. `run(budget_us)` repeats that for a time slice.
 
-ROM slots with a decoder (the scrambled VDOS) get the decode rule and a shadow ROM (phase 7,
+ROM slots with a decoder (a scrambled ROM) get the decode rule and a shadow ROM (phase 7,
 D-11, D-17). Configured ROMs whose file is missing are listed in `skipped_roms`.
 """
 

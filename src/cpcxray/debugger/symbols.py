@@ -18,7 +18,7 @@ Annotation file format (plain text, one entry per line, `#` starts a comment lin
 
     # [scope:]address  label  [; comment]
     BB5A        my_output       ; print char in A
-    rom5:C000   vdos_header
+    rom5:C000   rom_header
     8000        -               ; a comment only, no label
 
 Addresses are hex (optionally with a leading & or #); `-` stands for "no label".

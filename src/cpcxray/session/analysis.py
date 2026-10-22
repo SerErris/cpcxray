@@ -499,8 +499,8 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
         Only blocks that ran in RAM (or that the owner added) count: a copy that never runs is
         data, e.g. a table. Per ROM range the copy with the most executed instructions wins;
         blocks overlapping a chosen one in the ROM, or lying in the target's own address
-        range, are left out. RAM ranges may overlap: VDOS copies several routines to &BF00
-        at different times (overlays); each keeps its own DISP block.
+        range, are left out. RAM ranges may overlap: a ROM may copy several routines to the
+        same RAM address at different times (overlays); each keeps its own DISP block.
 
         Returns:
             (chosen blocks sorted by ROM start, all blocks of the target).

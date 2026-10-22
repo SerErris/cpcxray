@@ -10,16 +10,16 @@ instructions and output format)
 
 ## 1. Purpose and scope
 
-CPC X-Ray (binary and package: `cpcxray`) is a **software-compatible Amstrad CPC 464 emulator built for reverse engineering**. Its
-primary job is to descramble and disassemble the **Vortex X-Module ROM (VDOS)**, a 16 KB upper
-background ROM for the Vortex F1-X disk drive system. It can also analyse other code that the owner
-selects (another ROM or a program in RAM).
+CPC X-Ray (binary and package: `cpcxray`) is a **software-compatible Amstrad CPC 464/6128
+emulator built for reverse engineering**: it runs the real CPC firmware, BASIC and AMSDOS plus any
+expansion ROMs, and analyses the code the owner selects (any ROM or a program in RAM) down to a
+reassemblable source.
 
-The VDOS ROM is stored **scrambled**. The original hardware decodes bytes on the fly, depending on
-whether the CPU performs an **opcode fetch (M1 cycle)** or an ordinary memory read. The emulator
-runs the real CPC firmware, BASIC, AMSDOS and VDOS ROMs, applies the same decoding on every read of
-the scrambled ROM, and records the result, so that a fully descrambled ROM image and a
-reassemblable source can be produced.
+It also handles **scrambled ROMs**, such as those of the Vortex X-module, whose hardware decodes
+bytes on the fly depending on whether the CPU performs an **opcode fetch (M1 cycle)** or an
+ordinary memory read. The emulator applies the same decoding on every read of such a ROM and
+records the result, so that a fully descrambled ROM image and a reassemblable source can be
+produced.
 
 **This is not** a cycle-exact or hardware-exact CPC emulator. Only those parts of the hardware are
 modelled that the software needs to behave correctly, and only at the level of their effect on the
@@ -27,8 +27,9 @@ software.
 
 ### 1.1 Deliverables of the tool
 
-1. A running CPC 464 environment that boots the original ROMs including VDOS.
-2. A **descrambled (clear) VDOS ROM image**, dumpable as a binary file for a new ROM.
+1. A running CPC 464 / 6128 environment that boots the original ROMs and any expansion ROMs.
+2. For scrambled ROMs, a **descrambled (clear) ROM image**, dumpable as a binary file for a new
+   ROM.
 3. A **complete sjasmplus source** of the analysed code that reassembles byte-identically.
 4. A **switchable live trace** of executed instructions.
 5. A debugger: screen, registers, memory, disassembly, device state, bus/M1 trace, breakpoints.
@@ -58,7 +59,7 @@ software.
 | FR-MCH-02 | ROM enable/disable via the Gate Array (OUT &7Fxx, function 10: bit 2 = lower ROM off, bit 3 = upper ROM off). |
 | FR-MCH-03 | Upper ROM select via `OUT (C),C` with `BC = &DFnn`. |
 | FR-MCH-04 | ROM selection behaves like individual CE/OE lines per ROM chip: the selected ROM is read. ROMDIS and physical limits on the number of ROMs are not modelled. |
-| FR-MCH-05 | Upper ROM slots 0–15 can each be loaded with a ROM file. Defaults: slot 0 = BASIC 1.0, slot 7 = AMSDOS; VDOS typically in slot 5. |
+| FR-MCH-05 | Upper ROM slots 0–15 can each be loaded with a ROM file. Defaults: slot 0 = BASIC 1.0, slot 7 = AMSDOS. |
 | FR-MCH-06 | Writes to ROM address ranges always go to the RAM underneath. |
 | FR-MCH-07 | Gate Array: only the I/O-visible behaviour (pen, inks, border, screen mode, ROM enables, interrupt generation), stored as parameters in a GA object. |
 | FR-MCH-08 | A 300 Hz interrupt and a VSYNC flag (readable at &F5xx bit 0), so the firmware can derive its 50 Hz frame-flyback events. |
@@ -70,7 +71,7 @@ software.
 
 | ID | Requirement |
 |---|---|
-| FR-DEC-01 | A ROM slot can have a **decoder**. For VDOS: **M1 fetches pass unchanged; every other read is decoded** with `raw XOR mask`, where mask bit &20 is set if A2 = 1 and mask bit &08 is set if A4 = 1 (§5.5). |
+| FR-DEC-01 | A ROM slot can have a **decoder**. For the Vortex scheme: **M1 fetches pass unchanged; every other read is decoded** with `raw XOR mask`, where mask bit &20 is set if A2 = 1 and mask bit &08 is set if A4 = 1 (§5.5). |
 | FR-DEC-02 | Decoding can be **switched on and off per ROM**, in the config and at runtime. |
 | FR-DEC-03 | For scrambled ROMs only: a **shadow ROM** holds the clear value of every byte read, and an **M1/data access map** records for every byte whether it was fetched with M1 or read as data. |
 | FR-DEC-04 | The access map can be saved, loaded and merged; the clear ROM can be **decoded from raw ROM + map** without running the emulator. Unknown and conflicting bytes are visible directly in the map. |
@@ -167,13 +168,13 @@ software.
 | D-13 | **Single-threaded emulation in time slices** (GUI mode: in the GUI thread, e.g. 20 ms emulated per frame). Other threads (MCP server) communicate only through a command queue (D-29). | No locking; the renderer reads a consistent snapshot. |
 | D-14 | **6128 RAM banking** (phase 11): `MemoryMap.ram` stays the CPU's 64 KB view, holding the blocks mapped now; a configuration change swaps only the pages whose block changes between the view and a block store (all outgoing pages saved first, then the new ones loaded). Debugger, renderer and `.sna` reach physical blocks through `block(n)` / `base_ram()`. | FR-MCH-10. The read and write paths stay exactly as on the 464 (no per-access table lookup), and every user of `memory.ram` keeps working; banking is rare compared with memory accesses, and no configuration maps one block twice, so the view never aliases. |
 | D-15 | **CPU verification in three layers:** per-opcode JSON tests, ZEXDOC/ZEXALL, raxoft z80test. | Fast, precise failure localisation first; the acceptance test last. |
-| D-16 | **Analysis targets are explicit.** A target is a ROM slot (upper 0–15 or lower ROM) or a RAM range. Targets are marked in the config (`analyse = true`, `[[analysis.ram]]`) or set at runtime (GUI, debugger API, MCP). Several targets may be active; each has its own analysis database and source output. Everything else runs normally and is not analysed. The default config marks only VDOS. The live disassembly view works on any address. | The owner decides what is analysed. The standard ROMs are fully documented; analysing them would only cost time and produce noise. |
-| D-17 | **Shadow ROM and M1/data access map exist only for scrambled ROMs** (targets with a decoder; in practice VDOS). Unscrambled targets are disassembled directly; their code/data distinction comes from the per-byte data kind in the analysis database. | Their purpose is decoding; for clear code they would only duplicate information. |
+| D-16 | **Analysis targets are explicit.** A target is a ROM slot (upper 0–15 or lower ROM) or a RAM range. Targets are marked in the config (`analyse = true`, `[[analysis.ram]]`) or set at runtime (GUI, debugger API, MCP). Several targets may be active; each has its own analysis database and source output. Everything else runs normally and is not analysed. The default config marks none. The live disassembly view works on any address. | The owner decides what is analysed. The standard ROMs are fully documented; analysing them would only cost time and produce noise. |
+| D-17 | **Shadow ROM and M1/data access map exist only for scrambled ROMs** (targets with a decoder). Unscrambled targets are disassembled directly; their code/data distinction comes from the per-byte data kind in the analysis database. | Their purpose is decoding; for clear code they would only duplicate information. |
 | D-18 | **Conflicts:** a byte of a scrambled ROM read both as M1 and as data is an error in the access map. It is a *real* conflict where the decode mask is non-zero (A2 or A4 set), because a plain replacement ROM can hold only one value; at mask-zero addresses it is harmless. Both values are kept and reported. | Such bytes cannot be represented in the clear ROM and need the owner's decision. |
 | D-19 | **Access map format:** raw binary file `<rom>.m1map`, exactly 16,384 bytes, byte *i* describes ROM offset *i*: `&7F` unknown (initial), `&01` M1, `&00` data, `&FF` error. Optional range list export as text/JSON. Only observed facts are stored. | Smallest and fastest form; loads into a `bytearray` in one call, lines up 1:1 with the ROM in a hex editor, `cmp` shows differences. Per-address JSON would be ~25× larger. Guesses stay in the analysis database, so the map never mixes certainty with assumptions. |
 | D-20 | **Dump fill policy is selectable per dump** for never-read bytes: `raw`, `data` (decoded as if data), `ff`, `static` (code/data guess by recursive disassembly). Every dump comes with a **ROM map** highlighting never-accessed areas. | Never-read bytes cannot be decoded with certainty, because decoding depends on the access type. |
 | D-21 | **Automatic RAM provenance tracking for analysis targets.** A RAM byte written with a value read from a target carries the tag (target, offset, exact/probable). Block moves (LDI/LDIR/LDD/LDDR) give exact tags; copies via registers give probable tags. An M1 fetch from tagged RAM marks the origin bytes as executed via RAM and as instruction starts. | Code that only runs from RAM is never M1-fetched from the ROM; without provenance it would appear as data and could not be linked to ROM addresses, labels and comments. |
-| D-22 | **Relocated code blocks:** consecutive provenance tags with a constant offset form a block (target, ROM start, length, RAM start), stored in the analysis database and editable by the owner. Views, listing and source generator disassemble a **position-dependent** block **at its RAM address**; the source wraps it in sjasmplus `DISP ram_start` … `ENT`. A position-independent block (no relative branch inside it, no absolute reference into its RAM range from executed code) stays at its ROM address with a comment line. | Absolute JP/CALL targets, pointers and labels that point into the copy are only meaningful in RAM coordinates. `DISP` assembles for the RAM address while placing the bytes at the ROM position, so the ROM still reassembles byte-identically. A copied jumpblock whose entries jump into the ROM needs no RAM coordinates; a `DISP` would only split it (VDOS's boot jumpblock &C0D2, partly kept at &AD0E by the CP/M BIOS). |
+| D-22 | **Relocated code blocks:** consecutive provenance tags with a constant offset form a block (target, ROM start, length, RAM start), stored in the analysis database and editable by the owner. Views, listing and source generator disassemble a **position-dependent** block **at its RAM address**; the source wraps it in sjasmplus `DISP ram_start` … `ENT`. A position-independent block (no relative branch inside it, no absolute reference into its RAM range from executed code) stays at its ROM address with a comment line. | Absolute JP/CALL targets, pointers and labels that point into the copy are only meaningful in RAM coordinates. `DISP` assembles for the RAM address while placing the bytes at the ROM position, so the ROM still reassembles byte-identically. A copied jumpblock whose entries jump into the ROM needs no RAM coordinates; a `DISP` would only split it (e.g. a jumpblock that a CP/M BIOS copies and partly overwrites). |
 | D-23 | **RAM-range targets** are analysed on an image captured on command or at the first M1 fetch inside the range. Source `ORG` = range start. Later writes into the range are flagged with their runtime value; the owner can recapture. Provenance and relocation do not apply. | RAM code can be loaded, unpacked or patched at runtime; the bytes to disassemble must be fixed at a defined moment, and later changes must be visible. |
 | D-24 | **Trace sinks:** text file, CSV, JSON Lines, GUI panel; each switchable. | Text for reading, CSV/JSON for scripts, panel for live work. |
 | D-25 | **Snapshots in `.sna` format only.** Analysis state (access map, analysis database) is saved in its own files. | `.sna` holds machine state only and stays compatible with other emulators. |
@@ -251,7 +252,7 @@ Defaults: R1 = 40 (80 bytes per line), R6 = 25 rows, R9 = 7 (8 lines per charact
 
 Bit interleaving follows the standard CPC layout; pens map to the 27-colour hardware palette.
 
-### 5.5 VDOS ROM scrambling
+### 5.5 Vortex ROM scrambling
 
 Normative parts of `docs/vortex_decrypt.md`: the decoding routine and the M1 rules (the sections on
 z80dasm are background only and not relevant to this implementation).
@@ -272,8 +273,8 @@ z80dasm are background only and not relevant to this implementation).
   `FD CB d op`, both *d* and *op* are non-M1 and decoded.
 - Everything read without M1 is decoded, including what the firmware reads from the ROM (header,
   name table, RSX names, far addresses) and the bytes after an RST.
-- Code that VDOS copies to RAM is read without M1, so it arrives in RAM decoded: in the ROM it is
-  stored fully encrypted.
+- Code that such a ROM copies to RAM is read without M1, so it arrives in RAM decoded: in the ROM
+  it is stored fully encrypted.
 
 ### 5.6 CPC restart instructions
 
@@ -316,7 +317,7 @@ The same handler shows why relocated blocks must be disassembled at their RAM ad
 │   Z80 CPU ──bus accesses──► Bus ──► MemoryMap ──► RAM 64K                         │
 │     ▲ INT/NMI                │          │      ├─► Lower ROM (OS)                 │
 │     └──── interrupt timer ◄──┤          │      └─► Upper ROM slots 0–15           │
-│                              │          │              └─ RomSlot(VDOS)           │
+│                              │          │              └─ RomSlot(scrambled)      │
 │                              │          │                  ├─ decoder + switch    │
 │                              │          │                  └─ shadow + M1 map     │
 │                              ├──► I/O broadcast ─► GateArray, CRTC, RomSelect,    │
@@ -485,7 +486,7 @@ with the runtime value; the owner can recapture.
 - Mapping RAM back to a target (executed code, RSTs, far address objects) trusts an exact tag,
   but a probable tag only inside a copied run (a neighbouring RAM byte carries the neighbouring
   offset): code that builds bytes with `ld (hl),n` writes values equal to its own operands
-  (VDOS builds a FAR CALL at &BB48 and its far object at &BE26 that way).
+  (e.g. a ROM that builds a FAR CALL and its far address object in RAM).
 
 **Relocated blocks (D-22):**
 
@@ -494,8 +495,8 @@ with the runtime value; the owner can recapture.
   add, split or correct blocks (`reloc_list/add/remove`).
 - Same range copied to several RAM addresses: all destinations are listed; the one with the most
   executed instructions is used for disassembly, the others appear as comments.
-- Different ROM ranges copied to the same RAM address at different times (overlays, e.g. VDOS
-  uses &BF00 for several routines): each is its own `DISP` block; their labels name both
+- Different ROM ranges copied to the same RAM address at different times (overlays, e.g. a ROM
+  that uses &BF00 for several routines): each is its own `DISP` block; their labels name both
   addresses (`ram_bf00_ff4a`); a reference from outside to an overlaid RAM address stays hex.
 - Only blocks that executed in RAM (or that the owner added) become `DISP` blocks; a copy that
   never runs is data (e.g. a jump table).
@@ -595,17 +596,15 @@ Responsible for reset, configuration and wiring; provides `snapshot()` for rende
 - `RawImage` for Vortex: 80 tracks × 2 sides × 9 sectors × 512 bytes = 737,280 bytes; sector IDs
   &01–&09; sides interleaved per track, so sector *id* of track *t*, side *s* is at offset
   `((t * 2 + s) * 9 + (id - 1)) * 512`.
-- Vortex format, confirmed on a real VDOS disk (phase 10): sector IDs carry the head number;
+- Vortex format, confirmed on a real Vortex-format disk (phase 10): sector IDs carry the head number;
   physical interleave 1,6,2,7,3,8,4,9,5; CP/M layout with cylinder 0 (both heads) reserved,
   4 KB blocks with 8-bit block numbers, 128 directory entries in block 0 at cylinder 1, logical
   order cylinder → head 0 → head 1.
 - The CPC has no terminal count: a read/write ends after sector EOT with ST0 &40, ST1 &80 ("end of
-  cylinder"), which AMSDOS and VDOS expect.
-- Real images are inserted read-only (the FDC reports write protection; VDOS: "Diskette hat
-  Schreibschutz"); writes go to drafts (`disk_new`) and reach a file only via `disk_save`, never
+  cylinder"), which AMSDOS expects.
+- Real images are inserted read-only (the FDC reports write protection; AMSDOS: "disc is write
+  protected"); writes go to drafts (`disk_new`) and reach a file only via `disk_save`, never
   over a read-only image's file.
-- VDOS's turnkey function reads the directory of A: at boot (looking for HELLO.BAS/HELLO.BIN), so
-  the boot takes about 1 s longer with a disk in A:.
 
 ### 6.12 Renderer (`ui/renderer.py`)
 
@@ -648,11 +647,12 @@ file = "roms/os464.rom"
 [rom.upper.0]
 file = "roms/basic10.rom"
 
-[rom.upper.5]                # typical VDOS slot
-file = "roms/vortex_x.rom"
-decoder = "vortex"           # M1 raw, data reads decoded (§5.5)
-decode = true                # initial state of the decode switch (D-11)
-analyse = true               # analysis target (D-16)
+# A scrambled ROM: decoder, decode switch and analysis mark, e.g.
+# [rom.upper.5]
+# file = "roms/scrambled.rom"
+# decoder = "vortex"         # M1 raw, data reads decoded (§5.5)
+# decode = true              # initial state of the decode switch (D-11)
+# analyse = true             # analysis target (D-16)
 
 [rom.upper.7]
 file = "roms/amsdos.rom"
@@ -725,8 +725,8 @@ far_c7f3:
 - Static guesses (recursive descent from observed code and the ROM header jumpblock) also take
   the neighbouring entries of a jump table: next to a `jp nn` into the target, the following
   `C3 nn nn` entry, and the preceding one inside a run of three. Their opcode bytes may have
-  been read as data: a table that runs from a RAM copy was read by the copy (VDOS's boot
-  jumpblock &C0D2, 17 entries, copied whole, only some run).
+  been read as data: a table that runs from a RAM copy was read by the copy (e.g. a jumpblock
+  handed to a boot sector: copied whole, only some entries run).
 
 **Source generator** — walks the target range linearly and emits every byte exactly once:
 
@@ -747,8 +747,8 @@ A ROM header at &C000 (type, mark, version, modification, name-table pointer, ju
 dedicated rendering and labels.
 
 ```asm
-; VDOS (Vortex X-Module) — descrambled, generated by cpcxray
-        OUTPUT "vdos_clear.rom"
+; rom.rom (slot rom5) - generated by cpcxray
+        OUTPUT "rom_clear.rom"
         ORG #C000
 rom_type:   defb 001h           ; background ROM
 ...
@@ -836,9 +836,9 @@ the round-trip check).
 | Machine | Boot | Boot; screen RAM contains "BASIC 1.0" / "Ready" (character cells, not pixels). |
 | Decoding | Rule and M1 handling | `vortex_decode` for all four mask cases; M1 reads raw, data reads decoded; `DD CB d op` decodes *d* and *op*; runtime toggle effective from the next read; access-map update and merge rules; decode-from-map equals emulator result. |
 | Analysis | Targets, provenance, relocation | Only configured targets are analysed; provenance tags from block moves; relocated block detection; RAM-target capture and change flags. |
-| Source generator | Reassembly | VDOS clear ROM: generated source → sjasmplus → identical bytes. Unit tests per RST rendering, far address objects, CPC strings, `DISP` blocks, every non-canonical encoding. |
+| Source generator | Reassembly | Generated source → sjasmplus → identical bytes (plain and scrambled test images). Unit tests per RST rendering, far address objects, CPC strings, `DISP` blocks, every non-canonical encoding. |
 | MCP | Parity and behaviour | Every public `Session` method has an MCP tool; in-process MCP client tests per tool group (e.g. `type_text("PRINT 1+1\r")`, then `screen_text()` contains "2"). |
-| End to end | VDOS | Boot with all ROMs; VDOS initialises (sign-on appears), RSX commands respond; dump, ROM map and source produced. |
+| End to end | Firmware, BASIC, AMSDOS | Boot to BASIC (464, 6128); typing, screen, disk CAT/LOAD/SAVE through AMSDOS; debugger on the real firmware. |
 
 ---
 
@@ -857,10 +857,10 @@ next phase.
 | 4 | Machine: MemoryMap and ROM slots, GA, ROM select, CRTC registers, SystemIO (port B + VSYNC), interrupt timer | **CPC 464 boots to "BASIC 1.0 / Ready"** (checked on screen RAM) | Trace from reset; firmware milestones (jumpblock setup, ROM scan, screen clear); breakpoints on GA and &F5xx |
 | 5 | Renderer and Dear PyGui shell (screen, run/pause/step/reset) | Boot screen visible; MODE 0/1/2, INK, BORDER and scrolling correct | Compare with a reference emulator |
 | 6 | Keyboard row array, host key mapping, type-text helper | BASIC commands can be typed | Watch &F4xx reads in the device view |
-| 7 | Decoding and analysis: decoder and switch, shadow ROM, access map (save/load/merge, decode from map), conflicts, analysis targets (ROM and RAM), provenance, relocated blocks, trace sinks, dump, ROM map | **VDOS is found and initialised; conflict report reviewed; dump and ROM map produced** | Break on M1 inside the VDOS slot; trace the ROM header reads during the ROM scan |
-| 8 | Analysis database (save/merge), RST-operand and far-address observers, sjasmplus source generator, round-trip check | **Generated VDOS source reassembles byte-identically** | `source_verify` lists differing addresses |
+| 7 | Decoding and analysis: decoder and switch, shadow ROM, access map (save/load/merge, decode from map), conflicts, analysis targets (ROM and RAM), provenance, relocated blocks, trace sinks, dump, ROM map | **A scrambled ROM is found and initialised; conflict report, dump and ROM map produced** | Break on M1 inside the scrambled slot; trace the ROM header reads during the ROM scan |
+| 8 | Analysis database (save/merge), RST-operand and far-address observers, sjasmplus source generator, round-trip check | **Generated source reassembles byte-identically** | `source_verify` lists differing addresses |
 | 9 | Full debugger UI: all panels and breakpoint types; `.sna` snapshots | All FR-DBG requirements met | — |
-| 10 | FDC µPD765 and disk images (DSK/EDSK/raw, read/write), drive A: 3", drive B: Vortex 80T DS | AMSDOS `CAT` on A:; Vortex format on B:; VDOS disk code paths reached and decoded | FDC command log in the device view |
+| 10 | FDC µPD765 and disk images (DSK/EDSK/raw, read/write), drive A: 3", drive B: Vortex 80T DS | AMSDOS `CAT`, LOAD and SAVE on A:; Vortex format images read and written | FDC command log in the device view |
 | 11 | 6128 RAM banking (D-14, FR-MCH-10), `model = "6128"`, `config/cpc6128.toml`; the native CPU / Rust port only if CPython speed becomes a real blocker | **Done:** the 6128 boots to BASIC 1.1; banking configurations work (every configuration tested; `OUT &7F00,&C4` from BASIC); full test suite passes | Banking tests per configuration |
 
 ### 9.1 Repository layout
@@ -909,5 +909,5 @@ cpcxray/
 - sjasmplus documentation: https://z00m128.github.io/sjasmplus/documentation.html
 - Z80 timings on Amstrad CPC, cheat sheet V1.3 (CPCWiki, 2023-07-09), basis of the NOP timing
   table (D-04): https://www.cpcwiki.eu/imgs/b/b4/Z80_CPC_Timings_cheat_sheet.20230709.pdf
-- `docs/vortex_decrypt.md` — VDOS scrambling rule and M1 behaviour (normative parts: §5.5)
+- `docs/vortex_decrypt.md` — Vortex scrambling rule and M1 behaviour (normative parts: §5.5)
 - `docs/cpc_rst.md` — CPC RST instructions and output format (RST 1 bits per §5.6)

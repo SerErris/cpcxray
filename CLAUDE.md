@@ -1,11 +1,11 @@
 # CPC X-Ray (`cpcxray`)
 
-An Amstrad CPC 464 emulator built for reverse engineering. Its main job is to descramble and
-disassemble the **Vortex X-Module ROM (VDOS)**: the emulator runs the real firmware, BASIC,
-AMSDOS and VDOS ROMs, decodes the scrambled ROM on every read depending on M1 (opcode fetch) vs.
-data read, and records the result. Outputs: a clear ROM image, an access map/ROM map, a
-reassemblable sjasmplus source, traces, a debugger GUI and an MCP server. Software-compatible,
-not cycle-exact.
+An Amstrad CPC 464/6128 emulator built for reverse engineering: it runs the real firmware,
+BASIC, AMSDOS and any expansion ROMs, and analyses the code the owner selects (any ROM or a RAM
+range). Scrambled ROMs (e.g. the Vortex X-module scheme) are decoded on every read depending on
+M1 (opcode fetch) vs. data read, and the result is recorded. Outputs: a clear ROM image, an
+access map/ROM map, a reassemblable sjasmplus source, traces, a debugger GUI and an MCP server.
+Software-compatible, not cycle-exact.
 
 ## Design documents
 
@@ -53,7 +53,7 @@ ruff format                       # format (Markdown is excluded)
 pylint src tests tools            # must rate 10/10; disables only with a stated reason
 cpcxray config                    # show parsed config/machine.toml, missing ROMs, sjasmplus
 cpcxray mcp                       # headless MCP server on stdio (Claude Code: .mcp.json)
-cpcxray source-verify output/vdos211x.asm output/vdos211x_clear.rom   # round trip (D-33)
+cpcxray source-verify output/rom.asm output/rom_clear.rom   # round trip (D-33)
 cpcxray gui                       # window, starts running (--paused: stopped at &0000); MCP over
                                   #   HTTP on 127.0.0.1:8765 (--mcp-port 0: off)
 CPCXRAY_UPDATE_GOLDEN=1 pytest tests/disasm   # regenerate the disassembler golden listing
@@ -101,31 +101,31 @@ Do not start the next phase without the owner's go-ahead.
 **Status:** Phases 0-11 done: skeleton and config loader; Z80 core (all 1.6 M SingleStepTests
 pass); CPU validation (ZEXDOC/ZEXALL, z80test); disassembler, CPC RST profile, symbols, Session,
 MCP server; CPC 464 booting to BASIC; renderer and GUI (real time, MCP over HTTP); keyboard;
-decoding and analysis (VDOS decoded and initialised); analysis database, classifier, sjasmplus
-source generator and round-trip check (VDOS source reassembles byte-identically); full debugger
-(breakpoints with location qualifiers, bus trace, memory views, `.sna`, GUI panels); µPD765 FDC
-with DSK/EDSK/raw images (VDOS reads the 3" CP/M disk in A: and the Vortex disk in B:); CPC 6128
-with RAM banking (boots to BASIC 1.1). Open work: docs/todo.md - only with the owner's go-ahead.
+decoding and analysis of scrambled ROMs; analysis database, classifier, sjasmplus source
+generator and round-trip check; full debugger (breakpoints with location qualifiers, bus trace,
+memory views, `.sna`, GUI panels); µPD765 FDC with DSK/EDSK/raw images (AMSDOS reads and writes
+the 3" disk in A:; Vortex 80-track format in B:); CPC 6128 with RAM banking (boots to BASIC 1.1).
+Tests run on the plain machine ROMs only: config/test_cpc464.toml / test_cpc6128.toml (OS,
+BASIC, AMSDOS) via tests/machines.py. Open work: docs/todo.md - only with the owner's go-ahead.
 
 Validation runtimes on CPython (8 cores): z80test ~1 min for all variants; ZEXDOC+ZEXALL ~30 min,
 dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on one core).
 
 ## Disk notes (phase 10)
 
-- disk/: 464_cpm_22_vdos.dsk (3" CP/M 2.2 SYSTEM disk, A:), Vortex_init.dsk (VDOS system disk, B:;
-  the tests use vortex_test.dsk, a fixed copy, in B: instead - tests/vdos.py),
-  464_CPM_2.2_work.dsk (for later). Real images: **never write to them** - they are inserted
+- disk/: 464_cpm_22_orig.dsk (3" CP/M 2.2 SYSTEM disk, A: in config/machine.toml and the
+  tests), vortex_test.dsk (a fixed Vortex-format image for the tests). Real images: **never
+  write to them** - they are inserted
   read-only (`[drive.X] writable = false`, the default); use `disk_new` drafts for writes and
   `disk_save` to another file.
 - disk/dsk.py: `DiskImage` (tracks → sectors with C,H,R,N, ST1/ST2, data), EDSK/DSK/raw Vortex
   loading, EDSK saving, blank formats vortex/data/system. disk/cpm.py: host-side CP/M reader
-  (formats system/data/vortex, extents, AMSDOS header) - the reference for what VDOS reads.
+  (formats system/data/vortex, extents, AMSDOS header) - the reference for what disk ROMs read.
 - devices/fdc765.py: full µPD765 (read/write/format/read id/seek/...; sectors found by ID; MT;
   CPC end of cylinder ST0 &40/ST1 &80 after EOT; read-only → ST1 NW). A: 40 tracks 1 side
   (head select ignored), B: 80 tracks 2 sides; US0 only (units 2/3 alias 0/1). Log collapses
-  repeats (VDOS sends SPECIFY constantly).
-- VDOS turnkey: at boot it reads A:'s directory looking for HELLO.BAS/BIN: boot to Ready ~3.8 s
-  with a disk in A:. Tests boot with `tests.vdos.run_until_ready`, never a fixed time.
+  repeats (a disk ROM may send SPECIFY constantly).
+- Tests boot with `tests.machines.run_until_ready` (or `boot`), never a fixed time.
 - Typing: SHIFT/CONTROL are pressed 20 ms before and released 20 ms after the key, otherwise a
   keyboard scan in progress can see the letter without SHIFT.
 - session/disks.py `DiskMixin`: disk_list/insert/eject/new/save/catalog/read_file; GUI Disks tab.
@@ -176,7 +176,7 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   `final_image` per fill policy ("static" keeps opcode bytes of classified code raw). Static
   descent from observed code and the ROM header jumpblock; never into &FF or non-canonical code.
 - Only relocated blocks that ran in RAM (or manual ones) become DISP blocks; unexecuted copies
-  are data tables (VDOS copies its jumpblock to RAM). Of those, only position-dependent blocks
+  are data tables (e.g. a jumpblock copied to RAM). Of those, only position-dependent blocks
   (relative branch inside, or an absolute reference into the RAM copy) get DISP; the others stay
   at their ROM address with a comment (`TargetView.ram_copies`, classifier.position_dependent).
 - RAM is mapped back to a ROM (EXEC_VIA_RAM, RSTs, far objects) only through trusted tags:
@@ -199,8 +199,6 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
 - Access map: project/<rom>.m1map (16 KB, D-19), merged at session start, saved on GUI exit and
   with `m1map_save`. Dumps/maps go to output/<rom>_clear.rom, _rom_map.html/.txt, _coverage.csv.
   Fill policy "static" comes from the phase 8 classifier.
-- devices/fdc765.py is a µPD765 *stub* (all drives not ready): without it VDOS's result loop
-  reads &FF forever and overwrites RAM. The full FDC with disk images is phase 10.
 - analysis/provenance.py `AnalysisObserver` (bus observer, only while targets exist): RAM tags
   (exact via LDIR/LDDR, probable via value), EXEC_VIA_RAM/INSN_START on the origin bytes,
   relocated blocks, RAM-target capture. It slows emulation to ~1.2x real time.

@@ -8,9 +8,9 @@ from typing import Any
 
 import pytest
 
-from cpcxray.machine.config import load_config
 from cpcxray.machine.cpc464 import CPC464
 from cpcxray.session.session import Session
+from tests.machines import CONFIG_464, VORTEX_DISK, with_disks
 
 pytestmark = pytest.mark.skipif(
     not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")), reason="no display"
@@ -26,9 +26,9 @@ def test_window_keyboard_type_box_and_panels(tmp_path: Path) -> None:
 
     from cpcxray.ui.app import App  # pylint: disable=import-outside-toplevel
 
-    config = load_config(Path(__file__).resolve().parents[2] / "config" / "machine.toml")
-    if config.lower_rom is None or not config.lower_rom.exists:
-        pytest.skip("ROMs missing")
+    config = with_disks(CONFIG_464, b=VORTEX_DISK)
+    if not all(rom.exists for rom in config.roms()) or not VORTEX_DISK.is_file():
+        pytest.skip("ROMs or disk images missing")
     machine = CPC464(config)
     app = App(Session(machine))
     app.loop.max_speed = True
@@ -38,7 +38,7 @@ def test_window_keyboard_type_box_and_panels(tmp_path: Path) -> None:
         key_map = machine.key_map()
         for cpc_name in set(app._host_keys.values()):  # pylint: disable=protected-access
             key_map.key_number(cpc_name)  # raises for an unknown name
-        for _ in range(400):  # boot at max speed (VDOS looks for HELLO.BAS on A:)
+        for _ in range(400):  # boot at max speed
             app.render_frame()
             if "Ready" in app.session.screen_text()["lines"]:
                 break
@@ -93,6 +93,7 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
 
 def check_toggles_and_freeze(app: Any, dpg: Any) -> None:
     """Trace and analysis toggles, panels frozen while running (inside the one GUI test)."""
+    app.session.analysis_target_add("rom7")  # any ROM can be an analysis target (AMSDOS here)
     panels = app.panels
     app._toggle_analysis()  # pylint: disable=protected-access
     app.render_frame()

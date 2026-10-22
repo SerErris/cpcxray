@@ -16,8 +16,8 @@ An M1 fetch from tagged RAM flags the origin byte EXEC_VIA_RAM, and INSN_START f
 byte of an instruction, and counts executions per RAM address. A probable tag counts only inside
 a copied run (a neighbouring RAM byte tagged with the consecutive offset of the same ROM): a
 single value match is a coincidence too often - the firmware's FAR CALL writes a JP opcode &C3
-into RAM right after reading a pointer byte &C3 from the ROM, which made a VDOS operand byte look
-like executed code (found with |CPM, &C324).
+into RAM right after reading a pointer byte &C3 from the ROM, which made an operand byte of the
+calling ROM look like executed code.
 
 Relocated blocks (D-22): consecutive RAM addresses whose tags point to consecutive offsets of
 the same target form a block (target, rom_start, length, ram_start). The same ROM range copied

@@ -14,7 +14,7 @@ from cpcxray.disk.dsk import (
     save_image,
     to_edsk,
 )
-from tests.vdos import CPM_DISK, VORTEX_DISK, requires_disks
+from tests.machines import CPM_DISK, VORTEX_DISK, requires_disks
 
 
 def standard_dsk() -> bytes:

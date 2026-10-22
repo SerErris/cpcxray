@@ -5,16 +5,13 @@ Uses the real ROMs (skipped when they are missing).
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from cpcxray.machine.config import load_config
 from cpcxray.machine.cpc464 import CPC464
 from cpcxray.session.session import Session, SessionError
-from tests.vdos import run_until_ready
+from tests.machines import CONFIG_464, run_until_ready
 
-CONFIG = load_config(Path(__file__).resolve().parents[2] / "config" / "machine.toml")
+CONFIG = CONFIG_464
 pytestmark = pytest.mark.skipif(
     CONFIG.lower_rom is None or not CONFIG.lower_rom.exists, reason="ROMs missing"
 )

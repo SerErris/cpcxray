@@ -5,7 +5,7 @@ A mixin of `Session`; every public method is an MCP tool as well (D-27):
 * drives: `disk_list`, `disk_insert`, `disk_eject`;
 * images: `disk_new` (a blank, writable draft in a drive), `disk_save` (EDSK to a file);
 * host-side reading of the CP/M file system (disk/cpm.py): `disk_catalog`, `disk_read_file`,
-  from the disk in a drive or from an image file - the reference for what AMSDOS/VDOS read.
+  from the disk in a drive or from an image file - the reference for what the disk ROMs read.
 
 Real images are inserted read-only unless asked otherwise; the emulated FDC then reports them
 write protected, and `disk_save` refuses to overwrite the file a read-only image came from.

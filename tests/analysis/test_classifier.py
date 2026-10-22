@@ -185,7 +185,7 @@ def test_jump_table_entries() -> None:
 def test_copied_jump_table_entries_both_directions() -> None:
     """A jump table read as data by a copy: entries before and after an executed one are code.
 
-    Like VDOS's boot jumpblock &C0D2: copied whole by LDIR (all bytes read as data), one entry
+    Like a ROM's jumpblock that is copied whole by LDIR (all bytes read as data), one entry
     executed; the entry before it counts only inside a run of three.
     """
     image = bytes.fromhex("C3 0F C0 C3 0F C0 C3 0F C0 00 00 00 00 00 00 C9")

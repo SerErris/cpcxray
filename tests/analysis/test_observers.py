@@ -55,8 +55,8 @@ def test_far_call_built_in_ram_is_not_rom_code() -> None:
     """An RST 3 and far object written into RAM with `ld (hl),n` are not mapped to the ROM.
 
     The written values equal the instructions' own operand bytes (value-matched provenance), as
-    when VDOS patches KM DISARM BREAK with a FAR CALL via &BE26: no "rst" and no "far_object"
-    must land on those operand bytes (&C2A0, &C28B in VDOS).
+    when a ROM patches a firmware jumpblock entry with a FAR CALL to a far object it builds in
+    RAM: no "rst" and no "far_object" must land on those operand bytes.
     """
     machine = make_test_cpc(
         OS,

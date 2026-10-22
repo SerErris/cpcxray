@@ -1,6 +1,6 @@
 """µPD765 floppy disk controller with two drives (design.md §6.11; FR-FDC-01..05).
 
-Ports (DDI-1 decoding, also used by VDOS: A10 = 0 and A7 = 0):
+Ports (DDI-1 decoding: A10 = 0 and A7 = 0):
 
 | Port  | A8 A0 | Function                                     |
 |-------|-------|----------------------------------------------|
@@ -25,7 +25,7 @@ and unknown codes give the "invalid command" result (ST0 = &80).
 
 Sectors are found by their ID (C, H, R, N) on the track under the head, as on the real chip.
 The CPC has no terminal count line: a read or write ends after sector EOT with "abnormal
-termination" and ST1 "end of cylinder" (ST0 &40, ST1 &80) - AMSDOS and VDOS expect exactly that.
+termination" and ST1 "end of cylinder" (ST0 &40, ST1 &80) - AMSDOS expects exactly that.
 With MT set, a transfer continues from head 0 to sector 1 of head 1.
 
 Drives: unit 0 = A:, unit 1 = B: (the DDI-1 decodes US0 only, so units 2 and 3 are A: and B:
@@ -149,8 +149,8 @@ class Fdc765:  # pylint: disable=too-many-instance-attributes  # controller and 
         data_out: Bytes waiting for the CPU (execution data of a read, then results).
         results: Result bytes waiting to be read after the data.
         pending_interrupts: (ST0, PCN) of finished SEEK/RECALIBRATE commands.
-        log: The last commands with their results and a repeat count (VDOS sends SPECIFY
-            over and over), for the device view.
+        log: The last commands with their results and a repeat count (disk ROMs may send
+            SPECIFY over and over), for the device view.
     """
 
     def __init__(self) -> None:

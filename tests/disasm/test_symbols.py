@@ -36,8 +36,8 @@ def test_scoped_lookup_falls_back_to_global() -> None:
     """A ROM-scoped label wins in its scope only; other scopes see the global symbol."""
     table = SymbolTable(preload_firmware=False)
     table.add(0xC006, "ram_routine")
-    table.add(0xC006, "vdos_init", scope="rom5")
-    assert table.label_at(0xC006, "rom5") == "vdos_init"
+    table.add(0xC006, "rom_entry", scope="rom5")
+    assert table.label_at(0xC006, "rom5") == "rom_entry"
     assert table.label_at(0xC006, "rom7") == "ram_routine"
     assert table.label_at(0xC006) == "ram_routine"
 
@@ -78,13 +78,13 @@ def test_annotation_file_round_trip(tmp_path: Path) -> None:
     """Saving writes only user symbols; loading them back reproduces the entries."""
     table = SymbolTable()
     table.add(0x8000, "start", "entry point")
-    table.add(0xC000, "vdos_header", scope="rom5")
+    table.add(0xC000, "rom_header", scope="rom5")
     table.add(0x9000, comment="buffer, 256 bytes")
     path = tmp_path / "annotations.txt"
     assert table.save(path) == 3
     text = path.read_text()
     assert "8000        start                ; entry point" in text
-    assert "rom5:C000   vdos_header" in text
+    assert "rom5:C000   rom_header" in text
     assert "9000        -                    ; buffer, 256 bytes" in text
     loaded = SymbolTable()
     assert loaded.load(path) == 3
@@ -95,7 +95,7 @@ def test_annotation_file_round_trip(tmp_path: Path) -> None:
     ("line", "expected"),
     [("BB5A txt_out ; print", (0xBB5A, "txt_out", "print", "")),
      ("&8000 start", (0x8000, "start", None, "")),
-     ("rom5:#C006 vdos_init", (0xC006, "vdos_init", None, "rom5")),
+     ("rom5:#C006 rom_entry", (0xC006, "rom_entry", None, "rom5")),
      ("lower:0038 - ; interrupt", (0x0038, None, "interrupt", "lower"))],
 )  # fmt: skip
 def test_parse_annotation_line(line: str, expected: tuple[object, ...]) -> None:
