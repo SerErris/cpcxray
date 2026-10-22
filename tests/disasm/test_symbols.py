@@ -92,12 +92,51 @@ def test_scoped_lookup_falls_back_to_global() -> None:
 
 
 def test_add_keeps_existing_parts() -> None:
-    """Adding only a comment keeps the label (and vice versa)."""
+    """Adding only a comment keeps the owner's label (and vice versa)."""
+    table = SymbolTable(preload_firmware=False)
+    table.add(0x8000, "start")
+    table.add(0x8000, comment="entry")
+    symbol = table.at(0x8000)
+    assert symbol is not None
+    assert (symbol.label, symbol.comment, symbol.source) == ("start", "entry", "user")
+
+
+def test_owner_layer_over_firmware(tmp_path: Path) -> None:
+    """The owner's comment or label lies over a firmware name and never replaces it."""
     table = SymbolTable()
-    table.add(0xBB5A, comment="print A")
+    table.add(0xBB5A, comment="hooked by my program")
     symbol = table.at(0xBB5A)
     assert symbol is not None
-    assert (symbol.label, symbol.comment, symbol.source) == ("TXT_OUTPUT", "print A", "user")
+    assert (symbol.label, symbol.comment, symbol.source) == (
+        "TXT_OUTPUT",
+        "TXT OUTPUT · hooked by my program",
+        "user",
+    )
+    owner = table.owner_at(0xBB5A)
+    assert owner is not None and (owner.label, owner.comment) == (None, "hooked by my program")
+    table.add(0xBB5A, "my_output")
+    assert table.label_at(0xBB5A) == "my_output"
+    assert table.find("TXT_OUTPUT") == table.at(0xBB5A)  # the firmware label still finds it
+    path = tmp_path / "annotations.txt"
+    table.save(path)
+    assert "BB5A        my_output            ; hooked by my program" in path.read_text()
+    assert table.remove(0xBB5A).label == "my_output"
+    assert (table.label_at(0xBB5A), table.comment_at(0xBB5A)) == ("TXT_OUTPUT", "TXT OUTPUT")
+    with pytest.raises(SymbolError, match="cannot be removed"):
+        table.remove(0xBB5A)
+    assert [s.label for s in table.symbols("txt output")] == ["TXT_OUTPUT"]
+
+
+def test_old_annotation_files_repeating_firmware_names(tmp_path: Path) -> None:
+    """A firmware label or comment repeated in an annotation file is not stored again."""
+    path = tmp_path / "annotations.txt"
+    path.write_text("BB5A TXT_OUTPUT ; print A\nBB5D TXT_WR_CHAR ; TXT WR CHAR\n")
+    table = SymbolTable()
+    table.load(path)
+    assert table.comment_at(0xBB5A) == "TXT OUTPUT · print A"
+    assert [(s.address, s.label, s.comment) for s in table.owner_symbols()] == [
+        (0xBB5A, None, "print A")
+    ]
 
 
 @pytest.mark.parametrize(

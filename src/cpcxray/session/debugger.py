@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from cpcxray.analysis.operands import Role, immediate_role, loaded_pair
+from cpcxray.analysis.source_gen import FIRMWARE_JUMPBLOCKS
 from cpcxray.cpu.bus import Cycle
 from cpcxray.debugger.breakpoints import (
     ADDRESS_KINDS,
@@ -34,6 +36,8 @@ from cpcxray.session.errors import SessionError
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from cpcxray.cpu.disasm import Instruction, SymbolLookup
+    from cpcxray.debugger.symbols import SymbolTable
     from cpcxray.debugger.variables import Variable, VariableHit
     from cpcxray.machine.cpc464 import CPC464
     from cpcxray.machine.flat import Machine
@@ -60,6 +64,7 @@ class DebuggerMixin:
     """Breakpoints, bus trace, memory views and snapshots of `Session` (module docstring)."""
 
     machine: Machine
+    symbols: SymbolTable
     breakpoints: Breakpoints
     bus_trace: BusTrace
     _breakpoint_observer: BreakpointObserver | None
@@ -77,6 +82,14 @@ class DebuggerMixin:
 
     def _label(self, address: int) -> str | None:
         """Label of an address (implemented by Session)."""
+        raise NotImplementedError
+
+    def _operand_label(self, address: int) -> str | None:
+        """Label or variable name of an operand (implemented by Session)."""
+        raise NotImplementedError
+
+    def _disassemble(self, address: int) -> Instruction:
+        """Decode the instruction at an address (implemented by Session)."""
         raise NotImplementedError
 
     def _variable_hits(self, address: int) -> list[VariableHit]:
@@ -98,6 +111,34 @@ class DebuggerMixin:
     def _slot_name(self, slot: str | int | None) -> str:
         """Normalise a slot name (implemented by AnalysisMixin)."""
         raise NotImplementedError
+
+    def _instruction_labels(self, instruction: Instruction) -> SymbolLookup:
+        """The operand lookup for one instruction: `_operand_label`, judged for `ld rr,nn`.
+
+        The immediate of `ld rr,nn` may be a number: `ld bc,#0000` must not read
+        `ld bc,RESET_ENTRY`. As in the source generator (analysis/operands.py), a value used
+        as a number gets no name; one of unknown use keeps the owner's labels and variables
+        but not a firmware name below the jumpblocks (the restarts at &0000-&003F).
+        """
+        role = immediate_role(instruction, self._disassemble)  # UNKNOWN if no ld rr,nn
+        if loaded_pair(instruction) is None or role == Role.ADDRESS:
+            return self._operand_label
+        if role == Role.NUMBER:
+            return lambda _word: None
+
+        def unknown_use(word: int) -> str | None:
+            """Name the value unless the name would only be a low firmware address."""
+            if word >= FIRMWARE_JUMPBLOCKS or self.symbols.owner_at(
+                word, self.machine.symbol_scope(word)
+            ):
+                return self._operand_label(word)
+            return next((hit.name for hit in self._variable_hits(word)), None)
+
+        return unknown_use
+
+    def _instruction_text(self, instruction: Instruction) -> str:
+        """The instruction's first line with operand names (`_instruction_labels`)."""
+        return instruction.text(self._instruction_labels(instruction))
 
     def _setup_debugger(self) -> None:
         """Create the breakpoint set and the (stopped) bus trace."""

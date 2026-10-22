@@ -131,6 +131,9 @@ class DiskMixin:
             drive: "A" or "B".
             path: Target file. None saves a writable image back over the file it was loaded
                 from; a read-only image is never overwritten, a draft needs a path.
+
+        Both clear the "changed" state. Save as (a path) makes the new file the drive's image
+        from now on, writable because it is the owner's copy; the old file stays untouched.
         """
         image = self._image_in(drive)
         if path is None:
@@ -149,7 +152,10 @@ class DiskMixin:
             size = save_image(image, file)
         except (DiskImageError, OSError) as error:
             raise SessionError(str(error)) from None
-        return {"drive": self._drive_letter(drive), "path": str(file), "size": size}
+        if path is not None:
+            image.source, image.writable = file, True
+        return {"drive": self._drive_letter(drive), "path": str(file), "size": size,
+                "writable": image.writable, "modified": image.modified}  # fmt: skip
 
     # == host-side file system =================================================================
 

@@ -190,7 +190,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
             "reason": reason,
             "pc": hex4(pc),
             "label": self._label(pc),
-            "next": self._disassemble(pc).text(self._operand_label),
+            "next": self._instruction_text(self._disassemble(pc)),
             "instructions": instructions,
             "emulated_us": emulated_us,
             "registers": self._register_summary(),
@@ -325,7 +325,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         rom_raw = capture.rom_bytes[: instruction.length] if capture.rom_bytes else None
         origin = capture.origin.text() if capture.origin is not None else None
         return TraceRecord(capture.sequence, pc, instruction.raw,
-                           instruction.text(self._operand_label),
+                           self._instruction_text(instruction),
                            registers, capture.where, origin, rom_raw)  # fmt: skip
 
     def _in_analysis_target(self, pc: int, where: str, origin: RamTag | None) -> bool:
@@ -798,7 +798,8 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         scope = self.machine.symbol_scope(instruction.address)
         user_comment = self.symbols.comment_at(instruction.address, scope)
         lines = []
-        for number, (text, comment) in enumerate(instruction.lines(self._operand_label)):
+        labels = self._instruction_labels(instruction)
+        for number, (text, comment) in enumerate(instruction.lines(labels)):
             if number == 0:
                 raw = " ".join(f"{byte:02X}" for byte in instruction.raw)
                 prefix = f"{hex4(instruction.address)}  {raw:<11}"

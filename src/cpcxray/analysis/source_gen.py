@@ -474,8 +474,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
 
     def _owner_symbol(self, offset: int) -> Symbol | None:
         """Return the owner's (user) symbol of a byte's address, if any."""
-        symbol = self.symbols.at(self.view.address(offset), self._scope(offset))
-        return symbol if symbol is not None and symbol.source == "user" else None
+        return self.symbols.owner_at(self.view.address(offset), self._scope(offset))
 
     def _owner_comment(self, offset: int) -> str:
         """Return the owner's comment at a byte's address, or ""."""

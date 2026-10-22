@@ -131,6 +131,28 @@ def test_disassemble_uses_symbols_and_comments(session: Session) -> None:
     assert lines[1].endswith("; loops B times")
 
 
+def test_immediates_named_only_when_used_as_addresses(session: Session) -> None:
+    """`ld rr,nn` names its value as the source generator does (analysis/operands.py).
+
+    A counter is a number, never the low restart of the same value; a pointer keeps its name;
+    a value of unknown use loses only the low firmware names.
+    """
+    program = bytes.fromhex(
+        "010800 10FE"  # ld bc,#0008 / djnz: a counter, not LOW_JUMP
+        "210800 7E"  # ld hl,#0008 / ld a,(hl): an address
+        "110800 C9"  # ld de,#0008 / ret: unknown use
+        "115ABB C9"  # ld de,#BB5A / ret: unknown use, jumpblock name kept
+    )
+    session.memory_write("9000", program.hex())
+    lines = [" ".join(line.split()[-2:]) for line in session.disassemble("9000", 8)["lines"]]
+    assert lines[0] == "ld bc,#0008"
+    assert lines[2] == "ld hl,LOW_JUMP"
+    assert lines[4] == "ld de,#0008"
+    assert lines[6] == "ld de,TXT_OUTPUT"
+    session.symbol_add("0008", "my_vector", scope="")
+    assert session.disassemble("9009", 1)["lines"][0].endswith("ld de,my_vector")
+
+
 def test_trace(session: Session, tmp_path: Path) -> None:
     """The trace records executed instructions in the ring buffer and the text file."""
     session.trace_start("output/trace.txt", "8000", "8007")

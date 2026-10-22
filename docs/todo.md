@@ -45,7 +45,7 @@ observers).
      of the same height. Disassembly: gutter (▶ PC, ● breakpoint), address, bytes (switchable),
      mnemonic, operands coloured by symbol type (5g: FW blue, VAR green, var teal, sub amber,
      jump orange, data purple; the operand lookup has to report the type), PC line on a
-     yellow bar, the `; ----` quarter separators. Fix: immediates that are plain numbers must
+     yellow bar, the `; ----` quarter separators. Fix (done 2026-10-22): immediates that are plain numbers must
      not be named after the low firmware restarts (today `ld bc,#0000` shows as
      `ld bc,RESET_ENTRY`); use the source generator's rule (analysis/operands.py roles: low
      firmware addresses only where the value is used as an address).
@@ -178,7 +178,7 @@ observers).
      Stored in the annotation file with their type (format extension needed, e.g.
      `var rom5+0012 vd_drive_table 16 ; comment`, `sub C4D8 read_sector ; comment`). Below:
      the annotation file (path, number of entries, saved or not, Load, Save).
-   - Fix: a comment (or label) of the owner at a firmware or variable address is stored as the
+   - Fix (done 2026-10-22): a comment (or label) of the owner at a firmware or variable address is stored as the
      owner's layer and shown beside the firmware name and comment; it must not replace them
      (today `symbol_add("BB5A", comment=...)` turns TXT_OUTPUT into a user symbol and the
      firmware comment "TXT OUTPUT" is lost).
@@ -202,8 +202,7 @@ observers).
      the drive chips; Save and Save as… turn it off.
    - Save as… writes the new file and the drive then uses it instead of the old image (the
      old file stays untouched); the new file is the owner's copy, so it is inserted writable
-     (agreed). New behaviour: today `disk_save` with a path only writes the file, the drive
-     keeps the old image, and neither save clears the "modified" state.
+     (agreed). Done 2026-10-22 in `disk_save` (the GUI buttons follow with the tab).
    - File list (name, size; files, K used / free; scrolls) beside a detail panel (yellow
      frame) for the selected file: size on disk and user; the AMSDOS header if there is one
      (type, name, load, entry, length); then

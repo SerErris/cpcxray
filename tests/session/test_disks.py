@@ -68,3 +68,23 @@ def test_errors(tmp_path: Path) -> None:
     with pytest.raises(SessionError, match="not a DSK"):
         (tmp_path / "bad.dsk").write_bytes(b"x")
         session.disk_insert("A", "bad.dsk")
+
+
+def test_save_as_moves_the_drive_to_the_new_file(tmp_path: Path) -> None:
+    """Save as writes a writable copy the drive uses from then on; Save clears "changed"."""
+    session = Session(make_test_cpc({}, {}), project_dir=tmp_path)
+    real = tmp_path / "real.dsk"
+    save_image(blank_image("data"), real)
+    original = real.read_bytes()
+    session.disk_insert("A", str(real))  # read-only, like the owner's real images
+    image = session.machine.fdc.drives[0].image  # type: ignore[attr-defined]
+    image.modified = True  # as after a write by the CPC
+    saved = session.disk_save("A", "copy.dsk")
+    assert (saved["writable"], saved["modified"]) == (True, False)
+    drive_a = session.disk_list()["drives"][0]
+    assert drive_a["disk"] == str(tmp_path / "copy.dsk") and drive_a["writable"]
+    image.find_sector(0, 0, (0, 0, 0xC1, 2)).data[0] = 0x42
+    image.modified = True
+    assert session.disk_save("A")["path"] == str(tmp_path / "copy.dsk")  # Save: the copy
+    assert not session.disk_list()["drives"][0]["modified"]
+    assert real.read_bytes() == original  # the old file stays untouched

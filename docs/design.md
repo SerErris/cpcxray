@@ -181,7 +181,7 @@ software.
 | D-23 | **RAM-range targets** are analysed on an image captured on command or at the first M1 fetch inside the range. Source `ORG` = range start. Later writes into the range are flagged with their runtime value; the owner can recapture. Provenance and relocation do not apply. | RAM code can be loaded, unpacked or patched at runtime; the bytes to disassemble must be fixed at a defined moment, and later changes must be visible. |
 | D-24 | **Trace sinks:** text file, CSV, JSON Lines, GUI panel; each switchable. | Text for reading, CSV/JSON for scripts, panel for live work. |
 | D-25 | **Snapshots in `.sna` format only.** Analysis state (access map, analysis database) is saved in its own files. | `.sna` holds machine state only and stays compatible with other emulators. |
-| D-26 | **Symbols and annotations from the start:** a project file with labels and comments per address (ROM labels scoped to a slot); firmware jumpblock names preloaded per machine (464: firmware V1.0, TEXT INPUT and maths from &BD3A; 664: entries 190–200, TEXT INPUT and maths from &BD5B; 6128: also KL BANK SWITCH, TEXT INPUT and maths from &BD5E), generated from `docs/firmware.md` by `tools/extract_firmware_symbols.py` and switched with the machine; used by views, trace, listing and source. | Readable traces and listings from day one. |
+| D-26 | **Symbols and annotations from the start:** a project file with labels and comments per address (ROM labels scoped to a slot); firmware jumpblock names preloaded per machine (464: firmware V1.0, TEXT INPUT and maths from &BD3A; 664: entries 190–200, TEXT INPUT and maths from &BD5B; 6128: also KL BANK SWITCH, TEXT INPUT and maths from &BD5E), generated from `docs/firmware.md` by `tools/extract_firmware_symbols.py` and switched with the machine; used by views, trace, listing and source. The owner's label or comment at a firmware address is a layer over the firmware name (the owner's label wins, both comments are shown, removing it brings the name back), never a replacement; only the owner's layer is saved. A `ld rr,nn` immediate is named only as the source generator would (§6.15, `analysis/operands.py`): no name for a number, no low firmware name (restarts) for a value of unknown use. | Readable traces and listings from day one. |
 | D-27 | **One command façade:** a `Session` class (the debugger API) is the only way to act on the machine. GUI, MCP server and scripts are thin clients; MCP tools map 1:1 onto `Session` methods. A parity test fails when a method has no MCP tool. | Guarantees FR-MCP-02: each feature exists once. |
 | D-28 | **MCP transports:** stdio for headless mode (Claude Code starts `cpcxray mcp`); streamable HTTP on 127.0.0.1 for GUI mode. Official Python MCP SDK (`mcp`). | stdio is how Claude Code launches tool servers; HTTP lets Claude attach to the instance the owner is using. Localhost only, because the server can load files and run code. |
 | D-29 | **MCP calls go through a command queue** and are executed between emulation time slices; a running machine pauses while a command needs a consistent state. | Keeps the emulator single-threaded (D-13). |
@@ -608,7 +608,9 @@ Responsible for reset, configuration and wiring; provides `snapshot()` for rende
   cylinder"), which AMSDOS expects.
 - Real images are inserted read-only (the FDC reports write protection; AMSDOS: "disc is write
   protected"); writes go to drafts (`disk_new`) and reach a file only via `disk_save`, never
-  over a read-only image's file.
+  over a read-only image's file. `disk_save` without a path (Save) writes a writable image back
+  to its file; with a path (Save as) it writes a new file that the drive then uses, writable as
+  the owner's copy, while the old file stays untouched. Both clear the "changed" state.
 
 ### 6.12 Renderer (`ui/renderer.py`)
 

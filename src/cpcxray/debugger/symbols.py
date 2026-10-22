@@ -14,7 +14,11 @@ The firmware jumpblock names of the machine are preloaded (source "firmware") as
 labels (TXT_OUTPUT, JP_HL): the 464, 664 and 6128 have different sets
 (debugger/firmware_symbols.py); `set_firmware` switches them when the machine changes.
 Everything the owner or the tools add has source "user" and is what the annotation file
-stores. Label lookups by name fall back to a case-insensitive match.
+stores. The two are layers: the owner's label or comment at a firmware address lies over the
+firmware name and does not replace it. A lookup shows the owner's label if there is one (else
+the firmware label) and both comments ("TXT OUTPUT · hooked by my program"); removing the
+owner's entry brings the plain firmware name back. Label lookups by name fall back to a
+case-insensitive match and find firmware labels under an owner's label too.
 
 Annotation file format (plain text, one entry per line, `#` starts a comment line):
 
@@ -104,7 +108,8 @@ class SymbolTable:
             preload_firmware: Preload the firmware names.
             model: The machine whose firmware names are preloaded: "464", "664" or "6128".
         """
-        self._symbols: dict[tuple[str, int], Symbol] = {}
+        self._symbols: dict[tuple[str, int], Symbol] = {}  # the owner's layer
+        self._firmware: dict[int, Symbol] = {}  # the firmware layer, all global
         self.firmware_model: str | None = None
         if preload_firmware:
             self.set_firmware(model)
@@ -112,20 +117,17 @@ class SymbolTable:
     def set_firmware(self, model: str) -> None:
         """Replace the preloaded firmware names by those of another machine (D-26).
 
-        The owner's symbols stay; where one sits at a firmware address it wins over the name.
+        The owner's symbols stay; where one sits at a firmware address it lies over the name.
 
         Raises:
             SymbolError: For an unknown model.
         """
         if model not in FIRMWARE_BY_MODEL:
             raise SymbolError(f"no firmware names for model {model!r}: 464, 664 or 6128")
-        for key in [key for key, symbol in self._symbols.items() if symbol.source == "firmware"]:
-            del self._symbols[key]
+        self._firmware = {}
         for entry in FIRMWARE_BY_MODEL[model]:
-            if (GLOBAL, entry.address) in self._symbols:
-                continue
             comment = entry.name + (f" ({entry.note})" if entry.note else "")
-            self._symbols[(GLOBAL, entry.address)] = Symbol(
+            self._firmware[entry.address] = Symbol(
                 entry.address, entry.label, comment, GLOBAL, "firmware"
             )
         self.firmware_model = model
@@ -139,13 +141,15 @@ class SymbolTable:
         comment: str | None = None,
         scope: str = GLOBAL,
     ) -> Symbol:
-        """Add or replace the symbol at (scope, address).
+        """Add or change the owner's symbol at (scope, address).
 
         A label must be a valid identifier and unique among the global symbols and those of
-        the same scope. A replaced firmware symbol keeps its label if no new one is given.
+        the same scope. A part not given keeps the owner's earlier one. At a firmware address
+        only the owner's layer changes; a label or comment equal to the firmware's is not
+        stored again (annotation files from before the layering may repeat it).
 
         Returns:
-            The stored symbol.
+            The symbol as lookups now see it (both layers, see `at`).
 
         Raises:
             SymbolError: On an invalid label, scope or address, a duplicate label, or if
@@ -165,28 +169,63 @@ class SymbolTable:
             if not LABEL_PATTERN.match(label):
                 raise SymbolError(f"invalid label {label!r}")
             other = self.find(label, scope)
-            if other is not None and other.key != (scope, address):
+            if other is not None and other.address != address:
                 raise SymbolError(f"label {label!r} already used at {other.address:04X}")
-        symbol = Symbol(address, label, comment, scope, "user")
-        self._symbols[symbol.key] = symbol
-        return symbol
+        firmware = self._firmware.get(address)
+        if firmware is not None:
+            label = None if label == firmware.label else label
+            comment = None if comment == firmware.comment else comment
+        if label is None and comment is None:  # nothing of the owner's left
+            self._symbols.pop((scope, address), None)
+        else:
+            self._symbols[(scope, address)] = Symbol(address, label, comment, scope, "user")
+        found = self.at(address, scope)
+        assert found is not None  # the firmware symbol or the owner's just stored
+        return found
 
     def remove(self, address: int, scope: str = GLOBAL) -> Symbol:
-        """Remove the symbol at (scope, address) and return it.
+        """Remove the owner's symbol at (scope, address) and return it.
+
+        A firmware name underneath stays; firmware names themselves cannot be removed.
 
         Raises:
-            SymbolError: If there is none.
+            SymbolError: If the owner has no symbol there.
         """
         try:
             return self._symbols.pop((validate_scope(scope), address))
         except KeyError:
-            raise SymbolError(f"no symbol at {scope + ':' if scope else ''}{address:04X}") from None
+            where = f"{scope + ':' if scope else ''}{address:04X}"
+            if address in self._firmware:
+                message = f"only the firmware name at {where}; it cannot be removed"
+            else:
+                message = f"no symbol at {where}"
+            raise SymbolError(message) from None
 
     # -- lookups -----------------------------------------------------------------------------
 
     def at(self, address: int, scope: str = GLOBAL) -> Symbol | None:
-        """Return the symbol for `address` in `scope`, falling back to the global one."""
+        """Return the symbol for `address` in `scope`, falling back to the global one.
+
+        The owner's symbol (in `scope`, else global) lies over the firmware name: its label
+        wins, the comments are joined firmware first ("TXT OUTPUT · my comment"), and the
+        result has source "user". Without an owner's symbol the firmware one is returned.
+        """
+        owner = self.owner_at(address, scope)
+        firmware = self._firmware.get(address)
+        if owner is None or firmware is None:
+            return owner or firmware
+        comments = [c for c in (firmware.comment, owner.comment) if c]
+        return Symbol(
+            address, owner.label or firmware.label, " · ".join(comments) or None, owner.scope
+        )
+
+    def owner_at(self, address: int, scope: str = GLOBAL) -> Symbol | None:
+        """Return only the owner's symbol for `address` (in `scope`, else global), or None."""
         return self._symbols.get((scope, address)) or self._symbols.get((GLOBAL, address))
+
+    def firmware_at(self, address: int) -> Symbol | None:
+        """Return only the firmware symbol at `address`, or None."""
+        return self._firmware.get(address)
 
     def label_at(self, address: int, scope: str = GLOBAL) -> str | None:
         """Return the label for `address` (see `at`), or None."""
@@ -204,17 +243,23 @@ class SymbolTable:
         An exact match wins; otherwise a label that differs only in case is accepted if it is
         unique, so "txt_output" still finds the firmware's TXT_OUTPUT.
         """
-        candidates = [s for s in self._symbols.values() if s.scope in (scope, GLOBAL) and s.label]
+        candidates = [
+            s
+            for s in [*self._symbols.values(), *self._firmware.values()]
+            if s.scope in (scope, GLOBAL) and s.label
+        ]
         for symbol in candidates:
             if symbol.label == label:
-                return symbol
+                return self.at(symbol.address, symbol.scope)
         folded = [s for s in candidates if (s.label or "").lower() == label.lower()]
-        return folded[0] if len(folded) == 1 else None
+        return self.at(folded[0].address, folded[0].scope) if len(folded) == 1 else None
 
     def symbols(
         self, text: str = "", scope: str | None = None, source: str | None = None
     ) -> list[Symbol]:
-        """List symbols sorted by scope and address.
+        """List symbols sorted by scope and address, as lookups see them (see `at`).
+
+        A firmware name with the owner's symbol over it is listed once, with source "user".
 
         Args:
             text: Only symbols whose label or comment contains this text (case-insensitive).
@@ -222,10 +267,13 @@ class SymbolTable:
             source: Only "firmware" or "user", or None for both.
         """
         needle = text.lower()
+        layered = [self.at(key[1], key[0]) for key in self._symbols]
+        layered += [s for a, s in self._firmware.items() if (GLOBAL, a) not in self._symbols]
         result = [
             symbol
-            for symbol in self._symbols.values()
-            if (scope is None or symbol.scope == scope)
+            for symbol in layered
+            if symbol is not None
+            and (scope is None or symbol.scope == scope)
             and (source is None or symbol.source == source)
             and (
                 not needle
@@ -234,6 +282,10 @@ class SymbolTable:
             )
         ]
         return sorted(result, key=lambda symbol: symbol.key)
+
+    def owner_symbols(self) -> list[Symbol]:
+        """The owner's layer only, sorted by scope and address (what the annotation file holds)."""
+        return sorted(self._symbols.values(), key=lambda symbol: symbol.key)
 
     # -- annotation file ---------------------------------------------------------------------
 
@@ -259,7 +311,7 @@ class SymbolTable:
 
     def save(self, path: str | Path) -> int:
         """Write all user symbols to an annotation file; returns the number written."""
-        user = self.symbols(source="user")
+        user = self.owner_symbols()
         text = FILE_HEADER + "".join(format_annotation_line(s) for s in user)
         Path(path).write_text(text, encoding="utf-8")
         return len(user)
@@ -302,6 +354,6 @@ def merge(tables: Iterable[SymbolTable]) -> SymbolTable:
     model = next((table.firmware_model for table in tables if table.firmware_model), "464")
     merged = SymbolTable(preload_firmware=True, model=model)
     for table in tables:
-        for symbol in table.symbols(source="user"):
+        for symbol in table.owner_symbols():
             merged.add(symbol.address, symbol.label, symbol.comment, symbol.scope)
     return merged
