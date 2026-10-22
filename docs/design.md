@@ -152,7 +152,7 @@ software.
 
 | ID | Decision | Rationale |
 |---|---|---|
-| D-01 | **Python 3.12+** throughout. The CPU is a pure-Python module behind a stable interface. | Owner preference; debugging time dominates, not speed. The CPU can later run under PyPy, be compiled (mypyc/Cython) or be replaced by a native module without touching other components (§7). |
+| D-01 | **Python 3.12+** throughout. The CPU is a pure-Python module behind a stable interface. | Owner preference; debugging time dominates, not speed. The CPU can later be compiled (mypyc/Cython) or be replaced by a native module without touching other components (§7). |
 | D-02 | **Dear PyGui** for the frontend. | Immediate mode, fast, suits many debug panels plus a screen texture. |
 | D-03 | **Instruction-level stepping**; the bus accesses of each instruction are emitted in the correct order with their signals. | Satisfies FR-CPU-03/04. Decoding needs correct M1 attribution and ordering, not timing. |
 | D-04 | **Time base: 1 µs = 1 "NOP" = 4 T-states.** Each instruction costs a whole number of NOPs from a per-opcode table (e.g. NOP 1, LD A,(HL) 2, CALL nn 5, LDIR 6 per repeat, extra cost when a condition is taken). Interrupts are accepted only at instruction boundaries. | On the CPC every instruction is stretched to whole NOPs. One tick per instruction would distort timing by a factor of 3–5; the table lookup costs almost nothing. |
@@ -803,13 +803,12 @@ source generator.
 | Option | Pros | Cons | Verdict |
 |---|---|---|---|
 | Python (CPython) | Owner's preference; fastest development; strong for scripting and analysis; pytest; Dear PyGui | Slowest; CPU between a fraction of and about real CPC speed | **Chosen** |
-| Python on PyPy | Same code, measured ~15× faster on the Z80 core (PyPy 8.0, 2026-10-20) | Dear PyGui not available; second interpreter to maintain | **Deferred to the final phase** (owner decision 2026-10-20): development runs on CPython only; PyPy is taken up again in phase 11 |
+| Python on PyPy | Same code; much faster on the Z80 core and the test suite | Dear PyGui not available (the GUI, where the work happens, gains nothing); PyPy 3.12 lacks numpy and pydantic-core (MCP) wheels; second interpreter to maintain | **Not chosen** (owner decision 2026-10-21): tried in phase 11 and reverted, no gain for the actual work |
 | Python + native CPU core (Rust/PyO3, C++/pybind11, mypyc/Cython) | Native speed where it matters | Second toolchain; harder debugging | Fallback, enabled by the CPU interface (D-01) |
 | C++ / Rust / C# / Go | Speed or safety | Slower development, no owner experience (Rust), no advantage for this tool | Not chosen |
 
 Speed is not critical: most work is stepping and tracing; booting to BASIC takes about 1–2 emulated
-seconds; z80test and ZEXALL run on CPython as long background runs until PyPy is taken up in
-phase 11.
+seconds; z80test and ZEXALL run on CPython as long background runs.
 
 **Tooling:** `pyproject.toml` (uv or pip), `pytest`, `ruff`, optionally `mypy`, `dearpygui`,
 `numpy` (renderer), `tomllib`, `mcp` (MCP server), **sjasmplus** (external, on the Linux host, for
@@ -855,7 +854,7 @@ next phase.
 | 8 | Analysis database (save/merge), RST-operand and far-address observers, sjasmplus source generator, round-trip check | **Generated VDOS source reassembles byte-identically** | `source_verify` lists differing addresses |
 | 9 | Full debugger UI: all panels and breakpoint types; `.sna` snapshots | All FR-DBG requirements met | — |
 | 10 | FDC µPD765 and disk images (DSK/EDSK/raw, read/write), drive A: 3", drive B: Vortex 80T DS | AMSDOS `CAT` on A:; Vortex format on B:; VDOS disk code paths reached and decoded | FDC command log in the device view |
-| 11 | Later scope: 6128 RAM banking; **restart on PyPy** (headless runs, CPU validation; GUI stays on CPython), then the native CPU / Rust port if needed | Full test suite and CPU validation pass under PyPy | Compare CPython and PyPy results |
+| 11 | Later scope: 6128 RAM banking (D-14, FR-MCH-10); the native CPU / Rust port only if CPython speed becomes a real blocker | Banking configurations work; full test suite passes | Banking tests per configuration |
 
 ### 9.1 Repository layout
 

@@ -105,7 +105,7 @@ decoding and analysis (VDOS decoded and initialised); analysis database, classif
 source generator and round-trip check (VDOS source reassembles byte-identically); full debugger
 (breakpoints with location qualifiers, bus trace, memory views, `.sna`, GUI panels); µPD765 FDC
 with DSK/EDSK/raw images (VDOS reads the 3" CP/M disk in A: and the Vortex disk in B:).
-Next: Phase 11 (later scope: 6128 banking; restart on PyPy) - only with the owner's go-ahead.
+Next: Phase 11 (later scope: 6128 banking) - only with the owner's go-ahead.
 
 Validation runtimes on CPython (8 cores): z80test ~1 min for all variants; ZEXDOC+ZEXALL ~30 min,
 dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on one core).
@@ -263,8 +263,8 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
 
 ## Z80 core notes (`src/cpcxray/cpu/`)
 
-- **CPython only** until the final phase: PyPy is deferred to phase 11 (design.md §7, §9), so
-  don't add PyPy environments or PyPy-specific code before then.
+- **CPython only**: PyPy was tried in phase 11 and dropped (owner decision 2026-10-21,
+  design.md §7); no PyPy environments or PyPy-specific code.
 - **Readability over speed**: the Python code is the reference for a later Rust port. Use long,
   descriptive names that say what a variable holds (`displacement`, `target_address`), no
   cryptic micro-optimisations. Hardware register names (`a`, `hl`, `wz`, `i`, `r`) stay.

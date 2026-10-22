@@ -27,20 +27,13 @@ Open tasks for later sessions, in the owner's words, with notes on where they ap
      workflows (boot, type commands, breakpoints, decode and analyse VDOS, generate and
      verify the source, work with disk images).
 
-4. **Remaining implementation phase: PyPy** (design.md §9 phase 11, "restart on PyPy"), to see
-   what performance increase it brings.
-   - Run the full test suite and the CPU validation (ZEXDOC/ZEXALL, z80test) under PyPy; the
-     headless emulator and MCP server on PyPy, the GUI stays on CPython (Dear PyGui).
-   - Measure against today's CPython figures (headless, VDOS as analysis target):
-     analysis on 1.15x real time, analysis off 2.3x; instruction trace on 0.45x; bus trace
-     0.69x. GUI (CPython): analysis on 0.98x at 10 fps (0.20 of 50 fps), analysis off 1.00x at
-     34-41 fps (0.68-0.83 of 50 fps).
-   - Earlier quick test of the Z80 core under PyPy (phase 1): considerably faster after
-     warm-up; decide from the measurements whether a native CPU / Rust port is still needed.
-   - Also in phase 11: 6128 RAM banking (D-14, FR-MCH-10).
+4. **Remaining implementation phase 11: 6128 RAM banking** (design.md §9, D-14, FR-MCH-10).
 
-5. **Low priority, later - first get the tool running: Rust inner loop** (only if PyPy, task 4,
-   is not fast enough).
+5. **Low priority, later - first get the tool running: Rust inner loop** (only if CPython speed
+   becomes a real blocker; PyPy was tried and dropped, 2026-10-21).
+   - Today's CPython figures (headless, VDOS as analysis target): analysis on 1.15x real time,
+     analysis off 2.3x; instruction trace on 0.45x; bus trace 0.69x. GUI: analysis on 0.98x at
+     10 fps (0.20 of 50 fps), analysis off 1.00x at 34-41 fps (0.68-0.83 of 50 fps).
    - Cut: everything that runs per instruction or per bus access goes to Rust as one unit -
      Z80 core; memory map, ROM paging, Vortex decoder, shadow ROM and access map; the
      provenance and execution observers; memory breakpoints, bus trace and the instruction
