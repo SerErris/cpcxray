@@ -7,6 +7,7 @@ is formatted here, so it is tested without a window and is exactly what MCP clie
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 FLAG_LETTERS = "SZ5H3PNC"
@@ -103,6 +104,107 @@ def with_paging(lines: list[str], quarters: list[dict[str, Any]]) -> list[str]:
         result += [*labels, line]
         labels.clear()
     return result + labels
+
+
+AREA = -1  # colour of a byte inside a pack's area but in no named variable
+BYTES_PER_ROW = 16
+
+
+@dataclass(frozen=True)
+class MemoryRow:
+    """One line of the memory panel's dump.
+
+    Attributes:
+        address: Address of the first byte, 4-digit hex.
+        cells: Per byte its hex text ("--" if unknown) and colour: an index into the panel's
+            palette for a known variable, AREA, or None.
+        ascii: The bytes as characters ("." if not printable).
+    """
+
+    address: str
+    cells: tuple[tuple[str, int | None], ...]
+    ascii: str
+
+
+def memory_layout(
+    dump: dict[str, Any], colours: int
+) -> tuple[list[MemoryRow], list[tuple[str, int | None]]]:
+    """Lay out a `memory_view` result with its known variables highlighted (FR-DBG-11).
+
+    Every byte gets the colour of the smallest named variable containing it; the variables
+    take the colours 0 .. `colours` - 1 in turn, so neighbours differ. The legend lists these
+    variables in the same colours, with range, size, the structure they belong to and their
+    description; it starts with the pack areas in view.
+
+    Returns:
+        The rows and the legend lines (text, colour).
+    """
+    start = int(dump["address"], 16)
+    variables = dump.get("variables", [])
+    areas = [v for v in variables if v["area"]]
+    named = [v for v in variables if not v["area"]]
+    cells, colour_of = _coloured_bytes(start, dump["hex"], named, areas, colours)
+    rows = []
+    for row_start in range(0, len(cells), BYTES_PER_ROW):
+        row_cells = tuple(cells[row_start : row_start + BYTES_PER_ROW])
+        ascii_text = "".join(_printable(text) for text, _ in row_cells)
+        rows.append(MemoryRow(f"{(start + row_start) & 0xFFFF:04X}", row_cells, ascii_text))
+    return rows, _legend(areas, named, colour_of)
+
+
+def _legend(
+    areas: list[dict[str, Any]], named: list[dict[str, Any]], colour_of: dict[str, int]
+) -> list[tuple[str, int | None]]:
+    """The legend lines: the areas in view, then each coloured variable in its colour."""
+    legend: list[tuple[str, int | None]] = []
+    if areas:
+        legend.append(("in " + ", ".join(a["label"] for a in areas), AREA))
+    for label, colour in colour_of.items():
+        variable = next(v for v in named if v["label"] == label)
+        legend.append((_legend_text(variable, named), colour))
+    return legend
+
+
+def _contains(variable: dict[str, Any], address: int) -> bool:
+    """True if `address` is one of the variable's bytes."""
+    return int(variable["address"], 16) <= address <= int(variable["last"], 16)
+
+
+def _coloured_bytes(  # pylint: disable=too-many-arguments,too-many-positional-arguments  # the parts of one dump
+    start: int, hex_text: str, named: list[dict[str, Any]], areas: list[dict[str, Any]],
+    colours: int,
+) -> tuple[list[tuple[str, int | None]], dict[str, int]]:  # fmt: skip
+    """Per byte its text and colour (see `memory_layout`), and the colour of each variable."""
+    colour_of: dict[str, int] = {}
+    cells = []
+    for offset in range(len(hex_text) // 2):
+        address, byte = start + offset, hex_text[2 * offset : 2 * offset + 2]
+        containing = [v for v in named if _contains(v, address)]
+        if containing:
+            label = min(containing, key=lambda v: v["size"])["label"]  # the smallest
+            colour: int | None = colour_of.setdefault(label, len(colour_of) % colours)
+        else:
+            colour = AREA if any(_contains(area, address) for area in areas) else None
+        cells.append(("--" if byte == "??" else byte, colour))
+    return cells, colour_of
+
+
+def _printable(hex_byte: str) -> str:
+    """The character of a hex byte for the ASCII column ("." if unknown or not printable)."""
+    if hex_byte == "--":
+        return "."
+    value = int(hex_byte, 16)
+    return chr(value) if 32 <= value < 127 else "."
+
+
+def _legend_text(variable: dict[str, Any], named: list[dict[str, Any]]) -> str:
+    """A legend line, e.g. "B726-B726  TXT_CURSOR_ROW (1) in TXT_CURRENT_WINDOW: cursor ..."."""
+    first, last = int(variable["address"], 16), int(variable["last"], 16)
+    parents = [v for v in named if v is not variable and v["size"] > variable["size"]
+               and int(v["address"], 16) <= first and last <= int(v["last"], 16)]  # fmt: skip
+    parent = f" in {min(parents, key=lambda v: v['size'])['label']}" if parents else ""
+    return (f"{variable['address']}-{variable['last']}  {variable['label']} "
+            f"({variable['size']}){parent}: {variable['description']}")  # fmt: skip
 
 
 def mark_pc(lines: list[str], pc: int, breakpoints: set[int]) -> list[str]:

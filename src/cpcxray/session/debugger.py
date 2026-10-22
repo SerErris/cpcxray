@@ -318,15 +318,16 @@ class DebuggerMixin:
         """Describe the 16 KB quarter from `start` (see `paging_get`)."""
         rom = self.machine.symbol_scope(start) or None
         block = memory.ram_block_at(start) if memory is not None else start // BLOCK_SIZE
-        if rom == "lower":
-            text = f"lower ROM ({memory.lower_rom.name})"
-        elif rom is not None:
-            number = int(rom.removeprefix("rom"))
-            text = f"upper ROM {number} ({memory.upper_roms[number].name})"
-        else:
-            text = f"RAM block {block}"
+        text = self._rom_text(rom) if rom is not None else f"RAM block {block}"
         return {"start": f"{start:04X}", "end": f"{start + BLOCK_SIZE - 1:04X}",
                 "source": rom or "ram", "ram_block": block, "text": text}  # fmt: skip
+
+    def _rom_text(self, slot_name: str) -> str:
+        """Name a ROM slot for the paging: "lower ROM (os6128.rom)", "upper ROM 7 (amsdos.rom)"."""
+        name = self._rom_slot(slot_name).name
+        if slot_name == "lower":
+            return f"lower ROM ({name})"
+        return f"upper ROM {slot_name.removeprefix('rom')} ({name})"
 
     def memory_view(
         self, address: int | str, length: int = 128, view: str = "cpu"
@@ -350,8 +351,50 @@ class DebuggerMixin:
         read = self._view_reader(view)
         data = [read((start + offset) & 0xFFFF) for offset in range(length)]
         hex_text = "".join("??" if value is None else f"{value:02X}" for value in data)
+        last = min(start + length - 1, 0xFFFF)
         return {"address": f"{start:04X}", "length": length, "view": view, "hex": hex_text,
-                "lines": hex_dump(start, data)}  # fmt: skip
+                "lines": hex_dump(start, data), "paging": self._view_paging(view, start, last),
+                "variables": self._view_variables(view, start, last)}  # fmt: skip
+
+    def _view_paging(self, view: str, first: int, last: int) -> list[dict[str, Any]]:
+        """What a view shows in `first`-`last` (FR-DBG-12): per quarter for "cpu" and "ram"."""
+        if view in ("cpu", "ram"):
+            quarters = self.paging_get()["quarters"][first >> 14 : (last >> 14) + 1]
+            if view == "ram":
+                quarters = [q | {"source": "ram", "text": f"RAM block {q['ram_block']}"}
+                            for q in quarters]  # fmt: skip
+            return quarters
+        if view.startswith("ram:"):
+            text = f"RAM block {view.partition(':')[2]}"
+        else:  # a ROM view; `memory_view` has checked it already
+            mode, _, slot = view.rpartition(":")
+            text = self._rom_text(self._slot_name(None if view == "shadow" else slot))
+            text += {"raw": ", as stored", "shadow": ", clear values recorded"}.get(mode, "")
+            if view == "shadow":
+                text += ", clear values recorded"
+        return [{"start": f"{first:04X}", "end": f"{last:04X}", "source": view, "text": text}]
+
+    def _view_variables(self, view: str, first: int, last: int) -> list[dict[str, Any]]:
+        """Known OS/AMSDOS variables in `first`-`last` where the view shows them (FR-DBG-11).
+
+        Variables live in RAM at CPU addresses: the "ram" view always shows them, "cpu" only
+        where no ROM is paged in, "ram:N" only where block N is mapped now; ROM views never.
+        """
+        variables = getattr(self, "variables", None)
+        memory = getattr(self.machine, "memory", None)
+        if variables is None or not (view in ("cpu", "ram") or view.startswith("ram:")):
+            return []
+        found = []
+        for variable in variables.overlapping(first, last, self.machine.peek):
+            address = max(variable.address, first)
+            if view == "cpu" and self.machine.symbol_scope(address):
+                continue
+            if view.startswith("ram:") and (
+                memory is None or f"ram:{memory.ram_block_at(address)}" != view
+            ):
+                continue
+            found.append(variable.describe())
+        return found
 
     def _block_reader(self, view: str) -> Any:
         """Return a reader for the view "ram:N": RAM block N at offset address & &3FFF."""

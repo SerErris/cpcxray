@@ -67,3 +67,19 @@ def test_flat_machine_has_no_variables() -> None:
     assert session.variable_list() == {"variables": [], "total": 0}
     with pytest.raises(SessionError, match="known label"):
         session.address_explain("KL_TIME")
+
+
+def test_memory_view_reports_paging_and_the_variables_it_shows() -> None:
+    """Variables appear where the view shows RAM at their CPU address (FR-DBG-11, -12)."""
+    session = make_session()
+    session.run(max_instructions=2)  # upper ROM 3 on
+    cpu = session.memory_view("B185", 8)
+    assert [q["text"] for q in cpu["paging"]] == ["RAM block 2"]
+    labels = [v["label"] for v in cpu["variables"]]
+    assert labels == ["KL_WORKSPACE", "KL_INTERRUPT_STACK", "KL_TIME"]  # &B185-&B18C
+    assert session.memory_view("B185", 8, "ram")["variables"] == cpu["variables"]
+    assert session.memory_view("B185", 8, "ram:2")["variables"] == cpu["variables"]
+    assert not session.memory_view("3185", 8, "ram:2")["variables"]  # block 2 is not at &3185
+    rom = session.memory_view("C000", 4, "rom3")
+    assert rom["paging"][0]["text"].startswith("upper ROM 3 (") and not rom["variables"]
+    assert session.memory_view("BFFC", 8)["paging"][1]["source"] == "rom3"  # CPU view at &C000

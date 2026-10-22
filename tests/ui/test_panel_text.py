@@ -6,11 +6,13 @@ import pytest
 
 from cpcxray.session.session import Session
 from cpcxray.ui.panels.text import (
+    AREA,
     breakpoint_lines,
     devices_lines,
     flags_text,
     line_address,
     mark_pc,
+    memory_layout,
     paging_lines,
     parse_assignments,
     parse_memory_edit,
@@ -88,3 +90,30 @@ def test_with_paging_marks_each_quarter_before_its_labels() -> None:
         "4003  C9           ret",
     ]
     assert line_address("here:") is None and line_address("4003  C9           ret") == 0x4003
+
+
+def test_memory_layout_colours_variables_and_builds_the_legend() -> None:
+    """Each named variable gets the next colour; area-only bytes AREA; the legend matches."""
+    dump = {
+        "address": "B724", "hex": "0102030405??",
+        "variables": [
+            {"label": "TXT_WORKSPACE", "address": "B6B5", "last": "B7C2", "size": 270,
+             "area": True, "description": "text VDU variables"},
+            {"label": "TXT_CURRENT_WINDOW", "address": "B726", "last": "B733", "size": 14,
+             "area": False, "description": "parameters of the current stream"},
+            {"label": "TXT_CURSOR_ROW", "address": "B726", "last": "B726", "size": 1,
+             "area": False, "description": "cursor line"},
+        ],
+    }  # fmt: skip
+    rows, legend = memory_layout(dump, colours=2)
+    assert rows[0].address == "B724" and rows[0].ascii == "......"
+    assert [colour for _, colour in rows[0].cells] == [AREA, AREA, 0, 1, 1, 1]
+    assert rows[0].cells[5] == ("--", 1)  # unknown byte
+    assert legend == [
+        ("in TXT_WORKSPACE", AREA),
+        ("B726-B726  TXT_CURSOR_ROW (1) in TXT_CURRENT_WINDOW: cursor line", 0),
+        ("B726-B733  TXT_CURRENT_WINDOW (14): parameters of the current stream", 1),
+    ]
+    plain, no_legend = memory_layout({"address": "4000", "hex": "41" * 20}, colours=2)
+    assert len(plain) == 2 and plain[0].ascii == "A" * 16 and not no_legend
+    assert {colour for row in plain for _, colour in row.cells} == {None}

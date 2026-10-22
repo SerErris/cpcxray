@@ -23,8 +23,10 @@ MODELS = ("464", "664", "6128")
 
 
 def areas(entries: tuple[VariableEntry, ...]) -> list[VariableEntry]:
-    """The pack areas of a table (labels ending in _WORKSPACE or AMSDOS_FIXED)."""
-    return [e for e in entries if e.label.endswith("_WORKSPACE") or e.label == "AMSDOS_FIXED"]
+    """The pack areas of a table; all of them end in _WORKSPACE, except AMSDOS_FIXED."""
+    found = [entry for entry in entries if entry.area]
+    assert all(e.label.endswith("_WORKSPACE") or e.label == "AMSDOS_FIXED" for e in found)
+    return found
 
 
 @pytest.mark.parametrize("model", MODELS)

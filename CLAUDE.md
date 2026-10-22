@@ -163,6 +163,11 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   upper ROM n (file name) or RAM block (6128 banking), plus `ram_block` (writes) and the 6128's
   RAM configuration; `disassemble` returns `paging` for the quarters of its lines. CPU tab:
   paging lines above the disassembly, `; ----` separators per quarter (text.py `with_paging`).
+- Memory view: `memory_view` returns `paging` (what the view shows in its range) and
+  `variables` (known variables where the view shows RAM at their CPU address: "ram", "cpu"
+  outside ROM quarters, "ram:N" where block N is mapped; ROM views none; `area` flags pack
+  areas). Memory tab: one text item per byte, coloured per variable (text.py `memory_layout`,
+  tabs.py `VARIABLE_COLOURS`), area-only bytes grey, colour-matched legend below.
 - ui/panels/: tabs.py (Dear PyGui tab bar: CPU, Memory, Devices, Breakpoints, Trace, Bus trace,
   Symbols, Files), text.py (formatting/parsing, tested headless). Panels only call Session
   methods; the visible tab refreshes every 5th frame; PC keys go to a focused text input, not the

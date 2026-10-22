@@ -65,7 +65,8 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     assert dpg.get_value(panels.items["registers"]).startswith("AF ")
     assert ">" in dpg.get_value(panels.items["disassembly"])  # the PC line is marked
     assert "[gate_array]" in dpg.get_value(panels.items["devices"])
-    assert dpg.get_value(panels.items["memory"]).startswith("0000  ")
+    assert dpg.get_value(panels.items["memory_address_0"]) == "0000 "
+    check_memory_variables(panels, dpg)
     dpg.set_value(panels.items["bp_kind"], "write")
     dpg.set_value(panels.items["bp_address"], "B000")
     dpg.set_value(panels.items["bp_end"], "BFFF")
@@ -117,3 +118,19 @@ def check_toggles_and_freeze(app: Any, dpg: Any) -> None:
     panels.refresh(force=True)
     assert "read-only" in dpg.get_value(panels.items["drives"])  # the owner's real images
     assert "format" in dpg.get_value(panels.items["catalog"])
+
+
+def check_memory_variables(panels: Any, dpg: Any) -> None:
+    """The memory panel colours the bytes of known variables and names them (FR-DBG-11/12)."""
+    time = panels.session.variable_list("KL_TIME")["variables"][0]["address"]  # per machine
+    dpg.set_value(panels.items["memory_address"], time)
+    dpg.set_value(panels.items["memory_view"], "ram")
+    panels.refresh(force=True)
+    assert dpg.get_value(panels.items["memory_paging"]).endswith("RAM block 2")
+    first_byte = dpg.get_item_configuration(panels.items["memory_byte_0_0"])["color"]
+    assert tuple(round(c * 255) for c in first_byte[:3]) == (255, 200, 90)  # 1st variable
+    legend = [dpg.get_value(item)
+              for item in dpg.get_item_children(panels.items["memory_legend"], 1)]  # fmt: skip
+    assert legend[0].startswith("in KL_WORKSPACE") and "KL_TIME (4)" in legend[1]
+    dpg.set_value(panels.items["memory_address"], "0000")
+    dpg.set_value(panels.items["memory_view"], "cpu")

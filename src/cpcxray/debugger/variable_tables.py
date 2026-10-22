@@ -21,18 +21,20 @@ class VariableEntry(NamedTuple):
         size: Size in bytes.
         label: Label used in listings, e.g. TXT_CURSOR_ROW.
         description: What it holds.
+        area: A pack's area (covers its variables and the bytes between them).
     """
 
     address: int
     size: int
     label: str
     description: str
+    area: bool = False
 
 
 AMSDOS_WORKSPACE_BASE = 0xA700  # the base of AMSDOS_WORKSPACE
 
 OS_VARIABLES_464: tuple[VariableEntry, ...] = (
-    VariableEntry(0xB100, 186, "KL_WORKSPACE", "kernel variables"),
+    VariableEntry(0xB100, 186, "KL_WORKSPACE", "kernel variables", area=True),
     VariableEntry(0xB105, 2, "KL_SAVED_SP", "stack pointer saved during interrupt handling"),
     VariableEntry(
         0xB107,
@@ -61,7 +63,7 @@ OS_VARIABLES_464: tuple[VariableEntry, ...] = (
     VariableEntry(
         0xB1AB, 1, "KL_FOREGROUND_ROM", "select number of the foreground ROM (0 = BASIC)"
     ),
-    VariableEntry(0xB1C8, 63, "SCR_WORKSPACE", "screen pack variables"),
+    VariableEntry(0xB1C8, 63, "SCR_WORKSPACE", "screen pack variables", area=True),
     VariableEntry(0xB1C8, 1, "SCR_MODE", "screen mode"),
     VariableEntry(0xB1C9, 2, "SCR_OFFSET", "screen offset"),
     VariableEntry(0xB1CB, 1, "SCR_BASE", "screen base, high byte"),
@@ -88,7 +90,7 @@ OS_VARIABLES_464: tuple[VariableEntry, ...] = (
     VariableEntry(
         0xB1FE, 9, "SCR_FLYBACK_EVENT", "frame flyback event block of the ink swap (Bread80)"
     ),
-    VariableEntry(0xB20C, 279, "TXT_WORKSPACE", "text VDU variables"),
+    VariableEntry(0xB20C, 279, "TXT_WORKSPACE", "text VDU variables", area=True),
     VariableEntry(0xB20C, 1, "TXT_STREAM", "current stream (window) number"),
     VariableEntry(
         0xB20D, 15, "TXT_STREAM_0", "saved parameters of stream 0 (layout as TXT_CURRENT_WINDOW)"
@@ -147,7 +149,7 @@ OS_VARIABLES_464: tuple[VariableEntry, ...] = (
         "TXT_CONTROL_TABLE",
         "control code table, 32 entries: parameter count (+&80: run at reset) and routine address",
     ),
-    VariableEntry(0xB328, 31, "GRA_WORKSPACE", "graphics VDU variables"),
+    VariableEntry(0xB328, 31, "GRA_WORKSPACE", "graphics VDU variables", area=True),
     VariableEntry(0xB328, 2, "GRA_ORIGIN_X", "origin x"),
     VariableEntry(0xB32A, 2, "GRA_ORIGIN_Y", "origin y"),
     VariableEntry(0xB32C, 2, "GRA_CURSOR_X", "graphics cursor x (user coordinates)"),
@@ -164,7 +166,7 @@ OS_VARIABLES_464: tuple[VariableEntry, ...] = (
         "GRA_LINE_WORK",
         "work area of the line drawing routines (layout differs on the 464)",
     ),
-    VariableEntry(0xB34C, 509, "KM_WORKSPACE", "key manager variables"),
+    VariableEntry(0xB34C, 509, "KM_WORKSPACE", "key manager variables", area=True),
     VariableEntry(0xB34C, 80, "KM_NORMAL_TABLE", "key translation table, no shift (80 keys)"),
     VariableEntry(0xB39C, 80, "KM_SHIFT_TABLE", "key translation table with SHIFT"),
     VariableEntry(0xB3EC, 80, "KM_CONTROL_TABLE", "key translation table with CONTROL"),
@@ -218,7 +220,7 @@ OS_VARIABLES_464: tuple[VariableEntry, ...] = (
     VariableEntry(0xB543, 2, "KM_SHIFT_TABLE_ADDRESS", "address of the shifted key table"),
     VariableEntry(0xB545, 2, "KM_CONTROL_TABLE_ADDRESS", "address of the control key table"),
     VariableEntry(0xB547, 2, "KM_REPEAT_TABLE_ADDRESS", "address of the key repeat table"),
-    VariableEntry(0xB550, 682, "SOUND_WORKSPACE", "sound manager variables"),
+    VariableEntry(0xB550, 682, "SOUND_WORKSPACE", "sound manager variables", area=True),
     VariableEntry(0xB55C, 63, "SOUND_CHANNEL_A", "channel A (1) data"),
     VariableEntry(0xB576, 1, "SOUND_A_QUEUED", "number of sounds still queued on channel A"),
     VariableEntry(
@@ -275,7 +277,7 @@ OS_VARIABLES_464: tuple[VariableEntry, ...] = (
     VariableEntry(0xB7CA, 16, "SOUND_ENT_13", "ENT 13"),
     VariableEntry(0xB7DA, 16, "SOUND_ENT_14", "ENT 14"),
     VariableEntry(0xB7EA, 16, "SOUND_ENT_15", "ENT 15"),
-    VariableEntry(0xB800, 213, "CAS_WORKSPACE", "cassette manager variables"),
+    VariableEntry(0xB800, 213, "CAS_WORKSPACE", "cassette manager variables", area=True),
     VariableEntry(
         0xB800, 1, "CAS_MESSAGES_OFF", "cassette messages (&00 = enabled, other = disabled)"
     ),
@@ -352,11 +354,11 @@ OS_VARIABLES_464: tuple[VariableEntry, ...] = (
     VariableEntry(
         0xB8D3, 2, "CAS_WORKSPACE_END", "last word of the cassette variables (meaning unknown)"
     ),
-    VariableEntry(0xB8DC, 4, "EDIT_WORKSPACE", "line editor (TEXT INPUT) variables"),
+    VariableEntry(0xB8DC, 4, "EDIT_WORKSPACE", "line editor (TEXT INPUT) variables", area=True),
     VariableEntry(0xB8DD, 1, "EDIT_INSERT_MODE", "insert/overwrite mode flag"),
     VariableEntry(0xB8DE, 1, "EDIT_COPY_CURSOR_X", "copy cursor x, relative to the window origin"),
     VariableEntry(0xB8DF, 1, "EDIT_COPY_CURSOR_Y", "copy cursor y, relative to the window origin"),
-    VariableEntry(0xB8E4, 20, "MATHS_WORKSPACE", "maths pack variables"),
+    VariableEntry(0xB8E4, 20, "MATHS_WORKSPACE", "maths pack variables", area=True),
     VariableEntry(0xB8E4, 4, "MATHS_RND_SEED", "random number state (initial &89656C07)"),
     VariableEntry(0xB8E8, 5, "MATHS_REAL_STORE_1", "internal real store 1"),
     VariableEntry(0xB8ED, 5, "MATHS_REAL_STORE_2", "internal real store 2"),
@@ -366,17 +368,17 @@ OS_VARIABLES_464: tuple[VariableEntry, ...] = (
 
 
 OS_VARIABLES_664: tuple[VariableEntry, ...] = (
-    VariableEntry(0xB100, 20, "MATHS_WORKSPACE", "maths pack variables"),
+    VariableEntry(0xB100, 20, "MATHS_WORKSPACE", "maths pack variables", area=True),
     VariableEntry(0xB100, 4, "MATHS_RND_SEED", "random number state (initial &89656C07)"),
     VariableEntry(0xB104, 5, "MATHS_REAL_STORE_1", "internal real store 1"),
     VariableEntry(0xB109, 5, "MATHS_REAL_STORE_2", "internal real store 2"),
     VariableEntry(0xB10E, 5, "MATHS_REAL_STORE_3", "internal real store 3"),
     VariableEntry(0xB113, 1, "MATHS_ANGLE_MODE", "DEG/RAD flag (&00 = RAD, &FF = DEG)"),
-    VariableEntry(0xB114, 4, "EDIT_WORKSPACE", "line editor (TEXT INPUT) variables"),
+    VariableEntry(0xB114, 4, "EDIT_WORKSPACE", "line editor (TEXT INPUT) variables", area=True),
     VariableEntry(0xB115, 1, "EDIT_INSERT_MODE", "insert/overwrite mode flag"),
     VariableEntry(0xB116, 1, "EDIT_COPY_CURSOR_X", "copy cursor x, relative to the window origin"),
     VariableEntry(0xB117, 1, "EDIT_COPY_CURSOR_Y", "copy cursor y, relative to the window origin"),
-    VariableEntry(0xB118, 213, "CAS_WORKSPACE", "cassette manager variables"),
+    VariableEntry(0xB118, 213, "CAS_WORKSPACE", "cassette manager variables", area=True),
     VariableEntry(
         0xB118, 1, "CAS_MESSAGES_OFF", "cassette messages (&00 = enabled, other = disabled)"
     ),
@@ -453,7 +455,7 @@ OS_VARIABLES_664: tuple[VariableEntry, ...] = (
     VariableEntry(
         0xB1EB, 2, "CAS_WORKSPACE_END", "last word of the cassette variables (meaning unknown)"
     ),
-    VariableEntry(0xB1ED, 681, "SOUND_WORKSPACE", "sound manager variables"),
+    VariableEntry(0xB1ED, 681, "SOUND_WORKSPACE", "sound manager variables", area=True),
     VariableEntry(0xB1F8, 63, "SOUND_CHANNEL_A", "channel A (1) data"),
     VariableEntry(0xB212, 1, "SOUND_A_QUEUED", "number of sounds still queued on channel A"),
     VariableEntry(
@@ -510,7 +512,7 @@ OS_VARIABLES_664: tuple[VariableEntry, ...] = (
     VariableEntry(0xB466, 16, "SOUND_ENT_13", "ENT 13"),
     VariableEntry(0xB476, 16, "SOUND_ENT_14", "ENT 14"),
     VariableEntry(0xB486, 16, "SOUND_ENT_15", "ENT 15"),
-    VariableEntry(0xB496, 509, "KM_WORKSPACE", "key manager variables"),
+    VariableEntry(0xB496, 509, "KM_WORKSPACE", "key manager variables", area=True),
     VariableEntry(0xB496, 80, "KM_NORMAL_TABLE", "key translation table, no shift (80 keys)"),
     VariableEntry(0xB4E6, 80, "KM_SHIFT_TABLE", "key translation table with SHIFT"),
     VariableEntry(0xB536, 80, "KM_CONTROL_TABLE", "key translation table with CONTROL"),
@@ -564,7 +566,7 @@ OS_VARIABLES_664: tuple[VariableEntry, ...] = (
     VariableEntry(0xB68D, 2, "KM_SHIFT_TABLE_ADDRESS", "address of the shifted key table"),
     VariableEntry(0xB68F, 2, "KM_CONTROL_TABLE_ADDRESS", "address of the control key table"),
     VariableEntry(0xB691, 2, "KM_REPEAT_TABLE_ADDRESS", "address of the key repeat table"),
-    VariableEntry(0xB693, 33, "GRA_WORKSPACE", "graphics VDU variables"),
+    VariableEntry(0xB693, 33, "GRA_WORKSPACE", "graphics VDU variables", area=True),
     VariableEntry(0xB693, 2, "GRA_ORIGIN_X", "origin x"),
     VariableEntry(0xB695, 2, "GRA_ORIGIN_Y", "origin y"),
     VariableEntry(0xB697, 2, "GRA_CURSOR_X", "graphics cursor x (user coordinates)"),
@@ -585,7 +587,7 @@ OS_VARIABLES_664: tuple[VariableEntry, ...] = (
         0xB6B2, 1, "GRA_FIRST_POINT", "plot the first point of a line (<>0 = plot; GRA SET FIRST)"
     ),
     VariableEntry(0xB6B3, 1, "GRA_LINE_MASK", "line mask (GRA SET LINE MASK)"),
-    VariableEntry(0xB6B5, 270, "TXT_WORKSPACE", "text VDU variables"),
+    VariableEntry(0xB6B5, 270, "TXT_WORKSPACE", "text VDU variables", area=True),
     VariableEntry(0xB6B5, 1, "TXT_STREAM", "current stream (window) number"),
     VariableEntry(
         0xB6B6, 14, "TXT_STREAM_0", "saved parameters of stream 0 (layout as TXT_CURRENT_WINDOW)"
@@ -644,7 +646,7 @@ OS_VARIABLES_664: tuple[VariableEntry, ...] = (
         "TXT_CONTROL_TABLE",
         "control code table, 32 entries: parameter count (+&80: run at reset) and routine address",
     ),
-    VariableEntry(0xB7C3, 65, "SCR_WORKSPACE", "screen pack variables"),
+    VariableEntry(0xB7C3, 65, "SCR_WORKSPACE", "screen pack variables", area=True),
     VariableEntry(0xB7C3, 1, "SCR_MODE", "screen mode"),
     VariableEntry(0xB7C4, 2, "SCR_OFFSET", "screen offset"),
     VariableEntry(0xB7C6, 1, "SCR_BASE", "screen base, high byte"),
@@ -682,7 +684,7 @@ OS_VARIABLES_664: tuple[VariableEntry, ...] = (
         "SCR_SAVED_LINE_MASK",
         "line mask saved during SCR VERTICAL / SCR HORIZONTAL (Bread80)",
     ),
-    VariableEntry(0xB804, 41, "MC_WORKSPACE", "machine pack variables"),
+    VariableEntry(0xB804, 41, "MC_WORKSPACE", "machine pack variables", area=True),
     VariableEntry(0xB804, 1, "MC_TRANSLATIONS", "number of printer translations (normally 10)"),
     VariableEntry(
         0xB805,
@@ -690,7 +692,7 @@ OS_VARIABLES_664: tuple[VariableEntry, ...] = (
         "MC_TRANSLATION_TABLE",
         "printer translation table, 20 entries: screen code, printer code",
     ),
-    VariableEntry(0xB82D, 204, "KL_WORKSPACE", "kernel variables"),
+    VariableEntry(0xB82D, 204, "KL_WORKSPACE", "kernel variables", area=True),
     VariableEntry(0xB832, 2, "KL_SAVED_SP", "stack pointer saved during interrupt handling"),
     VariableEntry(
         0xB834,
@@ -723,17 +725,17 @@ OS_VARIABLES_664: tuple[VariableEntry, ...] = (
 
 
 OS_VARIABLES_6128: tuple[VariableEntry, ...] = (
-    VariableEntry(0xB100, 20, "MATHS_WORKSPACE", "maths pack variables"),
+    VariableEntry(0xB100, 20, "MATHS_WORKSPACE", "maths pack variables", area=True),
     VariableEntry(0xB100, 4, "MATHS_RND_SEED", "random number state (initial &89656C07)"),
     VariableEntry(0xB104, 5, "MATHS_REAL_STORE_1", "internal real store 1"),
     VariableEntry(0xB109, 5, "MATHS_REAL_STORE_2", "internal real store 2"),
     VariableEntry(0xB10E, 5, "MATHS_REAL_STORE_3", "internal real store 3"),
     VariableEntry(0xB113, 1, "MATHS_ANGLE_MODE", "DEG/RAD flag (&00 = RAD, &FF = DEG)"),
-    VariableEntry(0xB114, 4, "EDIT_WORKSPACE", "line editor (TEXT INPUT) variables"),
+    VariableEntry(0xB114, 4, "EDIT_WORKSPACE", "line editor (TEXT INPUT) variables", area=True),
     VariableEntry(0xB115, 1, "EDIT_INSERT_MODE", "insert/overwrite mode flag"),
     VariableEntry(0xB116, 1, "EDIT_COPY_CURSOR_X", "copy cursor x, relative to the window origin"),
     VariableEntry(0xB117, 1, "EDIT_COPY_CURSOR_Y", "copy cursor y, relative to the window origin"),
-    VariableEntry(0xB118, 213, "CAS_WORKSPACE", "cassette manager variables"),
+    VariableEntry(0xB118, 213, "CAS_WORKSPACE", "cassette manager variables", area=True),
     VariableEntry(
         0xB118, 1, "CAS_MESSAGES_OFF", "cassette messages (&00 = enabled, other = disabled)"
     ),
@@ -810,7 +812,7 @@ OS_VARIABLES_6128: tuple[VariableEntry, ...] = (
     VariableEntry(
         0xB1EB, 2, "CAS_WORKSPACE_END", "last word of the cassette variables (meaning unknown)"
     ),
-    VariableEntry(0xB1ED, 681, "SOUND_WORKSPACE", "sound manager variables"),
+    VariableEntry(0xB1ED, 681, "SOUND_WORKSPACE", "sound manager variables", area=True),
     VariableEntry(0xB1F8, 63, "SOUND_CHANNEL_A", "channel A (1) data"),
     VariableEntry(0xB212, 1, "SOUND_A_QUEUED", "number of sounds still queued on channel A"),
     VariableEntry(
@@ -867,7 +869,7 @@ OS_VARIABLES_6128: tuple[VariableEntry, ...] = (
     VariableEntry(0xB466, 16, "SOUND_ENT_13", "ENT 13"),
     VariableEntry(0xB476, 16, "SOUND_ENT_14", "ENT 14"),
     VariableEntry(0xB486, 16, "SOUND_ENT_15", "ENT 15"),
-    VariableEntry(0xB496, 509, "KM_WORKSPACE", "key manager variables"),
+    VariableEntry(0xB496, 509, "KM_WORKSPACE", "key manager variables", area=True),
     VariableEntry(0xB496, 80, "KM_NORMAL_TABLE", "key translation table, no shift (80 keys)"),
     VariableEntry(0xB4E6, 80, "KM_SHIFT_TABLE", "key translation table with SHIFT"),
     VariableEntry(0xB536, 80, "KM_CONTROL_TABLE", "key translation table with CONTROL"),
@@ -921,7 +923,7 @@ OS_VARIABLES_6128: tuple[VariableEntry, ...] = (
     VariableEntry(0xB68D, 2, "KM_SHIFT_TABLE_ADDRESS", "address of the shifted key table"),
     VariableEntry(0xB68F, 2, "KM_CONTROL_TABLE_ADDRESS", "address of the control key table"),
     VariableEntry(0xB691, 2, "KM_REPEAT_TABLE_ADDRESS", "address of the key repeat table"),
-    VariableEntry(0xB693, 33, "GRA_WORKSPACE", "graphics VDU variables"),
+    VariableEntry(0xB693, 33, "GRA_WORKSPACE", "graphics VDU variables", area=True),
     VariableEntry(0xB693, 2, "GRA_ORIGIN_X", "origin x"),
     VariableEntry(0xB695, 2, "GRA_ORIGIN_Y", "origin y"),
     VariableEntry(0xB697, 2, "GRA_CURSOR_X", "graphics cursor x (user coordinates)"),
@@ -942,7 +944,7 @@ OS_VARIABLES_6128: tuple[VariableEntry, ...] = (
         0xB6B2, 1, "GRA_FIRST_POINT", "plot the first point of a line (<>0 = plot; GRA SET FIRST)"
     ),
     VariableEntry(0xB6B3, 1, "GRA_LINE_MASK", "line mask (GRA SET LINE MASK)"),
-    VariableEntry(0xB6B5, 270, "TXT_WORKSPACE", "text VDU variables"),
+    VariableEntry(0xB6B5, 270, "TXT_WORKSPACE", "text VDU variables", area=True),
     VariableEntry(0xB6B5, 1, "TXT_STREAM", "current stream (window) number"),
     VariableEntry(
         0xB6B6, 14, "TXT_STREAM_0", "saved parameters of stream 0 (layout as TXT_CURRENT_WINDOW)"
@@ -1001,7 +1003,7 @@ OS_VARIABLES_6128: tuple[VariableEntry, ...] = (
         "TXT_CONTROL_TABLE",
         "control code table, 32 entries: parameter count (+&80: run at reset) and routine address",
     ),
-    VariableEntry(0xB7C3, 65, "SCR_WORKSPACE", "screen pack variables"),
+    VariableEntry(0xB7C3, 65, "SCR_WORKSPACE", "screen pack variables", area=True),
     VariableEntry(0xB7C3, 1, "SCR_MODE", "screen mode"),
     VariableEntry(0xB7C4, 2, "SCR_OFFSET", "screen offset"),
     VariableEntry(0xB7C6, 1, "SCR_BASE", "screen base, high byte"),
@@ -1039,7 +1041,7 @@ OS_VARIABLES_6128: tuple[VariableEntry, ...] = (
         "SCR_SAVED_LINE_MASK",
         "line mask saved during SCR VERTICAL / SCR HORIZONTAL (Bread80)",
     ),
-    VariableEntry(0xB804, 41, "MC_WORKSPACE", "machine pack variables"),
+    VariableEntry(0xB804, 41, "MC_WORKSPACE", "machine pack variables", area=True),
     VariableEntry(0xB804, 1, "MC_TRANSLATIONS", "number of printer translations (normally 10)"),
     VariableEntry(
         0xB805,
@@ -1047,7 +1049,7 @@ OS_VARIABLES_6128: tuple[VariableEntry, ...] = (
         "MC_TRANSLATION_TABLE",
         "printer translation table, 20 entries: screen code, printer code",
     ),
-    VariableEntry(0xB82D, 205, "KL_WORKSPACE", "kernel variables"),
+    VariableEntry(0xB82D, 205, "KL_WORKSPACE", "kernel variables", area=True),
     VariableEntry(0xB832, 2, "KL_SAVED_SP", "stack pointer saved during interrupt handling"),
     VariableEntry(
         0xB834,
@@ -1086,6 +1088,7 @@ AMSDOS_FIXED: tuple[VariableEntry, ...] = (
         64,
         "AMSDOS_FIXED",
         "AMSDOS variables at a fixed address (on a 464 without AMSDOS: stack)",
+        area=True,
     ),
     VariableEntry(
         0xBE40,
@@ -1147,7 +1150,11 @@ AMSDOS_FIXED: tuple[VariableEntry, ...] = (
 
 AMSDOS_WORKSPACE: tuple[VariableEntry, ...] = (
     VariableEntry(
-        0xA6FC, 1284, "AMSDOS_WORKSPACE", "AMSDOS's workspace, reserved by its ROM initialisation"
+        0xA6FC,
+        1284,
+        "AMSDOS_WORKSPACE",
+        "AMSDOS's workspace, reserved by its ROM initialisation",
+        area=True,
     ),
     VariableEntry(
         0xA6FC, 4, "AMSDOS_RSX_BLOCK", "RSX chaining block: next block (2), ROM select number, &00"

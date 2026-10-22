@@ -4,16 +4,10 @@ Open tasks for later sessions, in the owner's words, with notes on where they ap
 
 Order (2026-10-22): tasks that share code come one after the other, so no part is built twice.
 The variable tables (1, done) are the base for the disassembly and memory view work (2, 3, 4);
-the CPU and Memory tabs are changed once each (2 done, 3); the user documentation (7) is
+the CPU and Memory tabs are changed once each (2, 3 done); the user documentation (7) is
 written when the GUI and the MCP tools are stable; the Rust core (8) comes last, because it
 freezes everything that runs per instruction or per bus access (breakpoints, traces,
 observers).
-
-3. **Memory view: paging configuration and known variables.** Show what is paged in for the
-   displayed addresses (ROM / which ROM / RAM bank), and highlight and name the known OS and
-   AMSDOS variables of task 1 next to their bytes.
-   - Where: Memory tab, `Session.memory_view` (view "cpu" follows the current paging).
-   - One task, so the Memory tab is reworked once.
 
 4. **Known variables in the bus trace and the generated source.** Bus trace entries name the
    variable they access; the source generator defines the OS/AMSDOS variables a ROM uses with
@@ -85,6 +79,9 @@ observers).
 
 ## Done
 
+- Task 3, memory view (FR-DBG-11, -12): `memory_view` reports what the view shows (paging)
+  and the known variables in its range; the Memory tab shows the paging, colours each
+  variable's bytes (area-only bytes grey) and lists them in a colour-matched legend.
 - Task 2, paging in the CPU view (FR-DBG-12): `paging_get` (ROM or RAM block per 16 KB quarter,
   file names, 6128 RAM configuration), `disassemble` reports the quarters of its lines; the CPU
   tab shows the paging and marks each quarter in the disassembly. Task 3 can reuse

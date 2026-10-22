@@ -35,12 +35,14 @@ class Variable(NamedTuple):
         size: Size in bytes, or None for an area (computed from the variables after it).
         label: Label, e.g. TXT_CURSOR_ROW.
         description: What it holds.
+        area: The row names a pack's area, not a variable.
     """
 
     address: int
     size: int | None
     label: str
     description: str
+    area: bool = False
 
 
 def parse_address(cell: str) -> int | None:
@@ -66,7 +68,7 @@ def with_area_sizes(variables: list[Variable]) -> list[Variable]:
                 if following.size is None:
                     break
                 end = max(end, following.address + following.size)
-            variable = variable._replace(size=end - variable.address)
+            variable = variable._replace(size=end - variable.address, area=True)
         result.append(variable)
     return result
 
@@ -99,8 +101,9 @@ def render_table(name: str, variables: list[Variable]) -> list[str]:
     """Render one tuple of VariableEntry, sorted by address (areas before their contents)."""
     lines = [f"{name}: tuple[VariableEntry, ...] = ("]
     for variable in sorted(variables, key=lambda v: (v.address, -(v.size or 0))):
+        area = ", area=True" if variable.area else ""
         lines.append(f"    VariableEntry(0x{variable.address:04X}, {variable.size}, "
-                     f"{variable.label!r}, {variable.description!r}),")  # fmt: skip
+                     f"{variable.label!r}, {variable.description!r}{area}),")  # fmt: skip
     return [*lines, ")", "", ""]
 
 
@@ -131,12 +134,14 @@ def render(per_model: dict[str, list[Variable]], fixed: list[Variable],
         "        size: Size in bytes.",
         "        label: Label used in listings, e.g. TXT_CURSOR_ROW.",
         "        description: What it holds.",
+        "        area: A pack's area (covers its variables and the bytes between them).",
         '    """',
         "",
         "    address: int",
         "    size: int",
         "    label: str",
         "    description: str",
+        "    area: bool = False",
         "",
         "",
         f"AMSDOS_WORKSPACE_BASE = 0x{AMSDOS_WORKSPACE_BASE:04X}  # the base of AMSDOS_WORKSPACE",

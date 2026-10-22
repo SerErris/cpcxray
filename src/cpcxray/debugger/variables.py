@@ -52,14 +52,15 @@ class Variable:
         size: Size in bytes.
         description: What it holds.
         owner: "firmware" or "amsdos".
+        area: A pack's area (all its variables and the bytes between them), not a variable.
     """
 
     label: str
     address: int
     size: int
-
     description: str
     owner: str
+    area: bool = False
 
     @property
     def last(self) -> int:
@@ -69,7 +70,7 @@ class Variable:
     def describe(self) -> dict[str, object]:
         """The variable as a dict for the session (addresses as 4-digit hex)."""
         return {"label": self.label, "address": f"{self.address:04X}", "size": self.size,
-                "last": f"{self.last:04X}", "owner": self.owner,
+                "last": f"{self.last:04X}", "owner": self.owner, "area": self.area,
                 "description": self.description}  # fmt: skip
 
 
@@ -93,8 +94,8 @@ class VariableHit:
 
 def _variables(entries: tuple[VariableEntry, ...], owner: str, shift: int = 0) -> list[Variable]:
     """Turn table entries into variables, moved by `shift` bytes."""
-    return [Variable(entry.label, entry.address + shift, entry.size, entry.description, owner)
-            for entry in entries]  # fmt: skip
+    return [Variable(entry.label, entry.address + shift, entry.size, entry.description, owner,
+                     entry.area) for entry in entries]  # fmt: skip
 
 
 def _read_word(read_byte: ByteReader, address: int) -> int:
@@ -144,6 +145,11 @@ class VariableMap:
                 for variable in self.variables(read_byte)
                 if variable.address <= address <= variable.last]  # fmt: skip
         return sorted(hits, key=lambda hit: hit.variable.size)
+
+    def overlapping(self, first: int, last: int, read_byte: ByteReader) -> list[Variable]:
+        """Return the variables with a byte in `first`-`last`, by address (outer ones first)."""
+        found = [v for v in self.variables(read_byte) if v.address <= last and v.last >= first]
+        return sorted(found, key=lambda v: (v.address, -v.size))
 
     def find(self, label: str, read_byte: ByteReader) -> Variable | None:
         """Return the variable with this label (case-insensitive), if it exists now."""

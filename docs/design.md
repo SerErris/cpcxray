@@ -123,8 +123,8 @@ software.
 | FR-DBG-08 | Bus trace view of M1/MREQ/IORQ/RD/WR accesses (switchable ring buffer). |
 | FR-DBG-09 | Symbols and comments (annotation file), with firmware jumpblock names preloaded. |
 | FR-DBG-10 | Snapshots in `.sna` format (save and load). |
-| FR-DBG-11 | Known firmware (OS) and AMSDOS RAM variables per machine (464/664/6128): an address is explained as `NAME` or `NAME+offset` (`address_explain`, `variable_list`), operands in disassembly and trace are named, memory breakpoints accept variable names (covering the whole variable) and name the variable when they stop. BASIC's variables are not included. |
-| FR-DBG-12 | The current paging per 16 KB quarter - lower ROM, upper ROM n (with its file), or the RAM block mapped there (6128 banking) - is shown with the disassembly (CPU view: one line per quarter, a separator where the listing enters a quarter) and available as `paging_get`; `disassemble` reports the quarters of its lines. |
+| FR-DBG-11 | Known firmware (OS) and AMSDOS RAM variables per machine (464/664/6128): an address is explained as `NAME` or `NAME+offset` (`address_explain`, `variable_list`), operands in disassembly and trace are named, memory breakpoints accept variable names (covering the whole variable) and name the variable when they stop; the memory view lists the variables it shows (`memory_view` `variables`) and the GUI colours their bytes with a colour-matched legend. BASIC's variables are not included. |
+| FR-DBG-12 | The current paging per 16 KB quarter - lower ROM, upper ROM n (with its file), or the RAM block mapped there (6128 banking) - is shown with the disassembly (CPU view: one line per quarter, a separator where the listing enters a quarter) and the memory view (what the selected view shows: per quarter for the CPU and RAM views, the ROM or block otherwise); available as `paging_get`, and `disassemble` / `memory_view` report it for their range. |
 
 ### 2.8 MCP interface
 

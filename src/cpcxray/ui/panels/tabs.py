@@ -6,7 +6,8 @@ A tab bar next to the screen:
 |-------------|----------------------------------------------------------------------------|
 | CPU         | registers (editable), paging per 16 KB (ROM or RAM block), disassembly     |
 |             | around the PC or at an address (marked per quarter), step out, run to      |
-| Memory      | hex dump through a view (CPU, RAM, ROM, raw ROM, shadow ROM), editing      |
+| Memory      | hex dump through a view (CPU, RAM, ROM, raw ROM, shadow ROM), editing;     |
+|             | what the view shows per 16 KB; known OS/AMSDOS variables coloured + legend |
 | Devices     | Gate Array, CRTC, SystemIO, ROM select, FDC                                |
 | Breakpoints | list; add any kind with location qualifier; enable, disable, remove        |
 | Trace       | instruction trace on/off and its last lines                                |
@@ -38,9 +39,12 @@ from cpcxray.session.errors import SessionError
 from cpcxray.session.session import Session
 from cpcxray.ui.emulation import EmulationLoop
 from cpcxray.ui.panels.text import (
+    AREA,
+    BYTES_PER_ROW,
     breakpoint_lines,
     devices_lines,
     mark_pc,
+    memory_layout,
     paging_lines,
     parse_assignments,
     parse_memory_edit,
@@ -51,6 +55,12 @@ from cpcxray.ui.panels.text import (
 PANEL_WIDTH = 620
 DISASSEMBLY_LINES = 24
 MEMORY_BYTES = 256
+MEMORY_ROWS = MEMORY_BYTES // BYTES_PER_ROW
+# Text colours of the memory panel: known variables take these in turn (FR-DBG-11)
+VARIABLE_COLOURS = ((255, 200, 90), (120, 200, 255), (150, 230, 120), (255, 140, 170),
+                    (200, 160, 255), (110, 220, 210))  # fmt: skip
+AREA_COLOUR = (140, 140, 140)  # inside a pack's area, in no named variable
+DEFAULT_COLOUR = (-255, 0, 0, 255)  # Dear PyGui: the theme's text colour
 TRACE_LINES = 30
 BREAKPOINT_KINDS = ("pc", "m1", "read", "write", "access", "io_in", "io_out", "io",
                     "rom_select", "interrupt")  # fmt: skip
@@ -146,7 +156,7 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
         self._text("disassembly")
 
     def _build_memory(self) -> None:
-        """View selection, hex dump and editing."""
+        """View selection, editing, paging, hex dump (variables coloured) and its legend."""
         with dpg.group(horizontal=True):
             self._input("memory_address", "address", 100, default_value="0000")
             self.items["memory_view"] = dpg.add_combo(
@@ -155,7 +165,14 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
             self._entry("memory_edit", "4000: 3E 05 C9  (RAM)", 220, "memory_message",
                         self._edit_memory)  # fmt: skip
         self._text("memory_message")
-        self._text("memory")
+        self._text("memory_paging")
+        for row in range(MEMORY_ROWS):  # one text per byte, so each byte can have its colour
+            with dpg.group(horizontal=True, horizontal_spacing=0):
+                self._text(f"memory_address_{row}")
+                for column in range(BYTES_PER_ROW):
+                    self._text(f"memory_byte_{row}_{column}")
+                self._text(f"memory_ascii_{row}")
+        self.items["memory_legend"] = dpg.add_group()
 
     def _build_devices(self) -> None:
         """Device state."""
@@ -386,14 +403,35 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
         self._set_lines("disassembly", mark_pc(lines, pc, set(session.breakpoints.addresses)))
 
     def _refresh_memory(self) -> None:
-        """The hex dump of the selected view."""
+        """The hex dump of the selected view, with its paging and known variables.
+
+        What the view shows per 16 KB quarter (FR-DBG-12) heads the dump; the bytes of known
+        OS/AMSDOS variables are coloured, one colour per variable, and the legend below names
+        them in the same colours (FR-DBG-11).
+        """
         try:
             dump = self.session.memory_view(self._value("memory_address") or "0",
                                             MEMORY_BYTES, self._value("memory_view"))  # fmt: skip
-            lines = dump["lines"]
         except SessionError as error:
-            lines = [f"error: {error}"]
-        self._set_lines("memory", lines)
+            dump = None
+            self._set_lines("memory_paging", [f"error: {error}"])
+        rows, legend = memory_layout(dump, len(VARIABLE_COLOURS)) if dump else ([], [])
+        if dump is not None:
+            paging = [f"{q['start']}-{q['end']}  {q['text']}" for q in dump["paging"]]
+            self._set_lines("memory_paging", paging)
+        for index in range(MEMORY_ROWS):
+            row = rows[index] if index < len(rows) else None
+            dpg.set_value(self.items[f"memory_address_{index}"], f"{row.address} " if row else "")
+            for column in range(BYTES_PER_ROW):
+                text, colour = row.cells[column] if row and column < len(row.cells) else ("", None)
+                item = self.items[f"memory_byte_{index}_{column}"]
+                dpg.set_value(item, f" {text}" if text else "")
+                dpg.configure_item(item, color=_colour(colour))
+            dpg.set_value(self.items[f"memory_ascii_{index}"], f"  {row.ascii}" if row else "")
+        dpg.delete_item(self.items["memory_legend"], children_only=True)
+        for text, colour in legend:
+            dpg.add_text(text, parent=self.items["memory_legend"], color=_colour(colour),
+                         wrap=PANEL_WIDTH)  # fmt: skip
 
     def _refresh_devices(self) -> None:
         """Device state."""
@@ -444,3 +482,10 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
         lines = [f"{s.get('scope') or '':6} {s['address']}  {s.get('label') or '-':<20} "
                  f"{s.get('comment') or ''}" for s in result["symbols"][:60]]  # fmt: skip
         self._set_lines("symbols", [*lines, f"({result['total']} matching)"])
+
+
+def _colour(colour: int | None) -> tuple[int, ...]:
+    """The text colour of a memory cell or legend line (see `memory_layout`)."""
+    if colour is None:
+        return DEFAULT_COLOUR
+    return AREA_COLOUR if colour == AREA else VARIABLE_COLOURS[colour]
