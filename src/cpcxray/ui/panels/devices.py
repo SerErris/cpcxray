@@ -23,7 +23,7 @@ import dearpygui.dearpygui as dpg
 from cpcxray.session.errors import SessionError
 from cpcxray.ui.palette import HARDWARE_RGB
 from cpcxray.ui.panels import colours
-from cpcxray.ui.panels.base import Tab
+from cpcxray.ui.panels.base import TAB_WIDTH, Tab
 from cpcxray.ui.panels.text import (
     colour_numbers,
     crtc_footer,
@@ -34,6 +34,7 @@ from cpcxray.ui.panels.text import (
     rom_select_lines,
 )
 from cpcxray.ui.panels.widgets import (
+    BOX_GAP,
     badge,
     section,
     set_badge,
@@ -42,12 +43,10 @@ from cpcxray.ui.panels.widgets import (
 )
 
 LEFT_WIDTH = 336  # Gate Array: four pens with their numbers per row
-RIGHT_WIDTH = 270
-COLUMN_GAP = 8  # Dear PyGui's horizontal spacing between the two columns
-FULL_WIDTH = LEFT_WIDTH + COLUMN_GAP + RIGHT_WIDTH  # FDC and keyboard: as wide as the columns
+RIGHT_WIDTH = TAB_WIDTH - LEFT_WIDTH - BOX_GAP
+FULL_WIDTH = TAB_WIDTH  # FDC and keyboard: as wide as the two columns
 COLUMNS_HEIGHT = 364  # both columns end on the same line (agreed)
 GATE_ARRAY_HEIGHT = 164
-BOX_GAP = 2  # vertical space between two boxes of a column
 PEN_SWATCH = 16
 CRTC_REGISTERS = 18
 KEY_WIDTH = 54
@@ -65,7 +64,14 @@ class DevicesTab(Tab):
     def build(self) -> None:
         """Create the boxes; `refresh` fills them."""
         self.text("devices_message", color=colours.ERROR, show=False)
-        with dpg.group(horizontal=True, horizontal_spacing=COLUMN_GAP):
+        self._build_columns()
+        self._build_fdc()
+        self._build_keyboard()
+
+    def _build_columns(self) -> None:
+        """Left Gate Array, ROM select and PPI; right the CRTC (equal heights, agreed)."""
+        with dpg.group(horizontal=True, horizontal_spacing=BOX_GAP) as row:
+            dpg.bind_item_theme(row, self.styles.box_row)  # BOX_GAP below the row as well
             with dpg.group(width=LEFT_WIDTH):
                 self._build_gate_array()
                 rest = (COLUMNS_HEIGHT - GATE_ARRAY_HEIGHT - 2 * BOX_GAP) // 2
@@ -74,8 +80,6 @@ class DevicesTab(Tab):
                 with section(self.styles, "PPI 8255", height=rest, width=LEFT_WIDTH):
                     self.text("devices_ppi")
             self._build_crtc()
-        self._build_fdc()
-        self._build_keyboard()
 
     def _build_gate_array(self) -> None:
         """Gate Array: header, border, the 4 x 4 pens, badges, pen select and interrupt line."""

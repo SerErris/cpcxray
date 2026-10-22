@@ -29,7 +29,9 @@ from cpcxray.ui.panels.colours import Colour
 from cpcxray.ui.panels.file_selector import FileSelector
 
 SWATCH_SIZE = 14
+BOX_GAP = 2  # the space between two boxes, across and down, on every tab (owner, 2026-10-22)
 FONT_SIZE = 13
+ICON_FONT_SIZE = 18  # symbol buttons (✕ remove): the text size draws them too small (owner)
 FONT_FILES = (  # system fonts, first found wins (no font file in the repository)
     "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
     "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
@@ -67,6 +69,10 @@ class Styles:  # pylint: disable=too-many-instance-attributes  # one theme per l
         self._badges: dict[str, int | str] = {}
         self._rows: dict[tuple[Colour | None, bool], int | str] = {}
         self._texts: dict[Colour, int | str] = {}
+        self._chips: dict[tuple[Colour, Colour, bool], int | str] = {}
+        self.link = _link_theme()
+        self.icon_font: int | str | None = None  # the larger font for symbol buttons (app sets it)
+        self.box_row = _box_row_theme()
 
     def badge(self, style: str) -> int | str:
         """The theme of a badge style (colours.BADGE_STYLES)."""
@@ -88,6 +94,24 @@ class Styles:  # pylint: disable=too-many-instance-attributes  # one theme per l
                     dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 1)
             self._rows[key] = theme
         return self._rows[key]
+
+    def chip(self, colours_pair: tuple[Colour, Colour], selected: bool) -> int | str:
+        """A coloured chip: (text and frame colour, background); selected = filled.
+
+        A selected chip is filled with its colour and has dark text, as in the mock-ups.
+        """
+        key = (*colours_pair, selected)
+        if key not in self._chips:
+            colour, background = colours_pair
+            if selected:
+                theme = _button_theme(colour, colours.KEY_HELD_TEXT, colour)
+            else:
+                theme = _button_theme(background, colour, colour)
+            with dpg.theme_component(dpg.mvButton, parent=theme):
+                # room below the baseline: the frame would hide the underscores (io_out)
+                dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 5, 2)
+            self._chips[key] = theme
+        return self._chips[key]
 
     def text(self, colour: Colour) -> int | str:
         """A theme that only sets the text colour (for buttons and other widgets)."""
@@ -127,6 +151,28 @@ def _window_theme() -> int | str:
     return theme
 
 
+def _box_row_theme() -> int | str:
+    """A group of boxes side by side: BOX_GAP between them and below the row.
+
+    Dear PyGui leaves the item spacing in effect for an item below it: the boxes carry their
+    own (dense) spacing, a plain group the default 4 px.
+    """
+    with dpg.theme() as theme, dpg.theme_component(dpg.mvAll):
+        dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, BOX_GAP, BOX_GAP)
+    return theme
+
+
+def _link_theme() -> int | str:
+    """A button that looks like text and lights up when hovered (e.g. "show in the CPU tab")."""
+    with dpg.theme() as theme, dpg.theme_component(dpg.mvButton):
+        dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, colours.ROW_ALTERNATE)
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, colours.SELECTED_ROW)
+        dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 2, 0)
+        dpg.add_theme_style(dpg.mvStyleVar_ButtonTextAlign, 0, 0.5)
+    return theme
+
+
 def _swatch_theme(border: Colour, width: int) -> int | str:
     """The frame of a colour swatch."""
     with dpg.theme() as theme, dpg.theme_component(dpg.mvColorButton):
@@ -144,8 +190,9 @@ def _child_theme(background: Colour, border: Colour) -> int | str:
             dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 8, 6)
         with dpg.theme_component(dpg.mvAll):  # everything inside: dense, as in the mock-ups
             # Dear PyGui lays a text out with the frame padding above and below it: 1 + 2
-            # spacing gives the mock-ups' 17 px per line (default 23)
-            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 6, 2)
+            # spacing gives the mock-ups' 17 px per line (default 23); the spacing after the
+            # box itself is BOX_GAP too
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 6, BOX_GAP)
             dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 4, 1)
     return theme
 
@@ -193,6 +240,15 @@ def section(
         yield box
 
 
+def remove_button(styles: Styles, callback: Callable[[], object]) -> int | str:
+    """A red ✕ button (remove a row), drawn in the larger symbol font if loaded."""
+    item = dpg.add_button(label="\u2715", callback=callback)
+    dpg.bind_item_theme(item, styles.remove_button)
+    if styles.icon_font is not None:
+        dpg.bind_item_font(item, styles.icon_font)
+    return item
+
+
 def badge(styles: Styles, text: str, style: str = "plain", **options: object) -> int | str:
     """Add a badge (a small coloured label, see colours.BADGE_STYLES)."""
     item = dpg.add_button(label=text, **options)  # type: ignore[arg-type]
@@ -229,7 +285,7 @@ def button(
     return item
 
 
-class Chips:
+class Chips:  # pylint: disable=too-many-instance-attributes  # widgets, state, look
     """A row of chips; `multiple` allows several to be selected (type filters), else one."""
 
     def __init__(  # pylint: disable=too-many-arguments  # look, options, mode, callback
@@ -237,8 +293,10 @@ class Chips:
         styles: Styles,
         options: Sequence[str],
         selected: Sequence[str] = (),
+        *,
         multiple: bool = False,
         on_change: Callable[[list[str]], None] | None = None,
+        chip_colours: dict[str, tuple[Colour, Colour]] | None = None,
     ) -> None:
         """Add the chips in the current container (they lay out horizontally).
 
@@ -248,11 +306,14 @@ class Chips:
             selected: Initially selected chips (the first one if empty and not `multiple`).
             multiple: Several chips may be selected; else exactly one.
             on_change: Called with the selected chips after a click.
+            chip_colours: Per chip (text and frame colour, background), e.g. the breakpoint
+                categories; without it selected chips are blue, the others plain.
         """
         self.styles = styles
         self.options = list(options)
         self.multiple = multiple
         self.on_change = on_change
+        self.chip_colours = chip_colours or {}
         self.selected = list(selected) or ([] if multiple or not options else [options[0]])
         self.labels = dict.fromkeys(self.options, "")
         self.items: dict[str, int | str] = {}
@@ -282,10 +343,13 @@ class Chips:
         dpg.set_item_label(self.items[option], label)
 
     def _restyle(self) -> None:
-        """Selected chips blue, the others plain."""
+        """Selected chips blue (or filled with their colour), the others plain (or outlined)."""
         for option, item in self.items.items():
             selected = option in self.selected
-            theme = self.styles.primary_button if selected else self.styles.plain_button
+            if option in self.chip_colours:
+                theme = self.styles.chip(self.chip_colours[option], selected)
+            else:
+                theme = self.styles.primary_button if selected else self.styles.plain_button
             dpg.bind_item_theme(item, theme)
 
 

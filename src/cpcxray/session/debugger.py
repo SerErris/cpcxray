@@ -89,6 +89,7 @@ class DebuggerMixin:
     bus_trace: BusTrace
     _breakpoint_observer: BreakpointObserver | None
     _bus_trace_observing: bool
+    last_stop: dict[str, Any] | None  # the result of the last run or step (Session sets it)
 
     # -- helpers (provided by Session / AnalysisMixin) -------------------------------------------
 
@@ -110,6 +111,10 @@ class DebuggerMixin:
 
     def _disassemble(self, address: int) -> Instruction:
         """Decode the instruction at an address (implemented by Session)."""
+        raise NotImplementedError
+
+    def _format_instruction(self, instruction: Instruction) -> list[str]:
+        """An instruction as `disassemble` lines (implemented by Session)."""
         raise NotImplementedError
 
     def _variable_hits(self, address: int) -> list[VariableHit]:
@@ -209,6 +214,7 @@ class DebuggerMixin:
         self.bus_trace = BusTrace(self._location)
         self._breakpoint_observer = None
         self._bus_trace_observing = False
+        self.last_stop = None
 
     def _location(self, address: int, kind: Cycle) -> str:
         """Where a memory access goes: "lower", "romN" or "ram:<block>" (writes always RAM).
@@ -345,6 +351,32 @@ class DebuggerMixin:
     def breakpoint_list(self) -> dict[str, Any]:
         """List all breakpoints: id, kind, address/port, location, enabled, hits."""
         return {"breakpoints": [self._describe_breakpoint(b.id) for b in self.breakpoints.all()]}
+
+    def last_stop_get(self) -> dict[str, Any]:
+        """The last stop of a run or step, with what explains it.
+
+        A run that only used up its time budget ("time_limit") does not count: the GUI runs
+        in time slices, and its last stop is the breakpoint, step or pause before.
+
+        Returns:
+            "stop": the run's result as it was returned (reason, PC, "breakpoint" detail), or
+            None before the first stop; for a stop: "instruction", the disassembled lines of the
+            instruction that stopped (a PC breakpoint: the one about to run; an access
+            breakpoint: the one that made the access); for a breakpoint stop: "hits", its hit
+            count now (None if removed since), and "label", the label of its address.
+        """
+        stop = self.last_stop
+        if stop is None:
+            return {"stop": None}
+        hit = stop.get("breakpoint")
+        pc = int(hit["pc"] if hit else stop["pc"], 16)
+        instruction = self._format_instruction(self._disassemble(pc))
+        result: dict[str, Any] = {"stop": stop, "instruction": instruction}
+        if hit is not None:
+            current = [b for b in self.breakpoints.all() if b.id == hit["id"]]
+            result["hits"] = current[0].hits if current else None
+            result["label"] = self._label(int(hit.get("address", hit["pc"]), 16))
+        return result
 
     def _describe_breakpoint(self, breakpoint_id: int) -> dict[str, Any]:
         """A breakpoint as a dict, with the label of its address."""

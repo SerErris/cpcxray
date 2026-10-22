@@ -197,6 +197,8 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         }
         if breakpoint_hit is not None:
             result["breakpoint"] = breakpoint_hit
+        if reason != "time_limit":  # a used-up time budget is no stop (GUI runs in slices)
+            self.last_stop = result  # last_stop_get (the Breakpoints tab's "Last stop")
         return result
 
     @staticmethod

@@ -28,7 +28,7 @@ from cpcxray.session.session import Session, SessionError
 from cpcxray.ui.emulation import EmulationLoop
 from cpcxray.ui.host_keys import build_host_key_map
 from cpcxray.ui.panels.tabs import PANEL_WIDTH, DebuggerPanels
-from cpcxray.ui.panels.widgets import Styles, load_font
+from cpcxray.ui.panels.widgets import ICON_FONT_SIZE, Styles, load_font
 from cpcxray.ui.renderer import HEIGHT, WIDTH, render
 
 TITLE = "CPC X-Ray"
@@ -88,6 +88,7 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
         font = load_font()
         if font is not None:
             dpg.bind_font(font)
+            styles.icon_font = load_font(size=ICON_FONT_SIZE)
         with dpg.texture_registry():
             self._widgets.texture = dpg.add_dynamic_texture(
                 WIDTH, HEIGHT, np.zeros(WIDTH * HEIGHT * 4, dtype=np.float32)

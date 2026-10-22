@@ -71,17 +71,25 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     assert dpg.get_item_label(panels.items["key_2_5"]) == "Shift"  # names from the OS ROM
     assert dpg.get_value(panels.items["memory_address_0"]) == "0000 "
     check_memory_variables(panels, dpg)
-    dpg.set_value(panels.items["bp_kind"], "write")
+    breakpoints = tabs["Breakpoints"]
+    breakpoints.types.click("write")
+    assert dpg.get_value(panels.items["bp_explanation"]).startswith("write: stops after")
+    dpg.set_value(panels.items["bp_address"], "KL_TIME")
+    breakpoints._update_hint()  # pylint: disable=protected-access  # the input's callback
+    assert "the whole variable KL_TIME" in dpg.get_value(panels.items["bp_hint"])
     dpg.set_value(panels.items["bp_address"], "B000")
     dpg.set_value(panels.items["bp_end"], "BFFF")
-    tabs["Breakpoints"].call(tabs["Breakpoints"].add_breakpoint)
-    assert "write B000-BFFF" in dpg.get_value(panels.items["breakpoints"])
+    breakpoints.call(breakpoints.add_breakpoint)
+    assert dpg.get_value(panels.items["bp_count"]) == "Breakpoints \u00b7 1"
     app.loop.start()
     for _ in range(20):
         app.render_frame()
         if not app.loop.running:
             break
     assert app.loop.last_stop["reason"] == "breakpoint"  # the firmware writes its RAM
+    panels.refresh(force=True)
+    assert dpg.get_value(panels.items["stop_headline"]).startswith("write B")
+    assert dpg.get_value(panels.items["stop_title"]).startswith("breakpoint #1")
     dpg.set_value(panels.items["sna_path"], str(tmp_path / "gui.sna"))
     tabs["Files"].call(lambda: app.session.sna_save(dpg.get_value(panels.items["sna_path"])))
     assert (tmp_path / "gui.sna").stat().st_size == 0x100 + 0x10000

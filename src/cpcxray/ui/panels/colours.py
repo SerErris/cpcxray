@@ -84,6 +84,18 @@ SYMBOL_TYPE_COLOURS: Final[dict[str, tuple[Colour, Colour]]] = {
     "data": (rgb("#c8a0ff"), rgb("#3a2a4a")),  # tables, strings, other data
 }
 
+# -- breakpoint types by category (task 5d): (text and frame, chip background) --------------
+BREAKPOINT_CATEGORIES: Final[dict[str, tuple[Colour, Colour]]] = {
+    "code": (HERE, HERE_BACKGROUND),  # pc, m1
+    "memory": (OK, OK_BACKGROUND),  # read, write, access
+    "io": (HEADING, SELECTED_ROW),  # io_in, io_out, io
+    "system": (rgb("#c8a0ff"), rgb("#3a2a4a")),  # rom_select, interrupt
+}
+BREAKPOINT_TYPE_CATEGORY: Final = {
+    "pc": "code", "m1": "code", "read": "memory", "write": "memory", "access": "memory",
+    "io_in": "io", "io_out": "io", "io": "io", "rom_select": "system", "interrupt": "system",
+}  # fmt: skip
+
 # -- known variables in the memory view (FR-DBG-11): taken in turn ---------------------------
 VARIABLE_COLOURS: Final = (
     (255, 200, 90), (120, 200, 255), (150, 230, 120), (255, 140, 170), (200, 160, 255),

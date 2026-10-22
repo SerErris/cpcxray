@@ -28,6 +28,7 @@ from cpcxray.ui.panels.scroll_list import ScrollList
 from cpcxray.ui.panels.widgets import Styles
 
 PANEL_WIDTH = 620
+TAB_WIDTH = 614  # boxes that span a tab (the Devices tab's two columns and the gap between)
 
 
 @dataclass
@@ -43,6 +44,7 @@ class PanelContext:  # pylint: disable=too-many-instance-attributes  # shared st
         lists: Scroll lists: while the mouse is over one, the list keys go to it.
         selectors: File selectors: while one is open, PC keys stay away from the CPC.
         refresh_all: Refreshes every tab (after an action).
+        show_tab: Opens a tab by its title (e.g. "show this address in the CPU tab").
     """
 
     session: Session
@@ -53,6 +55,7 @@ class PanelContext:  # pylint: disable=too-many-instance-attributes  # shared st
     lists: list[ScrollList] = field(default_factory=list)
     selectors: list[FileSelector] = field(default_factory=list)
     refresh_all: Callable[[], None] = lambda: None
+    show_tab: Callable[[str], None] = lambda _title: None
 
 
 class Tab:

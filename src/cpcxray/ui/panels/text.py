@@ -284,22 +284,91 @@ def keyboard_summary(key_lines: list[dict[str, Any]], typing: bool) -> str:
     return f"{keys} \u00b7 {'typing' if typing else 'not typing'}"
 
 
-def breakpoint_lines(breakpoints: list[dict[str, Any]]) -> list[str]:
-    """Format the breakpoint list."""
-    lines = []
-    for entry in breakpoints:
-        where = entry.get("address") or entry.get("port") or ""
-        if "end" in entry:
-            where += "-" + entry["end"]
-        details = [entry["kind"], where]
-        if "mask" in entry:
-            details.append(f"mask {entry['mask']}")
-        if entry.get("location", "any") != "any":
-            details.append(entry["location"])
-        if "rom" in entry:
-            details.append(f"ROM {entry['rom']}")
-        if entry.get("label"):
-            details.append(f"({entry['label']})")
-        state = "on " if entry["enabled"] else "off"
-        lines.append(f"{entry['id']:3}  {state}  hits {entry['hits']:<5} " + " ".join(details))
-    return lines or ["(no breakpoints)"]
+STOP_REASONS = {
+    "steps_done": "step", "address_reached": "address reached", "returned": "returned",
+    "instruction_limit": "instruction limit", "time_limit": "time limit", "halted": "HALT",
+    "paused": "paused", "timeout": "wall-clock limit",
+}  # fmt: skip
+
+
+def location_text(location: str) -> str:
+    """A breakpoint/access location in words: "lower ROM", "ROM 7", "RAM block 2", "" for any."""
+    if location in ("any", "io", ""):
+        return ""
+    if location == "lower":
+        return "lower ROM"
+    if location in ("rom", "ram"):
+        return {"rom": "a ROM", "ram": "RAM"}[location]
+    if location.startswith("ram:"):
+        return f"RAM block {location[4:]}"
+    return f"ROM {location.removeprefix('rom').lstrip(':')}"
+
+
+def ordinal(number: int) -> str:
+    """1st, 2nd, 3rd, 4th, 11th, 21st ..."""
+    teens = 10 <= number % 100 <= 20
+    suffix = "th" if teens else {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+    return f"{number}{suffix}"
+
+
+def breakpoint_where(entry: dict[str, Any]) -> tuple[str, str]:
+    """A breakpoint's "where" column: (address, range, port or ROM; its name or "")."""
+    if "address" in entry:
+        where = entry["address"] + (f"-{entry['end']}" if "end" in entry else "")
+        return where, entry.get("label") or entry.get("variable") or ""
+    if "port" in entry:
+        return f"port {entry['port']}", ""
+    if entry["kind"] == "rom_select":
+        return (f"ROM {entry['rom']}", "") if "rom" in entry else ("any ROM", "")
+    return "\u2014", ""
+
+
+def breakpoint_condition(entry: dict[str, Any]) -> str:
+    """A breakpoint's "condition" column: the location qualifier, or the port mask."""
+    if "mask" in entry:
+        return f"mask {entry['mask']}"
+    location = entry.get("location", "any")
+    return "" if location == "any" else location
+
+
+def stop_texts(last: dict[str, Any]) -> dict[str, Any]:
+    """The "Last stop" box: title, type chip, headline and instruction lines (`last_stop_get`).
+
+    Returns:
+        "title" (e.g. "breakpoint #1 · 4th hit"), "kind" (the breakpoint type, or None),
+        "headline" (what happened, where), "instruction" (disassembled lines).
+    """
+    stop = last.get("stop")
+    if stop is None:
+        return {"title": "", "kind": None, "headline": "no stop yet", "instruction": []}
+    hit = stop.get("breakpoint")
+    if hit is None:
+        reason = STOP_REASONS.get(stop["reason"], stop["reason"])
+        label = f" {stop['label']}" if stop.get("label") else ""
+        return {"title": reason, "kind": None, "headline": f"at {stop['pc']}{label}",
+                "instruction": last.get("instruction", [])}  # fmt: skip
+    hits = last.get("hits")
+    count = f" \u00b7 {ordinal(hits)} hit" if hits else " (removed)"
+    where = location_text(hit.get("location", ""))
+    if hit["kind"] == "pc":
+        label = f" {last['label']}" if last.get("label") else ""
+        headline = f"before the instruction at {hit['pc']}{label}"
+    else:
+        name = hit.get("variable") or last.get("label")
+        named = f" ({name})" if name else ""
+        headline = (f"{hit['access']} {hit['address']} = {hit['value']}{named} by the "
+                    f"instruction at {hit['pc']}")  # fmt: skip
+    if where:
+        headline += f" \u00b7 {where}"
+    return {"title": f"breakpoint #{hit['id']}{count}", "kind": hit["kind"],
+            "headline": headline, "instruction": last.get("instruction", [])}  # fmt: skip
+
+
+def variable_range_hint(name: str, variables: list[dict[str, Any]]) -> str:
+    """For a read/write/access breakpoint without an end: the variable it will cover, or ""."""
+    match = next((v for v in variables if v["label"].lower() == name.strip().lower()), None)
+    if match is None:
+        return ""
+    size = f"{match['size']} byte{'s' if match['size'] != 1 else ''}"
+    return (f"end empty: the whole variable {match['label']} ({match['address']}-"
+            f"{match['last']}, {size})")  # fmt: skip

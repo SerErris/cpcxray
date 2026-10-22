@@ -71,7 +71,8 @@ class DebuggerPanels:
         """Create the panels for a session driven by `loop` (build() creates the widgets)."""
         self.session = session
         self.loop = loop
-        self.context = PanelContext(session, loop, refresh_all=lambda: self.refresh(force=True))
+        self.context = PanelContext(session, loop, refresh_all=lambda: self.refresh(force=True),
+                                    show_tab=self.show_tab)  # fmt: skip
         self.items = self.context.items
         self.tabs = {tab_class.title: tab_class(self.context) for tab_class in TAB_CLASSES}
         self._tab_ids: dict[int | str, Tab] = {}
@@ -84,12 +85,21 @@ class DebuggerPanels:
             styles: The GUI themes (the app creates them once); None creates them here.
         """
         self.context.styles = styles or Styles()
-        with dpg.tab_bar(callback=self._tab_changed) as tab_bar:
+        # Dear PyGui 2.3 stretches the first tab over the bar's free width (a width left over
+        # for the next item) unless the bar sits in a group with an explicit width
+        with dpg.group(width=-1), dpg.tab_bar(callback=self._tab_changed) as tab_bar:
             self.items["tab_bar"] = tab_bar
             for tab in self.tabs.values():
                 with dpg.tab(label=tab.title) as tab_id:
                     tab.build()
                 self._tab_ids[tab_id] = tab
+
+    def show_tab(self, title: str) -> None:
+        """Open the tab with this title (and fill it)."""
+        for tab_id, tab in self._tab_ids.items():
+            if tab.title == title:
+                dpg.set_value(self.items["tab_bar"], tab_id)
+                tab.refresh()
 
     def typing(self) -> bool:
         """True while PC keys belong to the panels, not the CPC.
