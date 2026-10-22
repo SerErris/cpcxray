@@ -32,7 +32,7 @@ from typing import Any
 
 from cpcxray.analysis.provenance import RamTag
 from cpcxray.cpu.disasm import Flow, Instruction, disassemble
-from cpcxray.debugger.symbols import GLOBAL, SymbolError, SymbolTable, parse_address
+from cpcxray.debugger.symbols import SymbolError, SymbolTable, parse_address
 from cpcxray.debugger.trace import CAPTURE_BYTES, Capture, Trace, TraceRecord
 from cpcxray.debugger.variables import Variable, VariableHit, VariableMap
 from cpcxray.devices.key_map import KeyMap, KeyMapError
@@ -45,6 +45,7 @@ from cpcxray.session.bus_view import BusViewMixin
 from cpcxray.session.disks import DiskMixin
 from cpcxray.session.errors import SessionError
 from cpcxray.session.memory_follow import MemoryFollowMixin
+from cpcxray.session.symbols_view import ANNOTATIONS_FILE, SymbolsMixin
 from cpcxray.ui.png import encode_png
 from cpcxray.ui.renderer import double_lines, render
 
@@ -54,7 +55,6 @@ MAX_MEMORY_READ = 4096
 MAX_DISASSEMBLE = 256
 MAX_TRACE_READ = 1000
 MAX_SEARCH_RESULTS = 1000
-ANNOTATIONS_FILE = Path("project") / "annotations.txt"
 DEFAULT_CONFIG = Path("config") / "machine.toml"
 CHECK_INTERVAL = 4096  # instructions between checks of pause and wall clock
 # "changed by the last step" (CPU tab); not R, which every instruction changes
@@ -78,7 +78,7 @@ class _RunLimits:
 
 
 # The façade owns all debugger state and offers one public method per MCP tool (D-27).
-class Session(AnalysisMixin, MemoryFollowMixin, BusViewMixin, DiskMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
+class Session(AnalysisMixin, MemoryFollowMixin, BusViewMixin, SymbolsMixin, DiskMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
     """Owns a machine and offers every debugger operation (D-27).
 
     Attributes:
@@ -102,6 +102,7 @@ class Session(AnalysisMixin, MemoryFollowMixin, BusViewMixin, DiskMixin):  # pyl
         self.project_dir = Path(project_dir).resolve()
         self.symbols = SymbolTable(model=getattr(self.machine, "firmware_model", "464"))
         self.variables = self._variable_map(self.machine)
+        self.analysis_names: dict[str, list[tuple[int, str, str, str]]] = {}  # source_generate
         self._setup_debugger()
         self.analysis_enabled = True  # the analysis observers run while targets exist
         self.trace = Trace(self._format_capture)
@@ -146,11 +147,14 @@ class Session(AnalysisMixin, MemoryFollowMixin, BusViewMixin, DiskMixin):  # pyl
         """Return the label for `address` in the scope that applies to it now."""
         return self.symbols.label_at(address, self.machine.symbol_scope(address))
 
-    @staticmethod
-    def _variable_map(machine: Machine) -> VariableMap | None:
-        """The known OS/AMSDOS variables of a CPC (FR-DBG-11); None for the flat machine."""
+    def _variable_map(self, machine: Machine) -> VariableMap | None:
+        """The known OS/AMSDOS and the owner's variables of a CPC (FR-DBG-11); None if flat."""
         model = getattr(machine, "firmware_model", None)
-        return VariableMap(model) if model is not None else None
+        if model is None:
+            return None
+        variables = VariableMap(model)
+        variables.own_variables = self.symbols.own_variables
+        return variables
 
     def _variable_hits(self, address: int) -> list[VariableHit]:
         """The known variables containing `address` now, the smallest first."""
@@ -879,110 +883,3 @@ class Session(AnalysisMixin, MemoryFollowMixin, BusViewMixin, DiskMixin):  # pyl
             raise SessionError(f"last must be 1-{MAX_TRACE_READ}")
         records = self.trace.last(last)
         return {"lines": [record.line() for record in records], "tracing": self.trace.enabled}
-
-    # == symbols ===============================================================================
-
-    def symbol_add(
-        self,
-        address: int | str,
-        label: str | None = None,
-        comment: str | None = None,
-        scope: str = GLOBAL,
-    ) -> dict[str, Any]:
-        """Add or change a label and/or comment at `address`.
-
-        Args:
-            address: The address.
-            label: Identifier, unique within the scope and the global symbols.
-            comment: Free text.
-            scope: "" for global (RAM, firmware), "lower" (OS ROM) or "rom0".."rom15".
-        """
-        try:
-            symbol = self.symbols.add(self._address(address), label, comment, scope)
-        except SymbolError as error:
-            raise SessionError(str(error)) from None
-        return {"address": hex4(symbol.address), "label": symbol.label,
-                "comment": symbol.comment, "scope": symbol.scope}  # fmt: skip
-
-    def comment_add(self, address: int | str, comment: str, scope: str = GLOBAL) -> dict[str, Any]:
-        """Set the comment at `address` (keeps an existing label)."""
-        return self.symbol_add(address, comment=comment, scope=scope)
-
-    def symbol_remove(self, address: int | str, scope: str = GLOBAL) -> dict[str, Any]:
-        """Remove the symbol at `address` in `scope`."""
-        try:
-            removed = self.symbols.remove(self._address(address), scope)
-        except SymbolError as error:
-            raise SessionError(str(error)) from None
-        return {"removed": removed.label or hex4(removed.address), "scope": removed.scope}
-
-    def symbol_list(
-        self, text: str = "", scope: str | None = None, source: str | None = None, limit: int = 100
-    ) -> dict[str, Any]:
-        """List symbols whose label or comment contains `text`.
-
-        Args:
-            text: Search text (case-insensitive); empty lists all.
-            scope: Only this scope ("", "lower", "romN"), or all.
-            source: "firmware" (preloaded jumpblock names) or "user", or both.
-            limit: Maximum number of entries (max 1000).
-        """
-        if not 1 <= limit <= 1000:
-            raise SessionError("limit must be 1-1000")
-        found = self.symbols.symbols(text, scope, source)
-        entries = [
-            {"address": hex4(s.address), "label": s.label, "comment": s.comment,
-             "scope": s.scope, "source": s.source}
-            for s in found[:limit]
-        ]  # fmt: skip
-        return {"symbols": entries, "total": len(found)}
-
-    def address_explain(self, address: int | str) -> dict[str, Any]:
-        """Tell what an address is: its symbol and the known OS/AMSDOS variables containing it.
-
-        Variables (FR-DBG-11) are the firmware's of this machine (464/664/6128) and AMSDOS's
-        when it is installed (its workspace where AMSDOS put it); the smallest one comes first,
-        named `LABEL` or `LABEL+offset`.
-        """
-        value = self._address(address)
-        result: dict[str, Any] = {"address": hex4(value), "label": self._label(value),
-                                  "variables": []}  # fmt: skip
-        if self.variables is not None:
-            result["model"] = self.variables.model
-            result["variables"] = [{"name": hit.name, **hit.variable.describe()}
-                                   for hit in self._variable_hits(value)]  # fmt: skip
-        return result
-
-    def variable_list(self, text: str = "", limit: int = 100) -> dict[str, Any]:
-        """List the known OS/AMSDOS variables (FR-DBG-11) whose label or description has `text`.
-
-        Args:
-            text: Search text (case-insensitive); empty lists all.
-            limit: Maximum number of entries (max 1000).
-        """
-        if not 1 <= limit <= 1000:
-            raise SessionError("limit must be 1-1000")
-        if self.variables is None:
-            return {"variables": [], "total": 0}
-        wanted = text.lower()
-        found = [v for v in self.variables.variables(self.machine.peek)
-                 if wanted in v.label.lower() or wanted in v.description.lower()]  # fmt: skip
-        return {"model": self.variables.model, "variables": [v.describe() for v in found[:limit]],
-                "total": len(found)}  # fmt: skip
-
-    def symbols_load(self, path: str = str(ANNOTATIONS_FILE)) -> dict[str, Any]:
-        """Merge an annotation file (default project/annotations.txt) into the symbols."""
-        file = self._path(path)
-        if not file.is_file():
-            raise SessionError(f"file not found: {file}")
-        try:
-            count = self.symbols.load(file)
-        except SymbolError as error:
-            raise SessionError(str(error)) from None
-        return {"loaded": count, "path": str(file)}
-
-    def symbols_save(self, path: str = str(ANNOTATIONS_FILE)) -> dict[str, Any]:
-        """Save the user symbols to an annotation file (default project/annotations.txt)."""
-        file = self._path(path)
-        file.parent.mkdir(parents=True, exist_ok=True)
-        return {"saved": self.symbols.save(file), "path": str(file)}

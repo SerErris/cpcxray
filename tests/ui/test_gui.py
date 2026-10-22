@@ -169,13 +169,28 @@ def check_memory_variables(panels: Any, dpg: Any) -> None:
 
 
 def check_symbols_list(panels: Any, dpg: Any) -> None:
-    """The symbol matches fill the scroll list; keys move the selection into the add line."""
+    """Symbols tab (5g): search, a key selects into the detail, the form adds a variable."""
     symbols = panels.tabs["Symbols"]
     dpg.set_value(panels.items["symbol_search"], "txt_out")
     symbols.refresh()
     assert symbols.list.state.count >= 1 and "TXT_OUTPUT" in symbols.list.row(0)
     symbols.list.handle_key("down")  # no selection yet: the first row
-    assert dpg.get_value(panels.items["symbol_add"]).startswith("BB5A TXT_OUTPUT ; TXT OUTPUT")
+    assert dpg.get_value(panels.items["symbol_title"]) == "TXT_OUTPUT"
+    assert dpg.get_value(panels.items["symbol_value_1"]).startswith("firmware: text vdu")
+    symbols.form_chips.click("var")
+    dpg.set_value(panels.items["form_var_name"], "gui_counter")
+    dpg.set_value(panels.items["form_size"], "2")
+    dpg.set_value(panels.items["form_offset"], "A000")
+    symbols._update_now()  # pylint: disable=protected-access
+    assert dpg.get_value(panels.items["form_now"]) == "\u2192 now at A000-A001"
+    symbols.call(symbols.add_from_form)
+    assert dpg.get_value(panels.items["symbol_message"]) == "ok"
+    dpg.set_value(panels.items["symbol_search"], "gui_counter")
+    symbols.refresh()
+    assert "var  A000 \u270e gui_counter" in symbols.list.row(0)
+    assert dpg.get_item_label(panels.items["symbols_saved"]) == "not saved"
+    panels.session.variable_remove("gui_counter")
+    symbols.form_chips.click("sub")
     dpg.set_value(panels.items["symbol_search"], "")
 
 

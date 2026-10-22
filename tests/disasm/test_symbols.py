@@ -8,10 +8,14 @@ import pytest
 
 from cpcxray.debugger.firmware_symbols import FIRMWARE_464, FIRMWARE_664, FIRMWARE_6128
 from cpcxray.debugger.symbols import (
+    OwnVariable,
+    Symbol,
     SymbolError,
     SymbolTable,
     format_annotation_line,
+    merge,
     parse_annotation_line,
+    parse_variable_base,
 )
 
 
@@ -214,3 +218,83 @@ def test_search() -> None:
     names = [symbol.label for symbol in table.symbols("scr set mode")]
     assert names == ["SCR_SET_MODE"]
     assert all(symbol.label.startswith("KM_") for symbol in table.symbols("km_") if symbol.label)
+
+
+def test_symbol_types() -> None:
+    """Firmware names are FW; the owner's labels sub (default), jump or data; comments none."""
+    table = SymbolTable()
+    assert table.at(0xBB5A).type == "FW"
+    assert table.add(0x8000, "start").type == "sub"
+    assert table.add(0x8010, "loop", type="jump").type == "jump"
+    assert table.add(0x8010, comment="the main loop").type == "jump"  # kept
+    assert table.add(0x9000, comment="a buffer").type is None
+    assert table.add(0xBB5A, comment="hooked").type == "FW"  # a comment over a firmware name
+    assert table.add(0xBB5A, "my_output", type="data").type == "data"
+    with pytest.raises(SymbolError, match="invalid type"):
+        table.add(0x8020, "x", type="var")
+
+
+def test_own_variables() -> None:
+    """The owner's variables: absolute or in a ROM's data area; labels unique with symbols."""
+    table = SymbolTable()
+    table.add(0x8000, "start")
+    counter = table.add_variable(OwnVariable("counter", 2, 0xA000, comment="frames"))
+    assert counter.base_text == "A000"
+    assert OwnVariable("drives", 16, 0x12, rom=5).base_text == "rom5+0012"
+    table.add_variable(OwnVariable("drives", 16, 0x12, rom=5))
+    assert [v.label for v in table.own_variables()] == ["counter", "drives"]
+    with pytest.raises(SymbolError, match="already used"):
+        table.add_variable(OwnVariable("start", 1, 0x9000))  # a symbol's label
+    with pytest.raises(SymbolError, match="already used by a variable"):
+        table.add(0x8100, "counter")
+    with pytest.raises(SymbolError, match="already used by a variable"):
+        table.add_variable(OwnVariable("counter", 1, 0x9000))
+    table.add_variable(OwnVariable("frame_count", 2, 0xA000), replaces="counter")  # rename
+    assert table.variable("COUNTER") is None and table.variable("frame_count") is not None
+    with pytest.raises(SymbolError, match="invalid size"):
+        table.add_variable(OwnVariable("empty", 0, 0xA000))
+    assert table.remove_variable("drives").rom == 5
+    with pytest.raises(SymbolError, match="no variable"):
+        table.remove_variable("drives")
+
+
+def test_annotation_file_with_types_and_variables(tmp_path: Path) -> None:
+    """Type words and var lines are written and read back; `modified` follows load and save."""
+    table = SymbolTable()
+    assert not table.modified
+    table.add(0x8010, "loop", "again", type="jump")
+    table.add(0xC015, "messages", scope="rom5", type="data")
+    table.add_variable(OwnVariable("drives", 16, 0x12, rom=5, comment="one per drive"))
+    assert table.modified
+    path = tmp_path / "annotations.txt"
+    assert table.save(path) == 3
+    assert not table.modified
+    text = path.read_text()
+    assert "jump 8010        loop                 ; again" in text
+    assert "data rom5:C015   messages" in text
+    assert "var  rom5+0012   drives               16 ; one per drive" in text
+    loaded = SymbolTable()
+    assert loaded.load(path) == 3 and not loaded.modified
+    assert loaded.owner_symbols() == table.owner_symbols()
+    assert loaded.own_variables() == table.own_variables()
+    assert merge([table]).own_variables() == table.own_variables()
+
+
+@pytest.mark.parametrize(
+    ("line", "message"),
+    [("var A000 counter", "expected 'var"), ("var rom16+0000 x 1", "invalid ROM"),
+     ("var A000 counter two", "invalid size"), ("var xyz counter 1", "invalid variable address")],
+)  # fmt: skip
+def test_malformed_variable_lines(line: str, message: str) -> None:
+    """A var line needs place, label and size."""
+    with pytest.raises(SymbolError, match=message):
+        parse_annotation_line(line)
+
+
+def test_old_lines_are_sub_labels() -> None:
+    """A line without a type word (files of earlier versions) is a "sub" label."""
+    symbol = parse_annotation_line("BB5A my_output ; print")
+    assert isinstance(symbol, Symbol) and symbol.type == "sub"
+    comment = parse_annotation_line("9000 - ; buffer")
+    assert isinstance(comment, Symbol) and comment.type is None
+    assert parse_variable_base("&A612") == (None, 0xA612)

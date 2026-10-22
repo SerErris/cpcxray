@@ -197,7 +197,7 @@ class DebuggerMixin:
 
         Returns:
             Per instruction "address" and "text" (names as in the live disassembly, numbers
-            stay numbers), and for a named operand "label" and "label_type" (FW, VAR, own).
+            stay numbers), and for a named operand "label" and its symbol type "label_type".
         """
 
         def decode(at: int) -> Instruction:
@@ -224,7 +224,8 @@ class DebuggerMixin:
 
         A label row ("kind" "label"); the instruction ("instruction": address, bytes,
         mnemonic, operands); its extra lines, e.g. a RST's inline `defw` ("data"). Each with
-        "comment" if any and, where an operand is named, "name" and "name_type" (FW, VAR, own).
+        "comment" if any and, where an operand is named, "name" and its symbol type
+        "name_type" (FW, VAR, var, sub, jump, data).
         """
         address = instruction.address
         rows: list[dict[str, Any]] = []
@@ -247,18 +248,20 @@ class DebuggerMixin:
         return rows
 
     def _label_type(self, address: int) -> str:
-        """The type of the name `_operand_label` gives an address (task 5g colours).
+        """The symbol type of the name `_operand_label` gives an address (task 5g colours).
 
-        "FW" for a firmware name (the owner's comment over it changes nothing), "own" for the
-        owner's label, "VAR" for a known variable.
+        The owner's label's type ("sub", "jump", "data"), "FW" for a firmware name (the
+        owner's comment over it changes nothing), else the variable's: "var" for one of the
+        owner's, "VAR" for a known OS/AMSDOS one.
         """
         scope = self.machine.symbol_scope(address)
         owner = self.symbols.owner_at(address, scope)
         if owner is not None and owner.label:
-            return "own"
+            return owner.type or "sub"
         if self.symbols.firmware_at(address) is not None:
             return "FW"
-        return "VAR"
+        hits = self._variable_hits(address)
+        return "var" if hits and hits[0].variable.owner == "owner" else "VAR"
 
     def _instruction_text(self, instruction: Instruction) -> str:
         """The instruction's first line with operand names (`_instruction_labels`)."""

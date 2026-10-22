@@ -121,6 +121,7 @@ class ScrollList:  # pylint: disable=too-many-instance-attributes  # widget ids,
         self._rows: list[Row] = []
         self._items: list[int | str] = []
         self._row_height = float(ROW_HEIGHT)
+        self._scroll_pending = False  # scrolled before the rows were laid out (`settle`)
         self.box = dpg.add_child_window(
             height=visible_rows * ROW_HEIGHT + 8, width=width, border=True
         )
@@ -210,8 +211,18 @@ class ScrollList:  # pylint: disable=too-many-instance-attributes  # widget ids,
         hidden_rows = self.state.count - self.state.visible_rows
         if scroll_max > 0 and hidden_rows > 0:
             self._row_height = scroll_max / hidden_rows
+        self._scroll_pending = scroll_max <= 0 < hidden_rows  # new rows: not measured yet
         self.state.top = min(self.state.top, max(0, hidden_rows))
         dpg.set_y_scroll(self.box, self.state.top * self._row_height)
+
+    def settle(self) -> None:
+        """Every frame: scroll again once new rows are laid out (their height is known then).
+
+        Right after `set_rows` the box has no scroll range yet, so a selection far down
+        (e.g. the entry the Symbols tab keeps selected) was scrolled to by a guessed row height.
+        """
+        if self._scroll_pending and dpg.get_y_scroll_max(self.box) > 0:
+            self._scroll_to_selection()
 
 
 def _row_text(row: Row) -> str:

@@ -280,8 +280,6 @@ class DisksTab(Tab):  # pylint: disable=too-many-instance-attributes  # drive, f
                 dpg.add_text(f"{line['address']}  ", color=colours.TEXT_DIM)
                 dpg.add_text(before)
                 if label:
-                    label_type = {"own": "sub"}.get(line.get("label_type", "FW"),
-                                                    line.get("label_type", "FW"))  # fmt: skip
-                    dpg.add_text(label, color=colours.SYMBOL_TYPE_COLOURS[label_type][0])
+                    dpg.add_text(label, color=colours.name_colour(line.get("label_type")))
                 if after:
                     dpg.add_text(after)

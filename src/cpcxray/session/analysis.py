@@ -72,6 +72,7 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
     _execution_observer: ExecutionObserver | None
     _analysis_observing: bool
     _line_maps: dict[Path, list[int]]
+    analysis_names: dict[str, list[tuple[int, str, str, str]]]  # source_generate → Symbols tab
 
     # -- helpers (provided by Session) -----------------------------------------------------------
 
@@ -709,6 +710,7 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(generated.text, encoding="utf-8")
         self._line_maps[file.resolve()] = generated.line_of_offset
+        self.analysis_names[name] = generated.names  # the Symbols tab's names "from analysis"
         return {"target": name, "path": str(file), "lines": generated.text.count("\n"),
                 "statistics": generated.statistics,
                 "kinds": database.counts()["kinds"]}  # fmt: skip

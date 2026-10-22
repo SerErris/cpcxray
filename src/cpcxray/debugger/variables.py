@@ -15,6 +15,11 @@ both are looked up from the running machine: AMSDOS_MEMORY_POOL (&BE7D) holds th
 base, and it counts only if the RSX block 4 bytes below that base is in the firmware's ROM
 chain (KL_ROM_CHAIN) - which also tells that the fixed block is AMSDOS's. The workspace
 variables are moved from their documented base (&A700) to the actual one.
+
+The owner's variables (type "var", debugger/symbols.py `OwnVariable`, task 5g) join them with
+owner "owner": at an absolute address, or at an offset in the data area of a background ROM,
+whose base the firmware keeps in KL_ROM_IY_TABLE (ROM n at +2n) - so they follow the ROM's
+data area like the AMSDOS workspace does.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from cpcxray.debugger.symbols import OwnVariable
 from cpcxray.debugger.variable_tables import (
     AMSDOS_FIXED,
     AMSDOS_WORKSPACE,
@@ -51,7 +57,7 @@ class Variable:
         address: First byte.
         size: Size in bytes.
         description: What it holds.
-        owner: "firmware" or "amsdos".
+        owner: "firmware", "amsdos" or "owner" (the owner's variables, type "var").
         area: A pack's area (all its variables and the bytes between them), not a variable.
     """
 
@@ -117,6 +123,19 @@ class VariableMap:
         self.model = model
         self.firmware = _variables(OS_VARIABLES_BY_MODEL[model], "firmware")
         self._rom_chain = next(v.address for v in self.firmware if v.label == "KL_ROM_CHAIN")
+        iy_table = next(v for v in self.firmware if v.label == "KL_ROM_IY_TABLE")
+        self._rom_data_areas = iy_table.address
+        self._rom_data_area_count = iy_table.size // 2  # 464: ROMs 0-7, 664/6128: 0-15
+        self.own_variables: Callable[[], list[OwnVariable]] = list  # set by the session
+
+    def own_address(self, variable: OwnVariable, read_byte: ByteReader) -> int | None:
+        """Where one of the owner's variables is now; None while its ROM has no data area."""
+        if variable.rom is None:
+            return variable.address
+        if variable.rom >= self._rom_data_area_count:
+            return None
+        base = _read_word(read_byte, self._rom_data_areas + 2 * variable.rom)
+        return (base + variable.address) & 0xFFFF if base else None
 
     def amsdos_base(self, read_byte: ByteReader) -> int | None:
         """Return AMSDOS's workspace base if AMSDOS is installed (see the module docstring)."""
@@ -134,10 +153,22 @@ class VariableMap:
     def variables(self, read_byte: ByteReader) -> list[Variable]:
         """All variables that exist now: the firmware's, and AMSDOS's when it is installed."""
         base = self.amsdos_base(read_byte)
-        if base is None:
-            return list(self.firmware)
-        return (self.firmware + _variables(AMSDOS_FIXED, "amsdos")
-                + _variables(AMSDOS_WORKSPACE, "amsdos", base - AMSDOS_WORKSPACE_BASE))  # fmt: skip
+        known = list(self.firmware)
+        if base is not None:
+            shift = base - AMSDOS_WORKSPACE_BASE
+            known += _variables(AMSDOS_FIXED, "amsdos")
+            known += _variables(AMSDOS_WORKSPACE, "amsdos", shift)
+        return known + self._own(read_byte)
+
+    def _own(self, read_byte: ByteReader) -> list[Variable]:
+        """The owner's variables that have a place now (see `own_address`)."""
+        found = []
+        for own in self.own_variables():
+            address = self.own_address(own, read_byte)
+            if address is not None:
+                size = min(own.size, 0x10000 - address)
+                found.append(Variable(own.label, address, size, own.comment or "", "owner"))
+        return found
 
     def lookup(self, address: int, read_byte: ByteReader) -> list[VariableHit]:
         """Return every variable containing `address`, the smallest first."""
@@ -154,4 +185,4 @@ class VariableMap:
     def find(self, label: str, read_byte: ByteReader) -> Variable | None:
         """Return the variable with this label (case-insensitive), if it exists now."""
         wanted = label.upper()
-        return next((v for v in self.variables(read_byte) if v.label == wanted), None)
+        return next((v for v in self.variables(read_byte) if v.label.upper() == wanted), None)

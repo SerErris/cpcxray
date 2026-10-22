@@ -34,7 +34,6 @@ LIST_ROWS = 18  # visible rows
 ROW_HEIGHT = 17
 INDENT = 14  # pixels per call level
 TRACE_EXTENSIONS = (".txt", ".csv", ".jsonl")
-NAME_COLOURS = {"FW": "FW", "VAR": "VAR", "own": "sub"}  # as in the CPU tab
 
 
 class TraceList:
@@ -136,7 +135,7 @@ class TraceList:
             dpg.add_text(f"{row.mnemonic} {row.before}" if row.before or row.name
                          else row.mnemonic)  # fmt: skip
             if row.name:
-                colour = colours.SYMBOL_TYPE_COLOURS[NAME_COLOURS.get(row.name_type, "FW")][0]
+                colour = colours.name_colour(row.name_type)
                 dpg.add_text(row.name, color=colour)
             if row.after:
                 dpg.add_text(row.after)

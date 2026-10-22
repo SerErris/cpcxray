@@ -74,6 +74,7 @@ def test_labels_and_externals(tmp_path: Path) -> None:
     assert "TXT_OUTPUT              EQU #BB5A" in lines
     assert "call sub_c006" in lines and "sub_c006:" in lines
     assert "jp TXT_OUTPUT                   ; [static]" in lines
+    assert generated.names == [(0xC006, "rom1", "sub_c006", "sub")]  # the Symbols tab's (5g)
     _, result = round_trip(tmp_path, view, database)
     assert result.identical
 

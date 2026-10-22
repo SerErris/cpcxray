@@ -87,6 +87,12 @@ SYMBOL_TYPE_COLOURS: Final[dict[str, tuple[Colour, Colour]]] = {
     "data": (rgb("#c8a0ff"), rgb("#3a2a4a")),  # tables, strings, other data
 }
 
+
+def name_colour(name_type: str | None) -> Colour:
+    """The text colour of a name of this symbol type (FW for an unknown or missing type)."""
+    return SYMBOL_TYPE_COLOURS.get(name_type or "FW", SYMBOL_TYPE_COLOURS["FW"])[0]
+
+
 # -- breakpoint types by category (task 5d): (text and frame, chip background) --------------
 BREAKPOINT_CATEGORIES: Final[dict[str, tuple[Colour, Colour]]] = {
     "code": (HERE, HERE_BACKGROUND),  # pc, m1

@@ -126,11 +126,25 @@ class GeneratedSource:
         text: The sjasmplus source.
         line_of_offset: Source line (1-based) of every target byte.
         statistics: Counts for the report (instructions per source, data bytes, labels, ...).
+        names: The names the analysis gave (not the owner's or firmware ones), for the
+            Symbols tab (task 5g): (address, scope, label, type "sub" / "jump" / "data").
     """
 
     text: str
     line_of_offset: list[int]
     statistics: dict[str, int] = field(default_factory=dict)
+    names: list[tuple[int, str, str, str]] = field(default_factory=list)
+
+
+def name_type(label: str) -> str:
+    """The symbol type of a generated name (task 5g).
+
+    sub_, far_, ram_, rom_init and rsx_ names are "sub", l_ names "jump", d_ names and the
+    ROM header's fields "data".
+    """
+    if label.startswith(("sub_", "far_", "ram_", "rom_init", "rsx_")):
+        return "sub"
+    return "jump" if label.startswith("l_") else "data"
 
 
 def _printable(value: int) -> bool:
@@ -259,6 +273,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         self.header: RomHeader | None = None
         self.items: list[_Item] = []
         self.labels: dict[int, str] = {}  # offset → label
+        self.names: list[tuple[int, str, str, str]] = []  # the analysis's names (GeneratedSource)
         self._context: RelocatedBlock | None = None  # block of the line being emitted
         self.externals: dict[int, str] = {}
         self._boundaries: set[int] = set()
@@ -445,8 +460,12 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         for item in self.items:
             owner = self._owner_symbol(item.offset)  # the owner's name wins over RSX names
             name = item.forced_label or (owner.label if owner is not None else None)
-            name = name or names.get(item.offset) or self._symbol_label(item.offset)
-            name = name or self._generated_label(item, uses)
+            from_analysis = item.forced_label is not None  # a header field's name
+            if name is None and item.offset in names:
+                name, from_analysis = names[item.offset], True
+            name = name or self._symbol_label(item.offset)
+            if name is None:
+                name, from_analysis = self._generated_label(item, uses), True
             if name is None:
                 continue
             unique, number = name, 2
@@ -454,6 +473,9 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
                 unique, number = f"{name}_{number}", number + 1
             used_names.add(unique)
             self.labels[item.offset] = unique
+            if from_analysis:
+                self.names.append((self.view.address(item.offset), self._scope(item.offset),
+                                   unique, name_type(name)))  # fmt: skip
         self._assign_externals(used_names)
 
     def _uses_by_offset(self) -> dict[int, set[str]]:
@@ -616,7 +638,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         while index < len(self.items):
             index = self._emit_from(index)
         text = "\n".join(self._lines) + "\n"
-        return GeneratedSource(text, self._line_of_offset, self._statistics)
+        return GeneratedSource(text, self._line_of_offset, self._statistics, self.names)
 
     def _emit_from(self, index: int) -> int:
         """Emit the item at `index` (a whole data run for data); return the next index."""

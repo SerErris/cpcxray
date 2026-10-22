@@ -91,7 +91,8 @@ class CodeRow:  # pylint: disable=too-many-instance-attributes  # one field per 
         gutter: "▶" at the PC, "●" at a breakpoint, else "".
         address, data_bytes, mnemonic: The columns of an instruction ("" for others).
         before, name, after: The operands split around the name in them (`name` may be "").
-        name_type: FW, VAR or own: the colour of `name` (and of a label row).
+        name_type: The symbol type (FW, VAR, var, sub, jump, data): the colour of `name` (and
+            of a label row).
         comment: The comment, or "".
         pc: The row of the instruction at the PC (the yellow bar).
     """
@@ -530,7 +531,7 @@ class TraceRow:  # pylint: disable=too-many-instance-attributes  # one field per
         depth: Call depth (calls and returns taken inside the trace; a reading aid).
         marker: "▸" for a call, "◂" for a return, else "".
         mnemonic, before, name, after: The instruction, split around the name in it.
-        name_type: FW, VAR or own: the colour of `name`.
+        name_type: The symbol type (FW, VAR, var, sub, jump, data): the colour of `name`.
         changes: The registers it changed (`register_changes`).
         where: Where it ran (for a separator: its text).
     """

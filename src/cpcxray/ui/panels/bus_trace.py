@@ -38,7 +38,6 @@ from cpcxray.ui.panels.widgets import BOX_GAP, Chips, badge, section, set_badge
 
 LINES = 22  # rows of the list
 WINDOW = 600  # records read around the position
-NAME_COLOURS = {"FW": "FW", "VAR": "VAR", "own": "sub"}  # as in the CPU tab
 WHEEL_LINES = 3
 DEFAULT_CAPACITY = 10_000
 SLIDER_WIDTH = 14
@@ -265,7 +264,7 @@ class BusTraceTab(Tab):  # pylint: disable=too-many-instance-attributes  # posit
         for part in ("pc", "code", "name", "after", "meaning"):
             dpg.set_value(items[f"bus_{part}_{row}"], texts[part])
         dpg.configure_item(items[f"bus_code_{row}"], color=colour)
-        name_colour = colours.SYMBOL_TYPE_COLOURS[NAME_COLOURS.get(line.name_type, "FW")][0]
+        name_colour = colours.name_colour(line.name_type)
         dpg.configure_item(items[f"bus_name_{row}"], color=name_colour)
         port = line.access in ("in", "out")
         meaning_colour = ACCESS_COLOURS["out"][0] if port else colours.TEXT_DIM

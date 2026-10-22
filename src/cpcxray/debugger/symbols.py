@@ -20,14 +20,25 @@ the firmware label) and both comments ("TXT OUTPUT · hooked by my program"); re
 owner's entry brings the plain firmware name back. Label lookups by name fall back to a
 case-insensitive match and find firmware labels under an owner's label too.
 
+Symbol types (task 5g, owner 2026-10-22): firmware names are "FW"; the owner's labels are
+"sub" (a subroutine), "jump" (a jump target inside code) or "data" (a table, a string); a
+comment without a label has no type. The owner's *variables* (`OwnVariable`, type "var") are
+named byte ranges with a size: at an absolute address, or at an offset in the data area (IY)
+of a background ROM, which the firmware assigns at boot - they are resolved like the known
+OS/AMSDOS variables (debugger/variables.py) and used wherever those are.
+
 Annotation file format (plain text, one entry per line, `#` starts a comment line):
 
-    # [scope:]address  label  [; comment]
-    BB5A        my_output       ; print char in A
-    rom5:C000   rom_header
+    # [sub|jump|data] [scope:]address  label  [; comment]
+    # var address|romN+offset  label  size  [; comment]
+    BB5A        my_output       ; print char in A (no type: "sub")
+    sub rom5:C4D8   read_sector     ; reads one sector
+    data C015       disk_messages
     8000        -               ; a comment only, no label
+    var rom5+0012   vd_drive_table  16 ; one entry per drive
 
-Addresses are hex (optionally with a leading & or #); `-` stands for "no label".
+Addresses are hex (optionally with a leading & or #); `-` stands for "no label". Files of
+earlier versions (no type words, no variables) load unchanged.
 """
 
 from __future__ import annotations
@@ -42,7 +53,10 @@ from cpcxray.debugger.firmware_symbols import FIRMWARE_BY_MODEL
 GLOBAL = ""
 LABEL_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 SCOPE_PATTERN = re.compile(r"^(lower|rom([0-9]|1[0-5]))$")
-FILE_HEADER = "# cpcxray annotations\n# [scope:]address  label  [; comment]\n"
+FILE_HEADER = ("# cpcxray annotations\n# [sub|jump|data] [scope:]address  label  [; comment]\n"
+               "# var address|romN+offset  label  size  [; comment]\n")  # fmt: skip
+OWNER_TYPES = ("sub", "jump", "data")  # the owner's labels; "var": OwnVariable
+VARIABLE_PATTERN = re.compile(r"^(?:rom(\d{1,2})\+)?([&#]?[0-9A-Fa-f]{1,4})$")
 
 
 class SymbolError(ValueError):
@@ -59,6 +73,8 @@ class Symbol:
         comment: Comment, or None.
         scope: "" (global), "lower" or "romN".
         source: "firmware" (preloaded) or "user" (saved in the annotation file).
+        type: "FW" (firmware), "sub", "jump" or "data" (the owner's labels), or None (a
+            comment only).
     """
 
     address: int
@@ -66,11 +82,38 @@ class Symbol:
     comment: str | None = None
     scope: str = GLOBAL
     source: str = "user"
+    type: str | None = None
 
     @property
     def key(self) -> tuple[str, int]:
         """(scope, address): at most one symbol per key."""
         return self.scope, self.address
+
+
+@dataclass(frozen=True)
+class OwnVariable:
+    """A variable of the owner's (type "var"): a named byte range in RAM.
+
+    Attributes:
+        label: Label, unique among all labels.
+        size: Size in bytes (1-65536).
+        address: The absolute address, or with `rom` the offset in that ROM's data area.
+        rom: None for an absolute address; else the background ROM whose data area (IY, from
+            KL_ROM_IY_TABLE) the offset counts from - it moves with the ROMs installed.
+        comment: What it holds, or None.
+    """
+
+    label: str
+    size: int
+    address: int
+    rom: int | None = None
+    comment: str | None = None
+
+    @property
+    def base_text(self) -> str:
+        """Where it is, as in the annotation file: "A612" or "rom5+0012"."""
+        location = f"{self.address:04X}"
+        return location if self.rom is None else f"rom{self.rom}+{location}"
 
 
 def validate_scope(scope: str) -> str:
@@ -110,7 +153,9 @@ class SymbolTable:
         """
         self._symbols: dict[tuple[str, int], Symbol] = {}  # the owner's layer
         self._firmware: dict[int, Symbol] = {}  # the firmware layer, all global
+        self._variables: dict[str, OwnVariable] = {}  # the owner's variables by label
         self.firmware_model: str | None = None
+        self.modified = False  # the owner's symbols or variables changed since load / save
         if preload_firmware:
             self.set_firmware(model)
 
@@ -128,7 +173,7 @@ class SymbolTable:
         for entry in FIRMWARE_BY_MODEL[model]:
             comment = entry.name + (f" ({entry.note})" if entry.note else "")
             self._firmware[entry.address] = Symbol(
-                entry.address, entry.label, comment, GLOBAL, "firmware"
+                entry.address, entry.label, comment, GLOBAL, "firmware", "FW"
             )
         self.firmware_model = model
 
@@ -140,22 +185,27 @@ class SymbolTable:
         label: str | None = None,
         comment: str | None = None,
         scope: str = GLOBAL,
+        type: str | None = None,  # pylint: disable=redefined-builtin  # the MCP parameter name
     ) -> Symbol:
         """Add or change the owner's symbol at (scope, address).
 
-        A label must be a valid identifier and unique among the global symbols and those of
-        the same scope. A part not given keeps the owner's earlier one. At a firmware address
-        only the owner's layer changes; a label or comment equal to the firmware's is not
-        stored again (annotation files from before the layering may repeat it).
+        A label must be a valid identifier and unique among the global symbols, those of the
+        same scope and the owner's variables. A part not given keeps the owner's earlier one;
+        a label's type is "sub", "jump" or "data" (default: the earlier one, else "sub"). At a
+        firmware address only the owner's layer changes; a label or comment equal to the
+        firmware's is not stored again (annotation files from before the layering may repeat
+        it).
 
         Returns:
             The symbol as lookups now see it (both layers, see `at`).
 
         Raises:
-            SymbolError: On an invalid label, scope or address, a duplicate label, or if
+            SymbolError: On an invalid label, scope, type or address, a duplicate label, or if
                 neither label nor comment is given.
         """
         validate_scope(scope)
+        if type is not None and type not in OWNER_TYPES:
+            raise SymbolError(f"invalid type {type!r} (use {', '.join(OWNER_TYPES)})")
         if not 0 <= address <= 0xFFFF:
             raise SymbolError(f"address {address} out of range")
         if label is None and comment is None:
@@ -165,12 +215,10 @@ class SymbolTable:
             label = existing.label
         if comment is None and existing is not None:
             comment = existing.comment
+        if type is None and existing is not None:
+            type = existing.type
         if label is not None:
-            if not LABEL_PATTERN.match(label):
-                raise SymbolError(f"invalid label {label!r}")
-            other = self.find(label, scope)
-            if other is not None and other.address != address:
-                raise SymbolError(f"label {label!r} already used at {other.address:04X}")
+            self._check_label(label, address, scope)
         firmware = self._firmware.get(address)
         if firmware is not None:
             label = None if label == firmware.label else label
@@ -178,7 +226,9 @@ class SymbolTable:
         if label is None and comment is None:  # nothing of the owner's left
             self._symbols.pop((scope, address), None)
         else:
-            self._symbols[(scope, address)] = Symbol(address, label, comment, scope, "user")
+            type = (type or "sub") if label is not None else None
+            self._symbols[(scope, address)] = Symbol(address, label, comment, scope, "user", type)
+        self.modified = True
         found = self.at(address, scope)
         assert found is not None  # the firmware symbol or the owner's just stored
         return found
@@ -192,7 +242,7 @@ class SymbolTable:
             SymbolError: If the owner has no symbol there.
         """
         try:
-            return self._symbols.pop((validate_scope(scope), address))
+            removed = self._symbols.pop((validate_scope(scope), address))
         except KeyError:
             where = f"{scope + ':' if scope else ''}{address:04X}"
             if address in self._firmware:
@@ -200,6 +250,73 @@ class SymbolTable:
             else:
                 message = f"no symbol at {where}"
             raise SymbolError(message) from None
+        self.modified = True
+        return removed
+
+    def _check_label(self, label: str, address: int | None, scope: str = GLOBAL) -> None:
+        """Raise SymbolError unless `label` is valid and free (a symbol elsewhere, a variable).
+
+        Args:
+            label: The label.
+            address: The symbol's address (its own label there is free); None for a variable.
+            scope: The symbol's scope.
+        """
+        if not LABEL_PATTERN.match(label):
+            raise SymbolError(f"invalid label {label!r}")
+        other = self.find(label, scope)
+        if other is not None and other.address != address:
+            raise SymbolError(f"label {label!r} already used at {other.address:04X}")
+        if address is not None and label.lower() in self._variables:
+            raise SymbolError(f"label {label!r} already used by a variable")
+
+    # -- the owner's variables ---------------------------------------------------------------
+
+    def add_variable(self, variable: OwnVariable, replaces: str | None = None) -> OwnVariable:
+        """Add or change one of the owner's variables (type "var").
+
+        Args:
+            variable: The variable; its label must be free (but for the one it replaces).
+            replaces: Label of the variable it replaces (a rename or change), or None.
+
+        Raises:
+            SymbolError: On an invalid label, size, address or ROM, or a label in use.
+        """
+        if not 1 <= variable.size <= 0x10000:
+            raise SymbolError(f"invalid size {variable.size} (1-65536)")
+        if not 0 <= variable.address <= 0xFFFF:
+            raise SymbolError(f"address {variable.address} out of range")
+        if variable.rom is not None and not 0 <= variable.rom <= 15:
+            raise SymbolError(f"invalid ROM {variable.rom} (0-15)")
+        self._check_label(variable.label, None)
+        key = variable.label.lower()
+        if key in self._variables and key != (replaces or "").lower():
+            raise SymbolError(f"label {variable.label!r} already used by a variable")
+        if replaces is not None:
+            self._variables.pop(replaces.lower(), None)
+        self._variables[key] = variable
+        self.modified = True
+        return variable
+
+    def remove_variable(self, label: str) -> OwnVariable:
+        """Remove one of the owner's variables and return it.
+
+        Raises:
+            SymbolError: If there is no such variable.
+        """
+        try:
+            removed = self._variables.pop(label.lower())
+        except KeyError:
+            raise SymbolError(f"no variable {label!r} of yours") from None
+        self.modified = True
+        return removed
+
+    def variable(self, label: str) -> OwnVariable | None:
+        """Return the owner's variable with this label (case-insensitive), or None."""
+        return self._variables.get(label.lower())
+
+    def own_variables(self) -> list[OwnVariable]:
+        """The owner's variables, sorted by label."""
+        return sorted(self._variables.values(), key=lambda variable: variable.label.lower())
 
     # -- lookups -----------------------------------------------------------------------------
 
@@ -216,8 +333,9 @@ class SymbolTable:
             return owner or firmware
         comments = [c for c in (firmware.comment, owner.comment) if c]
         return Symbol(
-            address, owner.label or firmware.label, " · ".join(comments) or None, owner.scope
-        )
+            address, owner.label or firmware.label, " · ".join(comments) or None, owner.scope,
+            type=owner.type if owner.label else firmware.type,
+        )  # fmt: skip
 
     def owner_at(self, address: int, scope: str = GLOBAL) -> Symbol | None:
         """Return only the owner's symbol for `address` (in `scope`, else global), or None."""
@@ -298,27 +416,45 @@ class SymbolTable:
         Raises:
             SymbolError: On a malformed line (the message gives file and line number).
         """
+        was_modified = self.modified
         count = 0
         for number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
             try:
-                symbol = parse_annotation_line(line)
+                entry = parse_annotation_line(line)
+                if entry is not None:
+                    self._merge_entry(entry)
             except SymbolError as error:
                 raise SymbolError(f"{path}:{number}: {error}") from None
-            if symbol is not None:
-                self.add(symbol.address, symbol.label, symbol.comment, symbol.scope)
-                count += 1
+            count += entry is not None
+        self.modified = was_modified  # what the file holds is not an unsaved change
         return count
 
+    def _merge_entry(self, entry: Symbol | OwnVariable) -> None:
+        """Add a symbol or variable read from a file or another table (it replaces its own)."""
+        if isinstance(entry, OwnVariable):
+            self.add_variable(entry, replaces=entry.label)
+        else:
+            self.add(entry.address, entry.label, entry.comment, entry.scope, entry.type)
+
     def save(self, path: str | Path) -> int:
-        """Write all user symbols to an annotation file; returns the number written."""
+        """Write the owner's symbols and variables to an annotation file.
+
+        Returns:
+            The number of entries written.
+        """
         user = self.owner_symbols()
-        text = FILE_HEADER + "".join(format_annotation_line(s) for s in user)
+        variables = self.own_variables()
+        text = (FILE_HEADER + "".join(format_annotation_line(s) for s in user)
+                + "".join(format_variable_line(v) for v in variables))  # fmt: skip
         Path(path).write_text(text, encoding="utf-8")
-        return len(user)
+        self.modified = False
+        return len(user) + len(variables)
 
 
-def parse_annotation_line(line: str) -> Symbol | None:
+def parse_annotation_line(line: str) -> Symbol | OwnVariable | None:
     """Parse one annotation file line; None for blank and `#` comment lines.
+
+    A line without a type word is a "sub" label (or a comment only), as in older files.
 
     Raises:
         SymbolError: If the line is malformed.
@@ -328,32 +464,80 @@ def parse_annotation_line(line: str) -> Symbol | None:
         return None
     entry, _, comment = text.partition(";")
     fields = entry.split()
-    if len(fields) not in (1, 2):
-        raise SymbolError(f"expected '[scope:]address label [; comment]', got {line!r}")
-    location = fields[0]
-    scope, _, address_text = location.rpartition(":")
-    label = fields[1] if len(fields) == 2 and fields[1] != "-" else None
     comment_text = comment.strip() or None
+    if fields and fields[0] == "var":
+        return _parse_variable(fields[1:], comment_text, line)
+    symbol_type = fields.pop(0) if fields and fields[0] in OWNER_TYPES else None
+    if len(fields) not in (1, 2):
+        raise SymbolError(f"expected '[type] [scope:]address label [; comment]', got {line!r}")
+    scope, _, address_text = fields[0].rpartition(":")
+    label = fields[1] if len(fields) == 2 and fields[1] != "-" else None
     if label is None and comment_text is None:
         raise SymbolError(f"entry without label and comment: {line!r}")
-    return Symbol(parse_address(address_text), label, comment_text, validate_scope(scope))
+    if label is not None:
+        symbol_type = symbol_type or "sub"
+    return Symbol(parse_address(address_text), label, comment_text, validate_scope(scope),
+                  type=symbol_type)  # fmt: skip
+
+
+def _parse_variable(fields: list[str], comment: str | None, line: str) -> OwnVariable:
+    """The fields after "var": `address|romN+offset label size`."""
+    if len(fields) != 3:
+        raise SymbolError(f"expected 'var address|romN+offset label size [; comment]', "
+                          f"got {line!r}")  # fmt: skip
+    location, label, size_text = fields
+    rom, address = parse_variable_base(location)
+    if not LABEL_PATTERN.match(label):
+        raise SymbolError(f"invalid label {label!r}")
+    try:
+        size = int(size_text, 0)
+    except ValueError:
+        raise SymbolError(f"invalid size {size_text!r}") from None
+    return OwnVariable(label, size, address, rom, comment)
+
+
+def parse_variable_base(text: str) -> tuple[int | None, int]:
+    """Parse a variable's place: "A612" / "&A612" (absolute) or "rom5+0012" (ROM data area).
+
+    Returns:
+        (ROM number or None, address or offset).
+
+    Raises:
+        SymbolError: If it is neither.
+    """
+    match = VARIABLE_PATTERN.match(text.strip())
+    if match is None:
+        raise SymbolError(f"invalid variable address {text!r} (use A612 or rom5+0012)")
+    rom = int(match.group(1)) if match.group(1) is not None else None
+    if rom is not None and rom > 15:
+        raise SymbolError(f"invalid ROM {rom} (0-15)")
+    return rom, parse_address(match.group(2))
 
 
 def format_annotation_line(symbol: Symbol) -> str:
     """Format a symbol as an annotation file line (with trailing newline)."""
     location = f"{symbol.scope}:{symbol.address:04X}" if symbol.scope else f"{symbol.address:04X}"
-    line = f"{location:<11} {symbol.label or '-':<20}"
+    line = f"{symbol.type or '':<4} {location:<11} {symbol.label or '-':<20}"
     if symbol.comment:
         line += f" ; {symbol.comment}"
-    return line.rstrip() + "\n"
+    return line.strip() + "\n"
+
+
+def format_variable_line(variable: OwnVariable) -> str:
+    """Format one of the owner's variables as an annotation file line (with trailing newline)."""
+    line = f"var  {variable.base_text:<11} {variable.label:<20} {variable.size}"
+    if variable.comment:
+        line += f" ; {variable.comment}"
+    return line + "\n"
 
 
 def merge(tables: Iterable[SymbolTable]) -> SymbolTable:
-    """Return a new table with the user symbols of all `tables` (later ones win)."""
+    """Return a new table with the user symbols and variables of all `tables` (later ones win)."""
     tables = list(tables)
     model = next((table.firmware_model for table in tables if table.firmware_model), "464")
     merged = SymbolTable(preload_firmware=True, model=model)
     for table in tables:
-        for symbol in table.owner_symbols():
-            merged.add(symbol.address, symbol.label, symbol.comment, symbol.scope)
+        for entry in [*table.owner_symbols(), *table.own_variables()]:
+            merged._merge_entry(entry)  # pylint: disable=protected-access  # same class
+    merged.modified = False
     return merged

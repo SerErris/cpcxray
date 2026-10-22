@@ -42,7 +42,6 @@ STACK_ROWS = 22
 LOWER_HEIGHT = CODE_ROWS * 17 + 52  # the disassembly and the stack end on the same line
 TILE_WIDTH = (TAB_WIDTH - 3 * BOX_GAP) // 4
 KEEP_BELOW = 4  # the view moves on when the PC comes this close to its end
-NAME_COLOURS = {"FW": "FW", "VAR": "VAR", "own": "sub"}  # name type → symbol type colour
 
 
 class CpuTab(Tab):  # pylint: disable=too-many-instance-attributes  # view state and widgets
@@ -299,12 +298,12 @@ def _row_texts(row: CodeRow) -> dict[str, tuple[str, colours.Colour | None]]:
         # in the wide operands column: Dear PyGui clips a cell's text even with no_clip
         return empty | {"before": (row.text, colours.TEXT_DIM)}
     if row.kind == "label":
-        colour = colours.SYMBOL_TYPE_COLOURS[NAME_COLOURS.get(row.name_type, "FW")][0]
+        colour = colours.name_colour(row.name_type)
         return empty | {"name": (row.text, colour)}  # the operands column (see above)
     if row.kind == "empty":
         return empty
     gutter_colour = colours.HERE if row.pc else colours.ERROR
-    name_colour = colours.SYMBOL_TYPE_COLOURS[NAME_COLOURS.get(row.name_type, "FW")][0]
+    name_colour = colours.name_colour(row.name_type)
     return {
         "gutter": (row.gutter, gutter_colour),
         "address": (row.address, colours.TEXT_DIM),

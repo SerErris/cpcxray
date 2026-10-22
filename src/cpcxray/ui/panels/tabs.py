@@ -10,7 +10,7 @@ A tab bar next to the screen, one module per tab:
 | Breakpoints | breakpoints.py | list; add any type with location qualifier; enable, remove     |
 | Trace       | trace.py       | instruction trace on/off and its last lines                    |
 | Bus trace   | bus_trace.py   | bus access trace on/off (access type filter) and its lines     |
-| Symbols     | symbols.py     | search (scroll list), add "address label ; comment"            |
+| Symbols     | symbols.py     | search, type chips, list + detail, your symbols, annotation file |
 | Disks       | disks.py       | drives, insert/eject, draft, Save / Save as, catalogue         |
 | Files       | files.py       | .sna save/load, analysis save, source generate + verify        |
 
@@ -124,7 +124,14 @@ class DebuggerPanels:
         )
 
     def handle_keys(self) -> None:
-        """Every frame: the list keys go to the list under the mouse (an open dialog's first)."""
+        """Every frame: the list keys go to the list under the mouse (an open dialog's first).
+
+        Lists with new rows scroll to their selection once the rows are laid out (`settle`).
+        """
+        for scroll_list in self.context.lists:
+            settle = getattr(scroll_list, "settle", None)  # lists that draw their own rows: none
+            if settle is not None:
+                settle()
         target = self._list_under_mouse()
         if target is None:
             return
