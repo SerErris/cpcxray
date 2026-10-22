@@ -170,10 +170,17 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   outside ROM quarters, "ram:N" where block N is mapped; ROM views none; `area` flags pack
   areas). Memory tab: one text item per byte, coloured per variable (text.py `memory_layout`,
   tabs.py `VARIABLE_COLOURS`), area-only bytes grey, colour-matched legend below.
-- ui/panels/: tabs.py (Dear PyGui tab bar: CPU, Memory, Devices, Breakpoints, Trace, Bus trace,
-  Symbols, Files), text.py (formatting/parsing, tested headless). Panels only call Session
-  methods; the visible tab refreshes every 5th frame; PC keys go to a focused text input, not the
-  CPC. EmulationLoop: run_to(address), step_out.
+- ui/panels/: tabs.py (`DebuggerPanels`: the tab bar), one module per tab (cpu, memory,
+  devices, breakpoints, trace, bus_trace, symbols, disks, files) with a `Tab` subclass
+  (base.py: `build`/`refresh`, `call` reports into the tab's message line, shared
+  `PanelContext` with one `items` dict for all tabs); colours.py (the colour table of the
+  agreed mock-ups: palette, badge styles, symbol type colours), widgets.py (`Styles` themes,
+  section, badge, swatch, `Chips`, path field with ▾; DejaVu Sans Mono from the system fonts),
+  scroll_list.py (`ListState` headless + `ScrollList`: clipper, keys while hovered, select vs
+  activate), file_selector.py (own modal dialog: name/size/date, filters, "Select"), text.py
+  (formatting/parsing, tested headless). Panels only call Session methods; the visible tab
+  refreshes every 5th frame; PC keys go to a focused text input, a hovered list or an open file
+  selector, not the CPC. EmulationLoop: run_to(address), step_out.
 
 ## Analysis database and source notes (phase 8)
 

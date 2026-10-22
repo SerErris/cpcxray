@@ -1,0 +1,91 @@
+"""The GUI's colour table: every colour of the panels comes from here (agreed mock-ups, 2026-10-22).
+
+The design canvas "cpcxray GUI tabs" fixes the palette: dark panels, blue headings and buttons,
+yellow for "selected / here" (the PC line, the selected entry's frame), green for "fine / saved",
+orange for "changed, not saved", red for errors and removal. Symbol types (task 5g) and known
+variables have their own colours, used the same way in every tab.
+
+No Dear PyGui import: the table is plain data, usable and testable headless (NFR-04).
+"""
+
+from __future__ import annotations
+
+from typing import Final
+
+type Colour = tuple[int, int, int]
+
+
+def rgb(text: str) -> Colour:
+    """Convert "#rrggbb" (as in the mock-ups) to an (r, g, b) tuple."""
+    digits = text.lstrip("#")
+    if len(digits) != 6:
+        raise ValueError(f"expected #rrggbb, got {text!r}")
+    return int(digits[0:2], 16), int(digits[2:4], 16), int(digits[4:6], 16)
+
+
+# -- the frame of the window ------------------------------------------------------------------
+BACKGROUND: Final = rgb("#232326")  # window
+PANEL: Final = rgb("#2b2b30")  # a section (box) inside a tab
+PANEL_DIM: Final = rgb("#26262a")  # a section without content (dashed in the mock-ups)
+BORDER: Final = rgb("#45454c")  # frame of a section
+INPUT: Final = rgb("#333337")  # text inputs, combos
+ROW_ALTERNATE: Final = rgb("#34343a")  # list rows, hovered
+TRACK: Final = rgb("#3a3a40")  # bars and plain badges
+
+# -- text -------------------------------------------------------------------------------------
+TEXT: Final = rgb("#dcdcdc")
+TEXT_DIM: Final = rgb("#a0a0a8")  # labels, explanations, numbers of secondary interest
+TEXT_OFF: Final = rgb("#6a6a72")  # unused (pens the mode does not use, "unknown" bytes)
+HEADING: Final = rgb("#8fb8ff")  # section titles
+HEADING_HOVER: Final = rgb("#b8d2ff")
+WHITE: Final = rgb("#ffffff")
+
+# -- buttons and tabs -------------------------------------------------------------------------
+ACCENT: Final = rgb("#3d6ea8")  # primary button, active tab, selected chip
+BUTTON: Final = rgb("#2e3c4f")  # other buttons, inactive tabs
+SELECTED_ROW: Final = rgb("#25344a")  # the selected list row
+
+# -- states -----------------------------------------------------------------------------------
+HERE: Final = rgb("#ffd75e")  # yellow: the selected entry's frame, the PC, the active target
+HERE_BACKGROUND: Final = rgb("#4a4220")  # yellow bar behind the PC line
+OK: Final = rgb("#7ee093")  # green: saved, identical, writable
+OK_BACKGROUND: Final = rgb("#23432c")
+OK_BORDER: Final = rgb("#3fb950")
+CHANGED: Final = rgb("#ffa040")  # orange warning light: changed and not saved
+CHANGED_BACKGROUND: Final = rgb("#5a3410")
+CHANGED_BORDER: Final = rgb("#ff8c1a")
+ERROR: Final = rgb("#ff8a8a")  # error messages, remove (✕)
+ERROR_BACKGROUND: Final = rgb("#4a2a2a")
+LED_ON: Final = rgb("#ff6b6b")  # drive activity
+ANALYSED: Final = rgb("#ffc85a")  # a ROM that is an analysis target
+
+# -- badges: (text, background, border or None) -----------------------------------------------
+BADGE_STYLES: Final[dict[str, tuple[Colour, Colour, Colour | None]]] = {
+    "plain": (TEXT_DIM, TRACK, None),  # "read-only", "draft", "changed" while not lit
+    "ok": (OK, OK_BACKGROUND, None),  # "saved", "identical ✓", "writable"
+    "on": (OK, OK_BACKGROUND, OK_BORDER),  # a switch that is on ("● Analysis on")
+    "changed": (CHANGED, CHANGED_BACKGROUND, CHANGED_BORDER),  # lit orange warning light
+    "error": (ERROR, ERROR_BACKGROUND, None),
+    "here": (HERE, HERE_BACKGROUND, HERE),  # the selected / active thing
+}
+
+# -- symbol types (task 5g): (text colour, chip background) -----------------------------------
+SYMBOL_TYPES: Final = ("FW", "VAR", "var", "sub", "jump", "data")
+SYMBOL_TYPE_COLOURS: Final[dict[str, tuple[Colour, Colour]]] = {
+    "FW": (rgb("#8fb8ff"), rgb("#25344a")),  # Amstrad firmware jumpblock and restarts
+    "VAR": (rgb("#7ee093"), rgb("#23432c")),  # Amstrad OS / AMSDOS variables
+    "var": (rgb("#6edcd2"), rgb("#1f3d3a")),  # the owner's or the analysis' variables
+    "sub": (rgb("#ffc85a"), rgb("#4a3a1a")),  # subroutines (call targets)
+    "jump": (rgb("#ff9e6e"), rgb("#4a2e1e")),  # jump targets inside code
+    "data": (rgb("#c8a0ff"), rgb("#3a2a4a")),  # tables, strings, other data
+}
+
+# -- known variables in the memory view (FR-DBG-11): taken in turn ---------------------------
+VARIABLE_COLOURS: Final = (
+    (255, 200, 90), (120, 200, 255), (150, 230, 120), (255, 140, 170), (200, 160, 255),
+    (110, 220, 210),
+)  # fmt: skip
+AREA_COLOUR: Final = (140, 140, 140)  # inside a pack's area, in no named variable
+
+# Dear PyGui reads a colour with a negative first component as "use the theme's colour"
+THEME_DEFAULT: Final = (-255, 0, 0, 255)

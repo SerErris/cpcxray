@@ -56,9 +56,10 @@ def test_window_keyboard_type_box_and_panels(tmp_path: Path) -> None:
 def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     """Exercise the debugger panels of a booted machine (called inside the one GUI test)."""
     panels = app.panels
+    tabs = panels.tabs
     assert "read-only" in dpg.get_value(panels.items["drives"])  # filled at start while running
     dpg.set_value(panels.items["disk_path"], "")
-    panels._call("disk_message", lambda: app.session.disk_save("B", ""))  # pylint: disable=protected-access
+    tabs["Disks"].call(lambda: app.session.disk_save("B", ""))
     assert dpg.get_value(panels.items["disk_message"]).startswith("error: give a file name")
     app.loop.stop()
     panels.refresh(force=True)
@@ -70,7 +71,7 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     dpg.set_value(panels.items["bp_kind"], "write")
     dpg.set_value(panels.items["bp_address"], "B000")
     dpg.set_value(panels.items["bp_end"], "BFFF")
-    panels._call("bp_message", panels._add_bp)  # pylint: disable=protected-access
+    tabs["Breakpoints"].call(tabs["Breakpoints"].add_breakpoint)
     assert "write B000-BFFF" in dpg.get_value(panels.items["breakpoints"])
     app.loop.start()
     for _ in range(20):
@@ -79,16 +80,17 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
             break
     assert app.loop.last_stop["reason"] == "breakpoint"  # the firmware writes its RAM
     dpg.set_value(panels.items["sna_path"], str(tmp_path / "gui.sna"))
-    panels._call("files_message", lambda: app.session.sna_save(  # pylint: disable=protected-access
-        dpg.get_value(panels.items["sna_path"])))  # fmt: skip
+    tabs["Files"].call(lambda: app.session.sna_save(dpg.get_value(panels.items["sna_path"])))
     assert (tmp_path / "gui.sna").stat().st_size == 0x100 + 0x10000
     dpg.set_value(panels.items["memory_edit"], "4000: 3E 05")
-    panels._call("memory_message", panels._edit_memory)  # pylint: disable=protected-access
+    tabs["Memory"].call(tabs["Memory"].edit_memory)
     assert dpg.get_value(panels.items["memory_message"]) == "ok"
     dpg.set_value(panels.items["register_edit"], "hl")
-    panels._call("cpu_message", panels._set_registers)  # pylint: disable=protected-access
+    tabs["CPU"].call(tabs["CPU"].set_registers)
     assert dpg.get_value(panels.items["cpu_message"]).startswith("error:")
     assert not panels.typing()
+    check_symbols_list(panels, dpg)
+    check_file_selector(panels, dpg, tmp_path)
     check_toggles_and_freeze(app, dpg)
 
 
@@ -103,10 +105,11 @@ def check_toggles_and_freeze(app: Any, dpg: Any) -> None:
     app._toggle_analysis()  # pylint: disable=protected-access
     app.render_frame()
     assert dpg.get_value(app._widgets.analysis_light) == "ANALYSIS"  # pylint: disable=protected-access
-    panels._call("trace_message", panels._toggle_trace)  # pylint: disable=protected-access
+    trace = panels.tabs["Trace"]
+    trace.call(trace.toggle_trace)
     assert app.session.trace.enabled
     assert dpg.get_item_label(panels.items["trace_toggle"]) == "Trace runs: on"
-    panels._call("trace_message", panels._toggle_trace)  # pylint: disable=protected-access
+    trace.call(trace.toggle_trace)
     assert not app.session.trace.enabled
     app.loop.start()  # while running, the panels stay frozen
     dpg.set_value(panels.items["registers"], "frozen")
@@ -134,3 +137,30 @@ def check_memory_variables(panels: Any, dpg: Any) -> None:
     assert legend[0].startswith("in KL_WORKSPACE") and "KL_TIME (4)" in legend[1]
     dpg.set_value(panels.items["memory_address"], "0000")
     dpg.set_value(panels.items["memory_view"], "cpu")
+
+
+def check_symbols_list(panels: Any, dpg: Any) -> None:
+    """The symbol matches fill the scroll list; keys move the selection into the add line."""
+    symbols = panels.tabs["Symbols"]
+    dpg.set_value(panels.items["symbol_search"], "txt_out")
+    symbols.refresh()
+    assert symbols.list.state.count >= 1 and "TXT_OUTPUT" in symbols.list.row(0)
+    symbols.list.handle_key("down")  # no selection yet: the first row
+    assert dpg.get_value(panels.items["symbol_add"]).startswith("BB5A TXT_OUTPUT ; TXT OUTPUT")
+    dpg.set_value(panels.items["symbol_search"], "")
+
+
+def check_file_selector(panels: Any, dpg: Any, tmp_path: Path) -> None:
+    """The ▾ dialog opens in the field's folder, lists .sna files and fills the field."""
+    (tmp_path / "other.sna").write_bytes(b"")
+    selector = next(s for s in panels.context.selectors if s.path_input == panels.items["sna_path"])
+    dpg.set_value(panels.items["sna_path"], str(tmp_path / "gui.sna"))
+    selector.open()
+    assert selector.is_open() and selector.folder == tmp_path.resolve()
+    names = [entry.name for entry in selector.entries]
+    assert names[0] == ".." and "other.sna" in names and "gui.sna" in names
+    index = names.index("other.sna")
+    selector.list.select(index, notify=True)  # a click: the name line takes it
+    selector.select()
+    assert not selector.is_open()
+    assert dpg.get_value(panels.items["sna_path"]) == str(tmp_path / "other.sna")

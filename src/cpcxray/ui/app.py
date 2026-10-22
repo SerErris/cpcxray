@@ -28,6 +28,7 @@ from cpcxray.session.session import Session, SessionError
 from cpcxray.ui.emulation import EmulationLoop
 from cpcxray.ui.host_keys import build_host_key_map
 from cpcxray.ui.panels.tabs import PANEL_WIDTH, DebuggerPanels
+from cpcxray.ui.panels.widgets import Styles, load_font
 from cpcxray.ui.renderer import HEIGHT, WIDTH, render
 
 TITLE = "CPC X-Ray"
@@ -82,6 +83,11 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
         """Create the Dear PyGui context, texture, window and viewport."""
         dpg.create_context()
         self._host_keys = build_host_key_map()  # needs the context
+        styles = Styles()  # the palette of ui/panels/colours.py for the whole window
+        dpg.bind_theme(styles.window)
+        font = load_font()
+        if font is not None:
+            dpg.bind_font(font)
         with dpg.texture_registry():
             self._widgets.texture = dpg.add_dynamic_texture(
                 WIDTH, HEIGHT, np.zeros(WIDTH * HEIGHT * 4, dtype=np.float32)
@@ -90,7 +96,7 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
             with dpg.group():
                 self._build_screen_column()
             with dpg.child_window(width=PANEL_WIDTH + 20, border=False):
-                self.panels.build()
+                self.panels.build(styles)
         self.panels.refresh(force=True)  # fill every panel once (they are frozen while running)
         dpg.create_viewport(
             title=TITLE, width=WIDTH * DISPLAY_SCALE + PANEL_WIDTH + 70, height=2 * HEIGHT + 170
@@ -175,7 +181,7 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
         dpg.set_value(self._widgets.type_box, "")
 
     def _update_host_keys(self) -> None:
-        """Hold the CPC keys for the PC keys that are down (not while typing into the box)."""
+        """Hold the CPC keys for the PC keys that are down (not while the panels take them)."""
         keyboard = self.session.machine.keyboard  # type: ignore[attr-defined]
         if dpg.is_item_focused(self._widgets.type_box) or self.panels.typing():
             keyboard.release_all("host")
@@ -191,6 +197,7 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
         """One GUI frame: keyboard, emulate, update texture and status, draw."""
         if self.session.machine.memory.lower_rom is not None:  # type: ignore[attr-defined]
             self._update_host_keys()
+        self.panels.handle_keys()  # list keys over a list (they do not reach the CPC then)
         self.loop.frame()
         image = render(self.session.machine.snapshot())  # type: ignore[attr-defined]
         dpg.set_value(self._widgets.texture, (image.astype(np.float32) / 255.0).ravel())
