@@ -56,6 +56,9 @@ MAX_SEARCH_RESULTS = 1000
 ANNOTATIONS_FILE = Path("project") / "annotations.txt"
 DEFAULT_CONFIG = Path("config") / "machine.toml"
 CHECK_INTERVAL = 4096  # instructions between checks of pause and wall clock
+# "changed by the last step" (CPU tab); not R, which every instruction changes
+CHANGE_NAMES = ("af", "bc", "de", "hl", "af_", "bc_", "de_", "hl_", "ix", "iy", "sp", "pc", "wz",
+                "i", "im", "iff1", "iff2", "halted")  # fmt: skip
 _REPEATING_BLOCK = ("ldir", "lddr", "cpir", "cpdr", "inir", "indr", "otir", "otdr")
 
 
@@ -102,6 +105,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         self.analysis_enabled = True  # the analysis observers run while targets exist
         self.trace = Trace(self._format_capture)
         self._recording_steps = False  # step/step_over/step_out record into the trace buffer
+        self._registers_before: dict[str, int] | None = None  # at the start of a step
         self._pause_requested = threading.Event()
         self.pause_generation = 0  # counts pause() calls; the GUI stops free-running on change
         annotations = self.project_dir / ANNOTATIONS_FILE
@@ -197,6 +201,10 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         }
         if breakpoint_hit is not None:
             result["breakpoint"] = breakpoint_hit
+        if self._registers_before is not None:  # a step: which registers it changed
+            now = self.machine.cpu.registers()
+            result["changed"] = [n for n in CHANGE_NAMES if now[n] != self._registers_before[n]]
+            self._registers_before = None
         if reason != "time_limit":  # a used-up time budget is no stop (GUI runs in slices)
             self.last_stop = result  # last_stop_get (the Breakpoints tab's "Last stop")
         return result
@@ -381,6 +389,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
     def reset(self) -> dict[str, Any]:
         """Reset the machine (CPU registers, clock); memory keeps its contents."""
         self.machine.reset()
+        self.stacks.reset()
         return self.machine_status()
 
     def memory_load(self, address: int | str, path: str) -> dict[str, Any]:
@@ -434,6 +443,8 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         except ConfigError as error:
             raise SessionError(str(error)) from None
         self.machine = machine
+        self.stacks.reset()
+        self._watch_stack()
         self.symbols.set_firmware(machine.firmware_model)
         self.variables = self._variable_map(machine)
         self._breakpoint_observer = None
@@ -646,6 +657,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         The file sink is written only while the trace is on.
         """
         previous, self._recording_steps = self._recording_steps, True
+        self._registers_before = self.machine.cpu.registers()  # "changed" in the stop result
         try:
             yield
         finally:
@@ -713,6 +725,8 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
             self.machine.cpu.set_registers(values)
         except KeyError as error:
             raise SessionError(str(error)) from None
+        if "sp" in values:
+            self.stacks.loaded(self.machine.cpu.sp, None, "set by the debugger")
         return self.registers_get()
 
     # == memory ================================================================================
@@ -774,22 +788,25 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         Lines show address, bytes, instruction with symbols and comments; labels get their
         own line. Non-canonical encodings are marked "[nc]". `paging` describes the 16 KB
         quarters the lines come from: the ROM or RAM block the CPU reads there now (FR-DBG-12).
+        `rows` gives the same split into fields, with the type of each name (the CPU tab).
         """
         if not 1 <= count <= MAX_DISASSEMBLE:
             raise SessionError(f"count must be 1-{MAX_DISASSEMBLE}")
         current = self.machine.cpu.pc if address is None else self._address(address)
-        lines, quarters = [], []
+        lines, quarters, rows = [], [], []
         for _ in range(count):
             instruction = self._disassemble(current)
             label = self._label(current)
             if label:
                 lines.append(f"{label}:")
             lines += self._format_instruction(instruction)
+            rows += self._disassembly_rows(instruction, label)
             if current >> 14 not in quarters:
                 quarters.append(current >> 14)
             current = instruction.next_address
         paging = self.paging_get()["quarters"]
-        return {"lines": lines, "next": hex4(current), "paging": [paging[q] for q in quarters]}
+        return {"lines": lines, "next": hex4(current), "paging": [paging[q] for q in quarters],
+                "rows": rows}  # fmt: skip
 
     def _format_instruction(self, instruction: Instruction) -> list[str]:
         """Format an instruction (and its extra lines) for `disassemble`."""

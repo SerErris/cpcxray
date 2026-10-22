@@ -370,3 +370,24 @@ def test_replacing_the_bus() -> None:
     cpu.bus = other
     cpu.step()
     assert cpu.a == 0x22
+
+
+def test_stack_loaded_hook() -> None:
+    """Only the instructions that load SP report it, with their own address (task 5b)."""
+    code = bytes.fromhex(
+        "3100C0"  # 0000 ld sp,#C000
+        "33"  # 0003 inc sp: no load
+        "210080 F9"  # 0004 ld hl,#8000 / 0007 ld sp,hl
+        "DD210090 DDF9"  # 0008 ld ix,#9000 / 000C ld sp,ix
+        "ED7B2000"  # 000E ld sp,(#0020)
+        "DD3100A0"  # 0012 ld sp,#A000 (DD prefix: ignored, still LD SP,nn)
+        "C5"  # 0016 push bc: no load
+    )
+    cpu, bus = make(code, log=False)
+    bus.mem[0x20:0x22] = b"\x00\xb0"
+    loads: list[tuple[int, int]] = []
+    cpu.stack_loaded = lambda address, value: loads.append((address, value))
+    for _ in range(9):
+        cpu.step()
+    assert loads == [(0x0000, 0xC000), (0x0007, 0x8000), (0x000C, 0x9000), (0x000E, 0xB000),
+                     (0x0012, 0xA000)]  # fmt: skip

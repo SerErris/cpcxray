@@ -166,6 +166,10 @@ class Z80:  # pylint: disable=too-many-instance-attributes
         halted: The CPU executed HALT and idles until an interrupt.
         int_line: State of the INT input.
         nmi_pending: A falling NMI edge was seen and the NMI not yet accepted.
+        instruction_address: Address of the instruction being executed (set by `step`).
+        stack_loaded: Called with (instruction address, new SP) by the instructions that
+            load SP - LD SP,nn, LD SP,(nn), LD SP,HL/IX/IY - for the debugger's stack view
+            (task 5b); None (the default) costs nothing. INC/DEC SP, PUSH, POP do not call it.
     """
 
     a = _byte_register_property(A)
@@ -216,6 +220,8 @@ class Z80:  # pylint: disable=too-many-instance-attributes
         self.nmi_pending = False
         self._nmi_line = False
         self.flags_written_by_previous_instruction = 0
+        self.instruction_address = 0
+        self.stack_loaded: Callable[[int, int], None] | None = None
         self.bus = bus
         tables = _TableBuilder(self)
         self._unprefixed_table = tables.unprefixed
@@ -282,6 +288,7 @@ class Z80:  # pylint: disable=too-many-instance-attributes
         if self.halted:
             self.bus.fetch(self.pc)  # the CPU keeps fetching (and ignoring) the next opcode
             return timing.HALT_IDLE
+        self.instruction_address = self.pc
         opcode = self.bus.fetch(self.pc)
         self.pc = (self.pc + 1) & 0xFFFF
         return self._unprefixed_table[opcode]()
@@ -807,6 +814,8 @@ class _TableBuilder:  # pylint: disable=too-many-locals,too-many-return-statemen
                     def load_pair_immediate() -> int:
                         """LD rr,nn (BC, DE, HL/IX/IY, SP)."""
                         set_pair(read_immediate_word())
+                        if pair_index == 3 and cpu.stack_loaded is not None:
+                            cpu.stack_loaded(cpu.instruction_address, cpu.sp)
                         return nops
 
                     return load_pair_immediate
@@ -1070,6 +1079,8 @@ class _TableBuilder:  # pylint: disable=too-many-locals,too-many-return-statemen
             def load_sp_from_hl() -> int:
                 """LD SP,HL / LD SP,IX / LD SP,IY."""
                 cpu.sp = registers[pair_high] << 8 | registers[pair_low]
+                if cpu.stack_loaded is not None:
+                    cpu.stack_loaded(cpu.instruction_address, cpu.sp)
                 return nops
 
             return load_sp_from_hl
@@ -1690,6 +1701,8 @@ class _TableBuilder:  # pylint: disable=too-many-locals,too-many-return-statemen
                     address = (address + 1) & 0xFFFF
                     cpu.sp = cpu.bus.read(address) << 8 | low_byte
                     cpu.wz = address
+                    if cpu.stack_loaded is not None:
+                        cpu.stack_loaded(cpu.instruction_address, cpu.sp)
                     return nops
 
                 return load_sp_direct

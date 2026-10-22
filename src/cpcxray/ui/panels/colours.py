@@ -72,6 +72,8 @@ BADGE_STYLES: Final[dict[str, tuple[Colour, Colour, Colour | None]]] = {
     "here": (HERE, HERE_BACKGROUND, HERE),  # the selected / active thing
     "key": (TEXT, ROW_ALTERNATE, None),  # a key of the keyboard matrix
     "key_held": (KEY_HELD_TEXT, HERE, None),  # a key held down
+    "flag_on": (WHITE, ACCENT, None),  # a CPU flag that is set
+    "flag_off": (TEXT_OFF, ROW_ALTERNATE, None),  # a CPU flag that is clear
 }
 
 # -- symbol types (task 5g): (text colour, chip background) -----------------------------------

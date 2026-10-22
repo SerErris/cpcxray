@@ -192,3 +192,22 @@ def test_machine_status_and_reset(session: Session) -> None:
     after = session.reset()
     assert (after["pc"], after["clock_us"]) == ("0000", 0)
     assert session.memory_read("8000", 2)["hex"] == "3E05"  # memory survives the reset
+
+
+def test_stack_changed_registers_and_rows(session: Session) -> None:
+    """stack_get follows SP loads; a step reports what it changed; rows carry name types."""
+    session.memory_write("9000", "3100A0 C5 CD5ABB")  # ld sp,#A000 / push bc / call TXT_OUTPUT
+    session.registers_set({"pc": 0x9000, "bc": 0x1234})
+    result = session.step()
+    assert result["changed"] == ["sp", "pc"] and session.last_stop_get()["stop"] == result
+    session.step()  # push bc
+    stack = session.stack_get(4)
+    assert (stack["sp"], stack["top"], stack["source"]) == ("9FFE", "A000",
+                                                             "ld sp at &9000 (RAM)")  # fmt: skip
+    assert stack["words"] == [{"address": "9FFE", "value": "1234"}]  # up to the top only
+    rows = session.disassemble("9004", 1)["rows"]
+    assert rows == [{"kind": "instruction", "address": "9004", "bytes": "CD 5A BB",
+                     "mnemonic": "call", "operands": "TXT_OUTPUT",
+                     "name": "TXT_OUTPUT", "name_type": "FW"}]  # fmt: skip
+    session.registers_set({"sp": 0x4000})
+    assert session.stack_get()["source"] == "set by the debugger"

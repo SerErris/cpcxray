@@ -71,6 +71,7 @@ class Styles:  # pylint: disable=too-many-instance-attributes  # one theme per l
         self._rows: dict[tuple[Colour | None, bool], int | str] = {}
         self._texts: dict[Colour, int | str] = {}
         self._chips: dict[tuple[Colour, Colour, bool], int | str] = {}
+        self._tiles: dict[tuple[bool, bool], int | str] = {}
         self.link = _link_theme()
         self.icon_font: int | str | None = None  # the larger font for symbol buttons (app sets it)
         self.box_row = _box_row_theme()
@@ -118,6 +119,14 @@ class Styles:  # pylint: disable=too-many-instance-attributes  # one theme per l
                 dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 5, 2)
             self._chips[key] = theme
         return self._chips[key]
+
+    def tile(self, rom: bool, here: bool) -> int | str:
+        """A paging tile: ROM tiles tinted blue, the tile of the PC framed yellow."""
+        key = (rom, here)
+        if key not in self._tiles:
+            background = colours.SELECTED_ROW if rom else colours.PANEL
+            self._tiles[key] = _child_theme(background, colours.HERE if here else colours.BORDER)
+        return self._tiles[key]
 
     def text(self, colour: Colour) -> int | str:
         """A theme that only sets the text colour (for buttons and other widgets)."""
@@ -201,6 +210,7 @@ def _child_theme(background: Colour, border: Colour) -> int | str:
             # box itself is BOX_GAP too
             dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 6, BOX_GAP)
             dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 4, 1)
+            dpg.add_theme_style(dpg.mvStyleVar_CellPadding, 4, 1)  # table rows: 17 px too
     return theme
 
 

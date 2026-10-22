@@ -64,8 +64,7 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     assert dpg.get_value(panels.items["disk_message"]).startswith("error: give a file name")
     app.loop.stop()
     panels.refresh(force=True)
-    assert dpg.get_value(panels.items["registers"]).startswith("AF ")
-    assert ">" in dpg.get_value(panels.items["disassembly"])  # the PC line is marked
+    check_cpu(app, dpg)
     assert dpg.get_value(panels.items["crtc_1"]).startswith("R1  H displayed")
     assert dpg.get_value(panels.items["ga_header"]).startswith("mode 1")
     assert dpg.get_value(panels.items["fdc_disk_B"]).startswith("B: ")  # the Vortex test disk
@@ -126,9 +125,9 @@ def check_toggles_and_freeze(app: Any, dpg: Any) -> None:
     trace.call(trace.toggle_trace)
     assert not app.session.trace.enabled
     app.loop.start()  # while running, the panels stay frozen
-    dpg.set_value(panels.items["registers"], "frozen")
+    dpg.set_value(panels.items["reg_PC"], "frozen")
     panels.refresh()
-    assert dpg.get_value(panels.items["registers"]) == "frozen"
+    assert dpg.get_value(panels.items["reg_PC"]) == "frozen"
     devices_tab = next(i for i, t in panels._tab_ids.items() if t.title == "Devices")  # pylint: disable=protected-access
     dpg.set_value(panels.items["tab_bar"], devices_tab)
     dpg.set_value(panels.items["crtc_1"], "stale")
@@ -137,7 +136,7 @@ def check_toggles_and_freeze(app: Any, dpg: Any) -> None:
     dpg.set_value(panels.items["tab_bar"], next(iter(panels._tab_ids)))  # pylint: disable=protected-access  # CPU
     app.loop.stop()
     panels.refresh()
-    assert dpg.get_value(panels.items["registers"]).startswith("AF ")
+    assert dpg.get_value(panels.items["reg_PC"]) != "frozen"
     panels.refresh(force=True)
     assert dpg.get_item_label(panels.items["disk_mode"]) == "read-only"  # the real images
     assert "K free" in dpg.get_value(panels.items["catalog_header"])
@@ -189,3 +188,15 @@ def check_file_selector(panels: Any, dpg: Any, tmp_path: Path) -> None:
     selector.select()
     assert not selector.is_open()
     assert dpg.get_value(panels.items["sna_path"]) == str(tmp_path / "other.sna")
+
+
+def check_cpu(app: Any, dpg: Any) -> None:
+    """The CPU tab: registers, the PC row marked, the stack with its top (task 5b)."""
+    items = app.panels.items
+    assert dpg.get_value(items["reg_PC"]) == f"{app.session.machine.cpu.pc:04X}"
+    gutters = [dpg.get_value(items[f"code_gutter_{row}"]) for row in range(10)]
+    assert "\u25b6" in gutters  # the PC row is marked
+    assert dpg.get_value(items["stack_top"]).startswith("top &")
+    dpg.set_value(items["show_bytes"], False)
+    app.panels.tabs["CPU"]._bytes_switched()  # pylint: disable=protected-access  # its callback
+    assert not dpg.get_item_configuration(items["bytes_column"])["enabled"]

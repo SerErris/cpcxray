@@ -30,6 +30,7 @@ from cpcxray.debugger.breakpoints import (
     Hit,
 )
 from cpcxray.debugger.bus_trace import ACCESS_KINDS, BusTrace
+from cpcxray.debugger.stack import StackTops
 from cpcxray.decoding.shadow_rom import M1, UNKNOWN
 from cpcxray.devices.key_map import KeyMapError
 from cpcxray.machine.memory import BLOCK_SIZE
@@ -80,6 +81,20 @@ def _key_label(name: str) -> str:
     if len(name) == 1:
         return name.upper()
     return name if name.startswith("f") else name.capitalize()
+
+
+MAX_STACK_WORDS = 256
+
+
+def _code_row(text: str, comments: list[str | None]) -> dict[str, Any]:
+    """A disassembly row without its address: mnemonic, operands, the joined comments."""
+    mnemonic, _, operands = text.partition(" ")
+    row: dict[str, Any] = {"kind": "data", "address": "", "bytes": "", "mnemonic": mnemonic,
+                           "operands": operands}  # fmt: skip
+    present = [comment.strip() for comment in comments if comment]
+    if present:
+        row["comment"] = " ; ".join(present)
+    return row
 
 
 class DebuggerMixin:
@@ -202,6 +217,35 @@ class DebuggerMixin:
             address = instruction.next_address
         return code
 
+    def _disassembly_rows(
+        self, instruction: Instruction, label: str | None
+    ) -> list[dict[str, Any]]:
+        """`disassemble`'s rows of one instruction, for colouring (task 5b).
+
+        A label row ("kind" "label"); the instruction ("instruction": address, bytes,
+        mnemonic, operands); its extra lines, e.g. a RST's inline `defw` ("data"). Each with
+        "comment" if any and, where an operand is named, "name" and "name_type" (FW, VAR, own).
+        """
+        address = instruction.address
+        rows: list[dict[str, Any]] = []
+        if label:
+            rows.append({"kind": "label", "text": label, "name_type": self._label_type(address)})
+        names = self._instruction_labels(instruction)
+        owner_comment = self.symbols.comment_at(address, self.machine.symbol_scope(address))
+        words = [instruction.word_operand, *(line.word for line in instruction.extra_lines)]
+        for number, (text, comment) in enumerate(instruction.lines(names)):
+            first = number == 0
+            row = _code_row(text, [comment, owner_comment if first else None])
+            if first:
+                row |= {"kind": "instruction", "address": f"{address:04X}",
+                        "bytes": instruction.raw.hex(" ").upper()}  # fmt: skip
+            word = words[number]
+            name = names(word) if word is not None else None
+            if word is not None and name and name in row["operands"]:
+                row |= {"name": name, "name_type": self._label_type(word)}
+            rows.append(row)
+        return rows
+
     def _label_type(self, address: int) -> str:
         """The type of the name `_operand_label` gives an address (task 5g colours).
 
@@ -270,6 +314,38 @@ class DebuggerMixin:
         self._breakpoint_observer = None
         self._bus_trace_observing = False
         self.last_stop = None
+        self.stacks = StackTops()
+        self._watch_stack()
+
+    def _watch_stack(self) -> None:
+        """Let the CPU report its SP loads (the stack top rule, debugger/stack.py)."""
+        self.machine.cpu.stack_loaded = self._stack_loaded
+
+    def _stack_loaded(self, address: int, value: int) -> None:
+        """The CPU loaded SP: a return to a known stack, or a new top."""
+        where = self.machine.symbol_scope(address) or "RAM"
+        self.stacks.loaded(value, address, f"ld sp at &{address:04X} ({where})")
+
+    def stack_get(self, count: int = 16) -> dict[str, Any]:
+        """The stack: words from SP up to the stack's top (at most `count`, 1-256).
+
+        The top is where the stack started: the debugger watches the instructions that load SP
+        and keeps the tops they set (debugger/stack.py); "source" names the instruction, e.g.
+        "ld sp at &0092 (lower)". Without a known top, `count` words from SP are shown.
+        """
+        if not 1 <= count <= MAX_STACK_WORDS:
+            raise SessionError(f"count must be 1-{MAX_STACK_WORDS}")
+        sp = self.machine.cpu.sp
+        stack = self.stacks.current(sp)
+        if stack is not None:
+            count = min(count, ((stack.top - sp) & 0xFFFF) // 2)
+        words = []
+        for index in range(count):
+            address = (sp + 2 * index) & 0xFFFF
+            value = self.machine.peek(address) | self.machine.peek((address + 1) & 0xFFFF) << 8
+            words.append({"address": f"{address:04X}", "value": f"{value:04X}"})
+        return {"sp": f"{sp:04X}", "top": f"{stack.top:04X}" if stack else None,
+                "source": stack.source if stack else "no known top", "words": words}  # fmt: skip
 
     def _location(self, address: int, kind: Cycle) -> str:
         """Where a memory access goes: "lower", "romN" or "ram:<block>" (writes always RAM).
@@ -665,4 +741,6 @@ class DebuggerMixin:
             info = load_sna(self._cpc(), file)
         except (OSError, SnapshotError) as error:
             raise SessionError(str(error)) from None
+        self.stacks.reset()  # the snapshot's stack: its top is not known
+        self.stacks.loaded(self.machine.cpu.sp, None, "snapshot")
         return {"path": str(file), "version": info["version"], "pc": f"{info['pc']:04X}"}

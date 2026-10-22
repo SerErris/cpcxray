@@ -12,26 +12,41 @@ from typing import Any
 FLAG_LETTERS = "SZ5H3PNC"
 
 
-def flags_text(f: int) -> str:
-    """Return the flags as letters, "-" for a clear flag (e.g. "SZ-H--NC")."""
-    return "".join(
-        letter if f & (0x80 >> index) else "-" for index, letter in enumerate(FLAG_LETTERS)
-    )
+REGISTER_PAIRS = (("AF", "af", "af_"), ("BC", "bc", "bc_"), ("DE", "de", "de_"),
+                  ("HL", "hl", "hl_"))  # fmt: skip
+REGISTER_WORDS = (("IX", "ix"), ("IY", "iy"), ("SP", "sp"), ("PC", "pc"), ("WZ", "wz"))
 
 
-def registers_lines(registers: dict[str, int]) -> list[str]:
-    """Format the register set for the register panel (FR-DBG-02)."""
+def _byte_pair(value: int) -> str:
+    """A register pair as its two bytes: "0D 9B"."""
+    return f"{value >> 8:02X} {value & 0xFF:02X}"
+
+
+def register_pairs(
+    registers: dict[str, int], changed: list[str]
+) -> list[tuple[str, str, bool, str, bool]]:
+    """The register table: (name, main, main changed, alternate, alternate changed)."""
+    return [(name, _byte_pair(registers[main]), main in changed,
+             _byte_pair(registers[alternate]), alternate in changed)
+            for name, main, alternate in REGISTER_PAIRS]  # fmt: skip
+
+
+def register_words(registers: dict[str, int], changed: list[str]) -> list[tuple[str, str, bool]]:
+    """IX, IY, SP, PC, WZ: (name, value, changed by the last step)."""
+    return [(name, f"{registers[key]:04X}", key in changed) for name, key in REGISTER_WORDS]
+
+
+def flag_bits(f: int) -> list[tuple[str, bool]]:
+    """The flags as (letter, set) from bit 7 (S) to bit 0 (C)."""
+    return [(letter, bool(f & (0x80 >> index))) for index, letter in enumerate(FLAG_LETTERS)]
+
+
+def cpu_state_lines(registers: dict[str, int]) -> list[str]:
+    """I, R, IM and the interrupt state: "I 00 · R 04 · IM 1", "IFF1 1 · IFF2 1 · not halted"."""
     r = registers
-    return [
-        f"AF {r['af']:04X}   AF' {r['af_']:04X}   flags {flags_text(r['f'])}",
-        f"BC {r['bc']:04X}   BC' {r['bc_']:04X}",
-        f"DE {r['de']:04X}   DE' {r['de_']:04X}",
-        f"HL {r['hl']:04X}   HL' {r['hl_']:04X}",
-        f"IX {r['ix']:04X}   IY  {r['iy']:04X}",
-        f"SP {r['sp']:04X}   PC  {r['pc']:04X}   WZ {r['wz']:04X}",
-        f"I  {r['i']:02X}     R   {r['r']:02X}     IM {r['im']}",
-        f"IFF1 {r['iff1']}  IFF2 {r['iff2']}  halted {r['halted']}",
-    ]
+    halted = "halted" if r["halted"] else "not halted"
+    return [f"I {r['i']:02X} \u00b7 R {r['r']:02X} \u00b7 IM {r['im']}",
+            f"IFF1 {r['iff1']} \u00b7 IFF2 {r['iff2']} \u00b7 {halted}"]  # fmt: skip
 
 
 def parse_assignments(text: str) -> dict[str, int]:
@@ -65,44 +80,71 @@ def parse_memory_edit(text: str) -> tuple[str, str]:
     return address.strip(), data.strip()
 
 
-def line_address(line: str) -> int | None:
-    """The address of a disassembly instruction line ("C006  CD ..."); None for other lines."""
-    try:
-        return int(line[:4], 16) if line[4:6] == "  " else None
-    except ValueError:
-        return None
+@dataclass(frozen=True)
+class CodeRow:  # pylint: disable=too-many-instance-attributes  # one field per column
+    """One row of the CPU tab's disassembly.
+
+    Attributes:
+        kind: "separator" (a 16 KB quarter starts: `text`), "label", "instruction" or
+            "data" (an instruction's extra line, e.g. a RST's inline defw).
+        text: The separator's or label's text.
+        gutter: "▶" at the PC, "●" at a breakpoint, else "".
+        address, data_bytes, mnemonic: The columns of an instruction ("" for others).
+        before, name, after: The operands split around the name in them (`name` may be "").
+        name_type: FW, VAR or own: the colour of `name` (and of a label row).
+        comment: The comment, or "".
+        pc: The row of the instruction at the PC (the yellow bar).
+    """
+
+    kind: str
+    text: str = ""
+    gutter: str = ""
+    address: str = ""
+    data_bytes: str = ""
+    mnemonic: str = ""
+    before: str = ""
+    name: str = ""
+    after: str = ""
+    name_type: str = ""
+    comment: str = ""
+    pc: bool = False
 
 
-def paging_lines(paging: dict[str, Any]) -> list[str]:
-    """Format the paging per 16 KB quarter (FR-DBG-12): what the CPU reads there now."""
-    configuration = paging.get("ram_configuration")
-    title = "Paging" if configuration is None else f"Paging (RAM configuration {configuration})"
-    return [f"{title}:"] + [f"  {q['start']}-{q['end']}  {q['text']}" for q in paging["quarters"]]
-
-
-def with_paging(lines: list[str], quarters: list[dict[str, Any]]) -> list[str]:
-    """Put a "; ---- <quarter>: <ROM or RAM>" line before the first line of each 16 KB quarter.
+def disassembly_view(listing: dict[str, Any], pc: int, breakpoints: set[int]) -> list[CodeRow]:
+    """`disassemble`'s rows for the CPU tab: a separator row where a 16 KB quarter starts.
 
     Args:
-        lines: Disassembly lines (instruction lines, label lines, continuation lines).
-        quarters: Quarter descriptions as `paging_get` / `disassemble` return them.
+        listing: The result of `Session.disassemble` ("rows", "paging").
+        pc: The PC (its row gets the yellow bar and ▶).
+        breakpoints: Addresses with a PC breakpoint (●).
     """
-    texts = {int(q["start"], 16) >> 14: f"; ---- {q['start']}-{q['end']}: {q['text']}"
-             for q in quarters}  # fmt: skip
-    result: list[str] = []
-    labels: list[str] = []  # label lines wait for their instruction: the separator goes first
-    current = None
-    for line in lines:
-        address = line_address(line)
-        if address is None:
-            (labels if line.endswith(":") else result).append(line)
+    texts = {int(q["start"], 16) >> 14: f"{q['start']}-{q['end']} {q['text']}"
+             for q in listing["paging"]}  # fmt: skip
+    rows: list[CodeRow] = []
+    waiting: list[CodeRow] = []  # a label row waits for its instruction: the separator first
+    quarter = None
+    for row in listing["rows"]:
+        if row["kind"] == "label":
+            waiting.append(CodeRow("label", text=f"{row['text']}:", name_type=row["name_type"]))
             continue
-        if address >> 14 != current and address >> 14 in texts:
-            current = address >> 14
-            result.append(texts[current])
-        result += [*labels, line]
-        labels.clear()
-    return result + labels
+        if row["kind"] == "instruction":
+            address = int(row["address"], 16)
+            if address >> 14 != quarter and address >> 14 in texts:
+                quarter = address >> 14
+                rows.append(CodeRow("separator", text=texts[quarter]))
+            rows += waiting
+            waiting = []
+            at_pc = address == pc
+            gutter = "\u25b6" if at_pc else ("\u25cf" if address in breakpoints else "")
+        else:
+            at_pc, gutter = False, ""
+        operands, name = row["operands"], row.get("name", "")
+        before, _, after = operands.partition(name) if name else (operands, "", "")
+        rows.append(CodeRow(row["kind"], gutter=gutter, address=row["address"],
+                            data_bytes=row["bytes"], mnemonic=row["mnemonic"], before=before,
+                            name=name, after=after, name_type=row.get("name_type", ""),
+                            comment=row.get("comment", ""), pc=at_pc))  # fmt: skip
+    return rows + waiting
 
 
 AREA = -1  # colour of a byte inside a pack's area but in no named variable
@@ -204,20 +246,6 @@ def _legend_text(variable: dict[str, Any], named: list[dict[str, Any]]) -> str:
     parent = f" in {min(parents, key=lambda v: v['size'])['label']}" if parents else ""
     return (f"{variable['address']}-{variable['last']}  {variable['label']} "
             f"({variable['size']}){parent}: {variable['description']}")  # fmt: skip
-
-
-def mark_pc(lines: list[str], pc: int, breakpoints: set[int]) -> list[str]:
-    """Prefix disassembly lines: ">" at the PC, "*" at a breakpoint, else spaces."""
-    marked = []
-    for line in lines:
-        address = line_address(line)
-        marker = " "
-        if address is not None and address in breakpoints:
-            marker = "*"
-        if address == pc:
-            marker = ">"
-        marked.append(f"{marker} {line}" if address is not None else f"  {line}")
-    return marked
 
 
 def colour_numbers(firmware: int, hardware: int) -> str:

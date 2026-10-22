@@ -7,44 +7,46 @@ import pytest
 from cpcxray.session.session import Session
 from cpcxray.ui.panels.text import (
     AREA,
+    CodeRow,
     breakpoint_condition,
     breakpoint_where,
     catalog_header,
     colour_numbers,
+    cpu_state_lines,
     crtc_footer,
+    disassembly_view,
     drive_chip,
     drive_flags,
     drive_geometry,
     file_detail,
-    flags_text,
+    flag_bits,
     gate_array_lines,
     keyboard_summary,
-    line_address,
     location_text,
-    mark_pc,
     memory_layout,
     ordinal,
-    paging_lines,
     parse_assignments,
     parse_memory_edit,
     ppi_lines,
-    registers_lines,
+    register_pairs,
+    register_words,
     rom_select_lines,
     split_label,
     stop_texts,
     variable_range_hint,
-    with_paging,
 )
 
 
-def test_flags_and_registers() -> None:
-    """Flags as letters; the register block shows every register."""
-    assert flags_text(0b1100_0001) == "SZ-----C"
+def test_registers_and_flags() -> None:
+    """Pairs as bytes (main, alternate), words, flags and the CPU state; changes marked."""
     session = Session()
-    session.registers_set({"hl": 0x4000, "f": 0x41})
-    lines = registers_lines(session.registers_get())
-    assert lines[0].endswith("flags -Z-----C") and lines[3].startswith("HL 4000")
-    assert len(lines) == 8
+    session.registers_set({"hl": 0x4000, "f": 0x41, "af_": 0x0D9B, "sp": 0xBFE4})
+    registers = session.registers_get()
+    pairs = register_pairs(registers, ["hl", "af_"])
+    assert pairs[0][3:] == ("0D 9B", True) and pairs[3][:3] == ("HL", "40 00", True)
+    assert register_words(registers, ["sp"])[2] == ("SP", "BFE4", True)
+    assert [letter for letter, set_ in flag_bits(0x41) if set_] == ["Z", "C"]
+    assert cpu_state_lines(registers)[1].endswith("not halted")
 
 
 def test_parsing() -> None:
@@ -55,14 +57,6 @@ def test_parsing() -> None:
         parse_assignments("hl")
     with pytest.raises(ValueError):
         parse_memory_edit("3E 05")
-
-
-def test_mark_pc() -> None:
-    """Disassembly markers: PC and breakpoints."""
-    lines = ["start:", "0000  3E 05        ld a,#05", "0002  C9           ret"]
-    assert mark_pc(lines, 0x0002, {0x0000}) == [
-        "  start:", "* 0000  3E 05        ld a,#05", "> 0002  C9           ret",
-    ]  # fmt: skip
 
 
 def test_breakpoint_texts() -> None:
@@ -121,30 +115,26 @@ QUARTERS = [
 ]  # fmt: skip
 
 
-def test_paging_lines() -> None:
-    """One line per quarter; a 6128 names its RAM configuration in the title (FR-DBG-12)."""
-    assert paging_lines({"quarters": QUARTERS, "ram_configuration": 5}) == [
-        "Paging (RAM configuration 5):",
-        "  0000-3FFF  lower ROM (os6128.rom)",
-        "  4000-7FFF  RAM block 5",
-    ]
-    assert paging_lines({"quarters": QUARTERS[:1]})[0] == "Paging:"
-
-
-def test_with_paging_marks_each_quarter_before_its_labels() -> None:
-    """A separator before the first line of each quarter, ahead of that line's label."""
-    lines = ["3FFE  00           nop", "here:", "4000  CF 80 91     rst #08",
-             "                   defw 09180h", "4003  C9           ret"]  # fmt: skip
-    assert with_paging(lines, QUARTERS) == [
-        "; ---- 0000-3FFF: lower ROM (os6128.rom)",
-        "3FFE  00           nop",
-        "; ---- 4000-7FFF: RAM block 5",
-        "here:",
-        "4000  CF 80 91     rst #08",
-        "                   defw 09180h",
-        "4003  C9           ret",
-    ]
-    assert line_address("here:") is None and line_address("4003  C9           ret") == 0x4003
+def test_disassembly_view() -> None:
+    """Separators per quarter ahead of labels, the PC row and gutter marks, names split."""
+    rows = [
+        {"kind": "instruction", "address": "3FFE", "bytes": "00", "mnemonic": "nop",
+         "operands": ""},
+        {"kind": "label", "text": "here", "name_type": "own"},
+        {"kind": "instruction", "address": "4000", "bytes": "CD 5A BB", "mnemonic": "call",
+         "operands": "TXT_OUTPUT", "name": "TXT_OUTPUT", "name_type": "FW"},
+        {"kind": "instruction", "address": "4003", "bytes": "3A 33 B7", "mnemonic": "ld",
+         "operands": "a,(TXT_GRAPHICS)", "name": "TXT_GRAPHICS", "name_type": "VAR",
+         "comment": "graphics flag"},
+    ]  # fmt: skip
+    view = disassembly_view({"rows": rows, "paging": QUARTERS}, 0x4000, {0x3FFE})
+    assert [r.kind for r in view] == ["separator", "instruction", "separator", "label",
+                                      "instruction", "instruction"]  # fmt: skip
+    assert view[0].text == "0000-3FFF lower ROM (os6128.rom)" and view[1].gutter == "\u25cf"
+    assert view[3] == CodeRow("label", text="here:", name_type="own")
+    assert view[4].pc and view[4].gutter == "\u25b6"
+    assert (view[5].before, view[5].name, view[5].after) == ("a,(", "TXT_GRAPHICS", ")")
+    assert view[5].comment == "graphics flag" and not view[5].pc
 
 
 def test_memory_layout_colours_variables_and_builds_the_legend() -> None:
