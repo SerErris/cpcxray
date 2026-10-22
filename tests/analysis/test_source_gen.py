@@ -195,6 +195,7 @@ def test_owner_labels_and_comments() -> None:
     symbols.add(0xC031, "run_command", "the CMD routine", "rom1")
     symbols.add(0xC038, "table", None, "rom1")
     symbols.add(0xC03C, None, "second half", "rom1")
+    symbols.add(0xC000, None, "the ROM type", "rom1")
     generated = generate_source(
         view.resolve(database, "static"), database, symbols, title="t", output_name="t.bin",
         fill_policy="static",
@@ -205,6 +206,7 @@ def test_owner_labels_and_comments() -> None:
     assert "ret                             ; the CMD routine; [static]" in lines
     assert "table:" in lines
     assert "defb #00,#00,#00,#00            ; second half" in lines
+    assert "defb #01                        ; background ROM; the ROM type" in lines
 
 
 def test_compare_reports_lines() -> None:

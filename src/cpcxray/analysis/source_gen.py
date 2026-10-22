@@ -739,22 +739,21 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
     def _item_lines(self, item: _Item) -> list[str]:
         """Lines of an instruction, far address object or header field."""
         label = self.labels.get(item.offset)
+        owner = self._owner_comment(item.offset)
         if item.kind == "header":
+            comment = "; ".join(c for c in (item.comment, owner) if c)
             if item.length == 2:
                 word = self._word(item.offset)
-                return _format_line(
-                    f"defw {self._lookup(word) or hex_word(word)}", item.comment, label
-                )
-            return _format_line(
-                f"defb {hex_byte(self.view.image[item.offset])}", item.comment, label
-            )
+                return _format_line(f"defw {self._lookup(word) or hex_word(word)}", comment, label)
+            return _format_line(f"defb {hex_byte(self.view.image[item.offset])}", comment, label)
         if item.kind == "far":
             word = self._word(item.offset)
             select = self.view.image[item.offset + 2]
             own = self._same_rom(word, select)
             target = (self._lookup(word) if own else None) or hex_word(word)
             target_name = target if own else hex_word(word)
-            return _format_line(f"defw {target}", f"far address: to {target_name}", label) + (
+            comment = "; ".join(c for c in (f"far address: to {target_name}", owner) if c)
+            return _format_line(f"defw {target}", comment, label) + (
                 _format_line(f"defb {hex_byte(select)}", f"  {rom_select_text(select)}")
             )
         return self._instruction_lines(item, label)
