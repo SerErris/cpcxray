@@ -41,9 +41,9 @@ from cpcxray.machine.cpc464 import CPC464, build_cpc464
 from cpcxray.machine.flat import FlatMachine, Machine
 from cpcxray.machine.screen import FONT_ADDRESS, screen_text
 from cpcxray.session.analysis import AnalysisMixin
-from cpcxray.session.debugger import DebuggerMixin
 from cpcxray.session.disks import DiskMixin
 from cpcxray.session.errors import SessionError
+from cpcxray.session.trace_view import TraceViewMixin
 from cpcxray.ui.png import encode_png
 from cpcxray.ui.renderer import double_lines, render
 
@@ -77,7 +77,7 @@ class _RunLimits:
 
 
 # The façade owns all debugger state and offers one public method per MCP tool (D-27).
-class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
+class Session(AnalysisMixin, TraceViewMixin, DiskMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
     """Owns a machine and offers every debugger operation (D-27).
 
     Attributes:
@@ -104,6 +104,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         self._setup_debugger()
         self.analysis_enabled = True  # the analysis observers run while targets exist
         self.trace = Trace(self._format_capture)
+        self._setup_trace_view()
         self._recording_steps = False  # step/step_over/step_out record into the trace buffer
         self._registers_before: dict[str, int] | None = None  # at the start of a step
         self._pause_requested = threading.Event()
@@ -259,8 +260,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
             reason = self._limit_reached(limits, instructions, emulated_us, deadline)
             if reason is not None:
                 break
-            if tracing and trace.wants(pc):
-                self._trace_instruction(pc)
+            traced = tracing and trace.wants(pc) and self._trace_instruction(pc)
             emulated_us += machine.step()
             instructions += 1
             if self._breakpoint_observer is not None:
@@ -270,6 +270,8 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
                     break
             if finished is not None:
                 reason = finished()
+        if instructions:
+            self._trace_tail_fresh = traced  # the last record is the last executed instruction
         return self._stop_result(reason, instructions, emulated_us, breakpoint_hit)
 
     def _scrambled_bytes(self, address: int, length: int) -> bytes | None:
@@ -285,11 +287,12 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         first = address & 0x3FFF
         return rom.data[first : first + length]
 
-    def _trace_instruction(self, pc: int) -> None:
+    def _trace_instruction(self, pc: int) -> bool:
         """Capture the instruction at `pc` for the trace (applying the targets-only filter).
 
         Only the facts are taken (bytes, registers, location); the disassembly is made when
-        the trace is read (`_format_capture`), which keeps tracing cheap.
+        the trace is read (`_format_capture`), which keeps tracing cheap. Returns True if it
+        was recorded; while stepping, its memory accesses are filed under it.
         """
         machine = self.machine
         scope = machine.symbol_scope(pc)
@@ -297,7 +300,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         observer = self._analysis_observer
         origin = observer.ram_origin[pc] if observer is not None and not scope else None
         if self.trace.targets_only and not self._in_analysis_target(pc, where, origin):
-            return
+            return False
         memory = getattr(machine, "memory", None)
         if scope or memory is None:
             data_bytes = bytes(machine.peek((pc + i) & 0xFFFF) for i in range(CAPTURE_BYTES))
@@ -310,25 +313,14 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         registers = (cpu.af, cpu.bc, cpu.de, cpu.hl, cpu.ix, cpu.iy, cpu.sp)
         self.trace.record(pc, opcode_bytes, data_bytes, registers, where=where, origin=origin,
                           rom_bytes=rom_bytes)  # fmt: skip
+        if self.step_accesses.active:  # stepping: file its memory accesses under it
+            self.step_accesses.begin(self.trace.records[-1].sequence)
+        return True
 
     def _format_capture(self, capture: Capture) -> TraceRecord:
         """Disassemble a trace capture into a readable record (bytes beyond it: memory now)."""
         pc = capture.pc
-
-        def reader(captured: bytes) -> Callable[[int], int]:
-            """Read captured bytes near the PC, other addresses from memory."""
-
-            def read(address: int) -> int:
-                """The byte at an address (captured if within the capture)."""
-                offset = (address - pc) & 0xFFFF
-                return captured[offset] if offset < CAPTURE_BYTES else self.machine.peek(address)
-
-            return read
-
-        instruction = disassemble(
-            reader(capture.data_bytes), pc, self.machine.disassembly_profile(), self._operand_label,
-            read_opcode=reader(capture.opcode_bytes),
-        )  # fmt: skip
+        instruction = self._capture_instruction(capture)
         af, bc, de, hl, ix, iy, sp = capture.registers
         registers = (f"AF={hex4(af)} BC={hex4(bc)} DE={hex4(de)} HL={hex4(hl)} "
                      f"IX={hex4(ix)} IY={hex4(iy)} SP={hex4(sp)} PC={hex4(pc)}")  # fmt: skip
@@ -659,7 +651,8 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         previous, self._recording_steps = self._recording_steps, True
         self._registers_before = self.machine.cpu.registers()  # "changed" in the stop result
         try:
-            yield
+            with self._collecting_step_accesses():  # the Trace tab's reads and writes
+                yield
         finally:
             self._recording_steps = previous
 
@@ -863,6 +856,7 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         try:
             self.trace.start(file, (self._address(start), self._address(end)), file_format,
                              targets_only)  # fmt: skip
+            self.step_accesses.by_sequence.clear()  # the sequence numbers start again
         except ValueError as error:
             raise SessionError(str(error)) from None
         first, last = self.trace.address_range

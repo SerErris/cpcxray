@@ -6,7 +6,7 @@ is formatted here, so it is tested without a window and is exactly what MCP clie
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 FLAG_LETTERS = "SZ5H3PNC"
@@ -494,3 +494,123 @@ def split_label(line: dict[str, Any]) -> tuple[str, str, str]:
         return text, "", ""
     before, _, after = text.partition(label)
     return before, label, after
+
+
+TRACE_PAIRS = ("af", "bc", "de", "hl", "ix", "iy", "sp")
+DETAIL_ORDER = (("AF", "IX"), ("BC", "IY"), ("DE", "SP"), ("HL", "PC"))
+
+
+def register_changes(before: dict[str, str], after: dict[str, str] | None) -> str:
+    """What an instruction changed: "A=0D F=44 BC=000D SP=BFE4" (AF split, PC left out)."""
+    if after is None:
+        return ""
+    changes = []
+    for name in TRACE_PAIRS:
+        if before[name] == after[name]:
+            continue
+        if name == "af":
+            if before["af"][:2] != after["af"][:2]:
+                changes.append(f"A={after['af'][:2]}")
+            if before["af"][2:] != after["af"][2:]:
+                changes.append(f"F={after['af'][2:]}")
+        else:
+            changes.append(f"{name.upper()}={after[name]}")
+    return " ".join(changes)
+
+
+@dataclass(frozen=True)
+class TraceRow:  # pylint: disable=too-many-instance-attributes  # one field per column
+    """One row of the Trace tab's list.
+
+    Attributes:
+        kind: "separator" (execution moves to `where`) or "instruction".
+        index: The record's index in `trace_records` (-1 for a separator).
+        address: The instruction's address.
+        depth: Call depth (calls and returns taken inside the trace; a reading aid).
+        marker: "▸" for a call, "◂" for a return, else "".
+        mnemonic, before, name, after: The instruction, split around the name in it.
+        name_type: FW, VAR or own: the colour of `name`.
+        changes: The registers it changed (`register_changes`).
+        where: Where it ran (for a separator: its text).
+    """
+
+    kind: str
+    index: int = -1
+    address: str = ""
+    depth: int = 0
+    marker: str = ""
+    mnemonic: str = ""
+    before: str = ""
+    name: str = ""
+    after: str = ""
+    name_type: str = ""
+    changes: str = ""
+    where: str = ""
+
+
+def registers_after(records: list[dict[str, Any]], after: dict[str, str] | None,
+                    index: int) -> dict[str, str] | None:  # fmt: skip
+    """The registers after record `index`: those before the next one (or `after`)."""
+    if index + 1 < len(records):
+        return records[index + 1]["registers"] | {"pc": records[index + 1]["address"]}
+    return after
+
+
+def trace_rows(records: list[dict[str, Any]], after: dict[str, str] | None) -> list[TraceRow]:
+    """The Trace tab's list: rows with call depth and changes, separators where code moves.
+
+    A call or return only changes the depth when it was taken: the next record is not the
+    instruction after it. Depths are relative to the shallowest point of the trace, so a trace
+    that starts inside a subroutine and returns from it still starts at the left.
+    """
+    rows: list[TraceRow] = []
+    depth = 0
+    where = None
+    for index, record in enumerate(records):
+        if record["where_text"] != where:
+            where = record["where_text"]
+            rows.append(TraceRow("separator", where=f"; ---- {where}"))
+        following = registers_after(records, after, index)
+        taken = following is not None and following["pc"] != record["next"]
+        name = record.get("name", "")
+        operands = record["operands"]
+        before, _, rest = operands.partition(name) if name else (operands, "", "")
+        marker = {"call": "▸", "return": "◂"}.get(record["flow"], "")
+        rows.append(TraceRow("instruction", index, record["address"], depth, marker,
+                             record["mnemonic"], before, name, rest,
+                             record.get("name_type", ""),
+                             register_changes(record["registers"], following), where))  # fmt: skip
+        if record["flow"] == "call" and taken:
+            depth += 1
+        elif record["flow"] == "return" and taken:
+            depth -= 1
+    shallowest = min((row.depth for row in rows if row.kind == "instruction"), default=0)
+    return [replace(row, depth=row.depth - shallowest) if row.kind == "instruction" else row
+            for row in rows]  # fmt: skip
+
+
+def trace_detail(records: list[dict[str, Any]], after: dict[str, str] | None,
+                 row: TraceRow) -> dict[str, Any]:  # fmt: skip
+    """The detail box of a selected row: position, where/depth/accesses, registers table.
+
+    Returns:
+        "position" ("27 / 30"), "bytes" ("140B  3A 33 B7"), "line" (where · depth · accesses),
+        "registers": (name, before, after, changed) in the order of the box (two per line).
+    """
+    record = records[row.index]
+    following = registers_after(records, after, row.index)
+    accesses = [f"{a['access']}s {a['address']}" + (f" ({a['variable']})" if "variable" in a
+                else "") + f" = {a['value']}" for a in record.get("accesses", [])]  # fmt: skip
+    parts = [record["where_text"], f"depth {row.depth}", *accesses]
+    if "accesses" not in record:
+        parts.append("memory accesses: stepped instructions only")
+    before = record["registers"] | {"pc": record["address"]}
+    registers = []
+    for left, right in DETAIL_ORDER:
+        for name in (left, right):
+            value_after = following[name.lower()] if following is not None else ""
+            changed = bool(value_after) and value_after != before[name.lower()] and name != "PC"
+            registers.append((name, before[name.lower()], value_after, changed))
+    return {"position": f"{row.index + 1} / {len(records)}",
+            "bytes": f"{record['address']}  {record['bytes']}", "line": " · ".join(parts),
+            "registers": registers}  # fmt: skip

@@ -211,3 +211,20 @@ def test_stack_changed_registers_and_rows(session: Session) -> None:
                      "name": "TXT_OUTPUT", "name_type": "FW"}]  # fmt: skip
     session.registers_set({"sp": 0x4000})
     assert session.stack_get()["source"] == "set by the debugger"
+
+
+def test_trace_records(session: Session) -> None:
+    """trace_records: fields, flow, the registers after; no accesses on the bare machine."""
+    session.memory_write("9000", "3A0080 CD0A90 76")  # ld a,(#8000) / call #900A / halt
+    session.memory_write("900A", "C9")  # ret
+    session.registers_set({"pc": 0x9000})
+    for _ in range(3):
+        session.step()
+    result = session.trace_records(3)
+    load, call, ret = result["records"]
+    assert (load["mnemonic"], load["operands"], load["flow"]) == ("ld", "a,(#8000)", "")
+    assert "accesses" not in load  # the flat machine's bus cannot be watched
+    assert call["flow"] == "call" and call["next"] == "9006" and ret["flow"] == "return"
+    assert result["after"]["pc"] == "9006" and load["registers"]["sp"] == "F000"
+    session.run(max_instructions=1)  # untraced: the last record is no longer the newest
+    assert session.trace_records(3)["after"] is None

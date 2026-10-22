@@ -28,11 +28,14 @@ from cpcxray.ui.panels.text import (
     parse_assignments,
     parse_memory_edit,
     ppi_lines,
+    register_changes,
     register_pairs,
     register_words,
     rom_select_lines,
     split_label,
     stop_texts,
+    trace_detail,
+    trace_rows,
     variable_range_hint,
 )
 
@@ -250,3 +253,37 @@ def test_disk_texts() -> None:
     ascii_basic = file_detail({"size": 128, "amsdos_header": None, "hex": b"10 CLS".hex(),
                                "text": "10 CLS", "program": basic}, 0)  # fmt: skip
     assert ("load", "&0170 (BASIC program)") in ascii_basic["rows"]
+
+
+def _record(  # pylint: disable=too-many-arguments  # one argument per record field
+    address: str, mnemonic: str, flow: str, next_address: str, sp: str, *,
+            where: str = "lower ROM (os6128.rom)") -> dict[str, object]:  # fmt: skip
+    """A trace record as `trace_records` returns it (only the fields the texts use)."""
+    registers = {"af": "0044", "bc": "0000", "de": "0000", "hl": "0000", "ix": "0000",
+                 "iy": "0000", "sp": sp}  # fmt: skip
+    return {"address": address, "bytes": "00", "mnemonic": mnemonic, "operands": "",
+            "flow": flow, "next": next_address, "registers": registers,
+            "where_text": where}  # fmt: skip
+
+
+def test_trace_rows_and_detail() -> None:
+    """Depth from taken calls and returns (relative), changes, separators, the detail."""
+    assert register_changes({"af": "0D9B", "sp": "BFE4", "bc": "0000", "de": "0", "hl": "0",
+                             "ix": "0", "iy": "0"},
+                            {"af": "009B", "sp": "BFE2", "bc": "0000", "de": "0", "hl": "0",
+                             "ix": "0", "iy": "0"}) == "A=00 SP=BFE2"  # fmt: skip
+    records = [
+        _record("1D24", "ret", "return", "1D25", "BFE6"),  # returns out of the start level
+        _record("1BD9", "call", "call", "1BDC", "BFE8", where="RAM"),  # taken
+        _record("4000", "ret", "return", "4001", "BFE6", where="RAM"),  # not taken (cond.)
+        _record("4001", "nop", "", "4002", "BFE6", where="RAM"),
+    ]
+    rows = trace_rows(records, {**records[3]["registers"], "pc": "4002"})  # type: ignore[dict-item]
+    kinds = [(row.kind, row.depth, row.marker) for row in rows]
+    assert kinds == [("separator", 0, ""), ("instruction", 1, "\u25c2"),
+                     ("separator", 0, ""), ("instruction", 0, "\u25b8"),
+                     ("instruction", 1, "\u25c2"), ("instruction", 1, "")]  # fmt: skip
+    assert rows[2].where == "; ---- RAM" and rows[1].changes == "SP=BFE8"
+    detail = trace_detail(records, None, rows[5])
+    assert detail["position"] == "4 / 4" and detail["registers"][0][2] == ""  # no "after"
+    assert detail["line"].endswith("memory accesses: stepped instructions only")

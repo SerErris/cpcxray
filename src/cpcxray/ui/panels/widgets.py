@@ -72,6 +72,7 @@ class Styles:  # pylint: disable=too-many-instance-attributes  # one theme per l
         self._texts: dict[Colour, int | str] = {}
         self._chips: dict[tuple[Colour, Colour, bool], int | str] = {}
         self._tiles: dict[tuple[bool, bool], int | str] = {}
+        self._plain_rows: dict[tuple[Colour, bool], int | str] = {}
         self.link = _link_theme()
         self.icon_font: int | str | None = None  # the larger font for symbol buttons (app sets it)
         self.box_row = _box_row_theme()
@@ -119,6 +120,23 @@ class Styles:  # pylint: disable=too-many-instance-attributes  # one theme per l
                 dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 5, 2)
             self._chips[key] = theme
         return self._chips[key]
+
+    def plain_row(self, colour: Colour, hover: bool = True) -> int | str:
+        """A clickable row without a selection background: its text colour, grey on hover.
+
+        For lists that mark the selection themselves (the Trace tab's yellow bar): the
+        selected row takes `hover=False`, so the mouse over it does not change it (owner).
+        """
+        key = (colour, hover)
+        if key not in self._plain_rows:
+            with dpg.theme() as theme, dpg.theme_component(dpg.mvSelectable):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, colour)
+                dpg.add_theme_color(dpg.mvThemeCol_Header, (0, 0, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, (0, 0, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered,
+                                    colours.ROW_ALTERNATE if hover else (0, 0, 0, 0))  # fmt: skip
+            self._plain_rows[key] = theme
+        return self._plain_rows[key]
 
     def tile(self, rom: bool, here: bool) -> int | str:
         """A paging tile: ROM tiles tinted blue, the tile of the PC framed yellow."""

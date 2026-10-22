@@ -121,7 +121,7 @@ def check_toggles_and_freeze(app: Any, dpg: Any) -> None:
     trace = panels.tabs["Trace"]
     trace.call(trace.toggle_trace)
     assert app.session.trace.enabled
-    assert dpg.get_item_label(panels.items["trace_toggle"]) == "Trace runs: on"
+    assert dpg.get_item_label(panels.items["trace_toggle"]) == "\u25cf Trace runs"
     trace.call(trace.toggle_trace)
     assert not app.session.trace.enabled
     app.loop.start()  # while running, the panels stay frozen

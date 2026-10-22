@@ -194,3 +194,17 @@ def test_paging_names_the_rom_or_ram_per_quarter() -> None:
     assert [q["source"] for q in quarters] == ["lower", "ram", "ram", "rom3"]
     assert quarters[3]["ram_block"] == 3 and quarters[3]["text"].startswith("upper ROM 3 (")
     assert "ram_configuration" not in session.paging_get()  # a 464 has no banking
+
+
+def test_trace_records_with_memory_accesses(tmp_path: Path) -> None:
+    """Stepped instructions carry their reads and writes (not their own operand bytes)."""
+    session = Session(make_test_cpc({}, {}), project_dir=tmp_path)
+    session.memory_write("9000", "3A0080 CD0A90")  # ld a,(#8000) / call #900A
+    session.memory_write("8000", "3E")
+    session.registers_set({"pc": 0x9000, "sp": 0xA000})
+    session.step()
+    session.step()
+    load, call = session.trace_records(2)["records"]
+    assert load["accesses"] == [{"access": "read", "address": "8000", "value": "3E"}]
+    assert call["accesses"] == [{"access": "write", "address": "9FFF", "value": "90"},
+                                {"access": "write", "address": "9FFE", "value": "06"}]  # fmt: skip
