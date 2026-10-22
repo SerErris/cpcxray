@@ -52,7 +52,7 @@ type SlotName = str | int  # "lower" or an upper slot number 0-15
 
 
 class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's components
-    """An Amstrad CPC 464, or a 6128 by configuration (implements the `Machine` protocol).
+    """An Amstrad CPC 464, or a 664 / 6128 by configuration (implements the `Machine` protocol).
 
     Attributes:
         model: "cpc464", "cpc664" or "cpc6128".

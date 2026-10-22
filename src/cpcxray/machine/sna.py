@@ -1,4 +1,4 @@
-"""`.sna` snapshots of the CPC 464 (design.md §6.10; FR-DBG-10, D-25).
+"""`.sna` snapshots of the CPC 464/664/6128 (design.md §6.10; FR-DBG-10, D-25).
 
 The format is the de-facto standard of CPC emulators (CPCWiki "SNA snapshot file format"): a
 256-byte header with CPU and device state, then the RAM. Version 3 may append chunks; "MEM0" ..
@@ -9,7 +9,7 @@ Loading accepts versions 1, 2 and 3 (memory as plain dump, or MEM0/MEM1 chunks).
 the physical RAM blocks in order (block 0 first), not the CPU's banked view; a 6128 snapshot has
 128 KB and its RAM configuration in the header (FR-MCH-10). A 464 ignores RAM beyond 64 KB; a
 6128 loading a 64 KB snapshot gets blocks 4-7 cleared. Saving writes version 3 with a plain
-dump - 64 KB and CPC type 464, or 128 KB and CPC type 6128 - including the Gate Array's
+dump - 64 KB and CPC type 0 (464) or 1 (664), or 128 KB and type 2 (6128) - with the Gate Array's
 interrupt line counter and request flag, so the 300 Hz interrupt continues in phase.
 
 Only machine state goes into the file (D-25): ROM images stay in the configuration, analysis
@@ -31,7 +31,7 @@ HEADER_SIZE = 0x100
 RAM_SIZE = 0x10000
 BLOCK_SIZE = 0x4000
 SAVE_VERSION = 3
-CPC_TYPE_464, CPC_TYPE_6128 = 0, 2
+CPC_TYPES = {"464": 0, "664": 1, "6128": 2}  # header byte &6D per machine
 
 # Byte offsets of the 8-bit registers in the header, in file order
 _BYTE_REGISTERS = {0x11: "f", 0x12: "a", 0x13: "c", 0x14: "b", 0x15: "e", 0x16: "d",
@@ -70,7 +70,7 @@ def save_sna(machine: CPC464, path: str | Path) -> int:
     memory = machine.memory
     ram = b"".join(memory.block(number) for number in range(memory.ram_blocks))
     header[OFFSET_DUMP_SIZE : OFFSET_DUMP_SIZE + 2] = (len(ram) // 1024).to_bytes(2, "little")
-    header[OFFSET_CPC_TYPE] = CPC_TYPE_6128 if memory.ram_blocks == 8 else CPC_TYPE_464
+    header[OFFSET_CPC_TYPE] = CPC_TYPES[machine.firmware_model]
     data = bytes(header) + ram
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_bytes(data)

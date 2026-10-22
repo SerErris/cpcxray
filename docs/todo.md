@@ -29,7 +29,8 @@ Open tasks for later sessions, in the owner's words, with notes on where they ap
 
 4. ~~Remaining implementation phase 11: 6128 RAM banking~~ - done (design.md §9, D-14,
    FR-MCH-10; config/cpc6128.toml). Firmware names per machine (464/664/6128, D-26) and the
-   664 model (FR-MCH-12, with its own BASIC 1.1: basic11_664.rom / basic11_6128.rom) done.
+   664 model (FR-MCH-12, with its own BASIC 1.1: basic11_664.rom / basic11_6128.rom) done;
+   `.sna` CPC type per model (0/1/2), AMSDOS disk catalogue tested on 664 and 6128.
 
 5. **Low priority, later - first get the tool running: Rust inner loop** (only if CPython speed
    becomes a real blocker; PyPy was tried and dropped, 2026-10-21).
@@ -74,3 +75,33 @@ Open tasks for later sessions, in the owner's words, with notes on where they ap
      FDC drive state with motor/activity LED and head position.
    - Where: ui/panels/tabs.py (Devices tab; Dear PyGui drawing / colour widgets); the data
      stays `Session.devices_get` (MCP parity).
+
+8. **Known OS and AMSDOS variables in the debugger.** While debugging, an address shall be
+   recognised as a known firmware (OS) or AMSDOS variable, per machine (464/664/6128). BASIC's
+   variables are not part of this task.
+   - Data: `docs/memory.md` (like `docs/firmware.md`), generated into per-machine tables by a
+     tool; each entry has address, size in bytes, label, description and source.
+     - OS variables (&B100-&BFFF, RAM jumpblock areas): Taylor/Defoe, "Use of memory by the
+       Operating System" (6128 and 464 columns; docs/Taylor_Defoe_Amstrad_firmware.pdf),
+       cross-checked with Bread80's `Includes/MemoryFirmware.asm` (6128,
+       https://github.com/Bread80/CPC6128-Firmware-Source). The 664 has no documented column:
+       derive it from the ROMs (same routine in os664.rom and os6128.rom, compare the variable
+       addresses it uses).
+     - AMSDOS (same ROM on all machines; docs/AMSDOS Memory Map - CPCWiki.html, Taylor/Defoe):
+       block 1 fixed at &BE40-&BE7F; block 2 (RSX block, drives, FCBs, headers, buffers, DPB/DPH)
+       relative to its base, usually &A700 - it moves down when ROMs with higher numbers
+       reserve RAM first. The base is read at lookup time from &BE7D (pointer to AMSDOS's
+       memory pool).
+   - Use: an address inside a variable resolves to `NAME+offset`; disassembly and trace
+     operands (`ld a,(KL_FOREGROUND_ROM)`), an `address_explain` tool (MCP and GUI: variable,
+     size, description, machine), memory view annotations (GUI: highlighted), bus trace
+     annotations, `EQU`s in the generated source. Memory breakpoints (read/write/access with
+     ranges) already take labels, so they work on variable names as soon as the variables are
+     symbols; only small additions: a variable name without `end` covers the whole variable,
+     and the stop names it ("write to NAME+n").
+   - Order (owner, 2026-10-22): 1. tables + `address_explain` + the breakpoint additions;
+     2. disassembly/trace operands; 3. GUI memory view highlighting; 4. bus trace, source `EQU`s.
+   - Verification: tests boot each machine and check variables with known values (foreground
+     ROM, screen mode, text cursor after printing, AMSDOS base &A700, default drive and user),
+     plus a test that the derived 664 addresses are used by the 664 ROM.
+   - Sources are third-party: kept locally in docs/ (git-ignored), listed in design.md §10.

@@ -331,6 +331,9 @@ Two details from the low Kernel entries (section 18) that complete `docs/firmwar
   the code was written for a 664/6128 (or is not a firmware call).
 - Entries 125–137 are redirected to AMSDOS when AMSDOS is fitted, so on a disc system a call to
   them ends up in the AMSDOS ROM, not in the lower ROM.
+- KM SCAN KEYS (#BDF4) is listed for all machines above, but is 664/6128 only (the BIOS Function
+  Summary says so, and on a booted 464 #BDF4 holds no jump).
+- The maths jumpblock and TEXT INPUT, which SOFT 968 does not document, are in section 7.
 
 ## 6. Compact list (machine-oriented)
 
@@ -584,3 +587,76 @@ BDEE I 11 KM TEST BREAK A
 BDF1 I 12 MC WAIT PRINTER A
 BDF4 I 13 KM SCAN KEYS A
 ```
+
+## 7. Maths jumpblock and TEXT INPUT (not in SOFT 968)
+
+SOFT 968 does not document these entries. The firmware sets them up behind the main jumpblock
+(FIRM JUMP, RST 5, into the lower ROM; TEXT INPUT uses LOW JUMP, RST 1), so the addresses differ
+per machine: the 464 has them from #BD3A, the 664 from #BD5B (behind entry 200) and the 6128 from
+#BD5E (behind entry 201). The 664 and 6128 share the order, every 664 address is the 6128 address
+- 3; the 464 has its own order and an integer jumpblock (#BDA3-#BDCA) that the 664/6128 dropped
+(their REAL RND and REAL RND(0) take the places of the 464's REAL SUBTRACTION and REAL EXPONENT
+ADDITION). Compiled for cpcxray from:
+
+- TD: *The Amstrad CPC Firmware Guide*, Bob Taylor and Thomas Defoe, 1992 (unofficial;
+  docs/Taylor_Defoe_Amstrad_firmware.pdf, "The Maths Firmware", pp. 77-81). It gives the 6128
+  address and the 464 address; its "664 and 6128" addresses are the 6128's.
+- BFS: CPCWiki, *BIOS Function Summary* ("Edit and Floating Point Functions", with separate
+  464/664/6128 columns; "Integer Functions - 464 only").
+- WMG: CPCWiki, *Amstrad Whole Memory Guide - BASIC support* (464 addresses #BD3D-#BD8B).
+
+Names follow TD; where TD only says "internal subroutine", the name is made from the BFS
+description. All addresses were checked against the jumpblocks of booted 464, 664 and 6128
+firmware (tests/machine/test_firmware_jumpblocks.py).
+
+| 464 | 664 | 6128 | Name | Section | Sources | Notes |
+|---|---|---|---|---|---|---|
+| #BD3A | #BD5B | #BD5E | TEXT INPUT | edit | TD BFS | line editor (BFS: EDIT); RST 1, not RST 5 |
+| #BD3D | #BD5E | #BD61 | MOVE REAL | maths | TD BFS WMG | TD prints #BDC1 for the 6128: a typo |
+| #BD40 | #BD61 | #BD64 | INTEGER TO REAL | maths | TD BFS WMG |  |
+| #BD43 | #BD64 | #BD67 | BINARY TO REAL | maths | TD BFS WMG | 4-byte binary |
+| #BD46 | #BD67 | #BD6A | REAL TO INTEGER | maths | TD BFS WMG |  |
+| #BD49 | #BD6A | #BD6D | REAL TO BINARY | maths | TD BFS WMG | BFS: round |
+| #BD4C | #BD6D | #BD70 | REAL FIX | maths | TD BFS WMG |  |
+| #BD4F | #BD70 | #BD73 | REAL INT | maths | TD BFS WMG |  |
+| #BD52 | #BD73 | #BD76 | REAL PREPARE DECIMAL | maths | BFS WMG | TD: internal subroutine |
+| #BD55 | #BD76 | #BD79 | REAL *10^A | maths | TD BFS WMG |  |
+| #BD58 | #BD79 | #BD7C | REAL ADDITION | maths | TD BFS WMG |  |
+| #BD5B | - | - | REAL SUBTRACTION | maths | TD BFS WMG | 464 only |
+| #BD9D | #BD7C | #BD7F | REAL RND | maths | TD BFS | TD: internal subroutine on the 464 |
+| #BD5E | #BD7F | #BD82 | REAL REVERSE SUBTRACTION | maths | TD BFS WMG |  |
+| #BD61 | #BD82 | #BD85 | REAL MULTIPLICATION | maths | TD BFS WMG |  |
+| #BD64 | #BD85 | #BD88 | REAL DIVISION | maths | TD BFS WMG |  |
+| #BD67 | - | - | REAL EXPONENT ADDITION | maths | TD BFS WMG | 464 only; BFS: FLO SHIFT |
+| #BDA0 | #BD88 | #BD8B | REAL RND(0) | maths | TD BFS | last RND value; TD: internal subroutine on the 464 |
+| #BD6A | #BD8B | #BD8E | REAL COMPARISON | maths | TD BFS WMG |  |
+| #BD6D | #BD8E | #BD91 | REAL UNARY MINUS | maths | TD BFS WMG |  |
+| #BD70 | #BD91 | #BD94 | REAL SIGNUM/SGN | maths | TD BFS WMG |  |
+| #BD73 | #BD94 | #BD97 | SET ANGLE MODE | maths | TD BFS WMG | DEG/RAD |
+| #BD76 | #BD97 | #BD9A | REAL PI | maths | TD BFS WMG |  |
+| #BD79 | #BD9A | #BD9D | REAL SQR | maths | TD BFS WMG |  |
+| #BD7C | #BD9D | #BDA0 | REAL POWER | maths | TD BFS WMG |  |
+| #BD7F | #BDA0 | #BDA3 | REAL LOG | maths | TD BFS WMG |  |
+| #BD82 | #BDA3 | #BDA6 | REAL LOG 10 | maths | TD BFS WMG |  |
+| #BD85 | #BDA6 | #BDA9 | REAL EXP | maths | TD BFS WMG |  |
+| #BD88 | #BDA9 | #BDAC | REAL SINE | maths | TD BFS WMG |  |
+| #BD8B | #BDAC | #BDAF | REAL COSINE | maths | TD BFS WMG |  |
+| #BD8E | #BDAF | #BDB2 | REAL TANGENT | maths | TD BFS |  |
+| #BD91 | #BDB2 | #BDB5 | REAL ARCTANGENT | maths | TD BFS |  |
+| #BD94 | #BDB5 | #BDB8 | FIVE BYTE TO REAL | maths | BFS | TD: internal subroutine |
+| #BD97 | #BDB8 | #BDBB | REAL RND INIT | maths | BFS | seed &89656C07; TD: internal subroutine |
+| #BD9A | #BDBB | #BDBE | REAL RND SEED | maths | BFS | seed xor (HL); TD: internal subroutine |
+| #BDA3 | - | - | INTEGER ABS | maths | BFS | 464 only; HL=ABS(HL), B.7=sign; TD: internal subroutine |
+| #BDA6 | - | - | INTEGER POS | maths | BFS | 464 only; B.7=0; TD: internal subroutine |
+| #BDA9 | - | - | INTEGER UNDO | maths | BFS | 464 only; unsigned HL + sign B.7 to signed; TD: internal subroutine |
+| #BDAC | - | - | INTEGER ADDITION | maths | TD BFS | 464 only |
+| #BDAF | - | - | INTEGER SUBTRACTION | maths | TD BFS | 464 only |
+| #BDB2 | - | - | INTEGER REVERSE SUBTRACTION | maths | TD BFS | 464 only |
+| #BDB5 | - | - | INTEGER MULTIPLICATION | maths | TD BFS | 464 only |
+| #BDB8 | - | - | INTEGER DIVISION | maths | TD BFS | 464 only |
+| #BDBB | - | - | INTEGER DIVISION 2 | maths | TD BFS | 464 only; BFS: MOD |
+| #BDBE | - | - | INTEGER UNSIGNED MULTIPLICATION | maths | BFS | 464 only; TD: internal subroutine |
+| #BDC1 | - | - | INTEGER UNSIGNED DIVISION | maths | BFS | 464 only; TD: internal subroutine |
+| #BDC4 | - | - | INTEGER COMPARISON | maths | TD BFS | 464 only |
+| #BDC7 | - | - | INTEGER UNARY MINUS | maths | TD BFS | 464 only |
+| #BDCA | - | - | INTEGER SIGNUM/SGN | maths | TD BFS | 464 only |

@@ -179,7 +179,7 @@ software.
 | D-23 | **RAM-range targets** are analysed on an image captured on command or at the first M1 fetch inside the range. Source `ORG` = range start. Later writes into the range are flagged with their runtime value; the owner can recapture. Provenance and relocation do not apply. | RAM code can be loaded, unpacked or patched at runtime; the bytes to disassemble must be fixed at a defined moment, and later changes must be visible. |
 | D-24 | **Trace sinks:** text file, CSV, JSON Lines, GUI panel; each switchable. | Text for reading, CSV/JSON for scripts, panel for live work. |
 | D-25 | **Snapshots in `.sna` format only.** Analysis state (access map, analysis database) is saved in its own files. | `.sna` holds machine state only and stays compatible with other emulators. |
-| D-26 | **Symbols and annotations from the start:** a project file with labels and comments per address (ROM labels scoped to a slot); firmware jumpblock names preloaded per machine (464: firmware V1.0, maths at &BD3D; 664/6128: entries 190–200 and maths at &BD61; 6128: KL BANK SWITCH), generated from `docs/firmware.md` by `tools/extract_firmware_symbols.py` and switched with the machine; used by views, trace, listing and source. | Readable traces and listings from day one. |
+| D-26 | **Symbols and annotations from the start:** a project file with labels and comments per address (ROM labels scoped to a slot); firmware jumpblock names preloaded per machine (464: firmware V1.0, TEXT INPUT and maths from &BD3A; 664: entries 190–200, TEXT INPUT and maths from &BD5B; 6128: also KL BANK SWITCH, TEXT INPUT and maths from &BD5E), generated from `docs/firmware.md` by `tools/extract_firmware_symbols.py` and switched with the machine; used by views, trace, listing and source. | Readable traces and listings from day one. |
 | D-27 | **One command façade:** a `Session` class (the debugger API) is the only way to act on the machine. GUI, MCP server and scripts are thin clients; MCP tools map 1:1 onto `Session` methods. A parity test fails when a method has no MCP tool. | Guarantees FR-MCP-02: each feature exists once. |
 | D-28 | **MCP transports:** stdio for headless mode (Claude Code starts `cpcxray mcp`); streamable HTTP on 127.0.0.1 for GUI mode. Official Python MCP SDK (`mcp`). | stdio is how Claude Code launches tool servers; HTTP lets Claude attach to the instance the owner is using. Localhost only, because the server can load files and run code. |
 | D-29 | **MCP calls go through a command queue** and are executed between emulation time slices; a running machine pauses while a command needs a consistent state. | Keeps the emulator single-threaded (D-13). |
@@ -907,6 +907,11 @@ cpcxray/
 - CPCWiki, Gate Array (register RMR): https://www.cpcwiki.eu/index.php/Gate_Array#Register_RMR_(Control_Interrupt_counter,_ROM_mapping_and_Graphics_mode)
 - CPCWiki: CRTC, 8255 PPI, AY-3-8912, µPD765, I/O port summary
 - CPC Firmware Guide (SOFT 158/968): restarts (LOW JUMP, SIDE CALL, FAR CALL, FIRM JUMP), KL LOW PCHL
+- Maths jumpblock and TEXT INPUT (`docs/firmware.md` section 7, not in SOFT 968): *The Amstrad CPC
+  Firmware Guide*, Bob Taylor and Thomas Defoe, 1992 (local: `docs/Taylor_Defoe_Amstrad_firmware.pdf`;
+  https://www.cantrell.org.uk/david/tech/cpc/cpc-firmware/firmware.pdf); CPCWiki, BIOS Function
+  Summary (https://www.cpcwiki.eu/index.php/BIOS_Function_Summary) and Amstrad Whole Memory Guide -
+  BASIC support (saved locally as HTML in `docs/`, not committed)
 - sjasmplus documentation: https://z00m128.github.io/sjasmplus/documentation.html
 - Z80 timings on Amstrad CPC, cheat sheet V1.3 (CPCWiki, 2023-07-09), basis of the NOP timing
   table (D-04): https://www.cpcwiki.eu/imgs/b/b4/Z80_CPC_Timings_cheat_sheet.20230709.pdf

@@ -37,10 +37,11 @@ from cpcxray.session.session import Session, SessionError
 
 SERVER_NAME = "cpcxray"
 INSTRUCTIONS = """\
-CPC X-Ray: an Amstrad CPC 464 emulator for reverse engineering. The server starts with the CPC
-464 of config/machine.toml (or a bare Z80 test machine). Typical use: run (e.g. max_us=3000000
-to boot), screen_text to read the screen, step / step_over / run_until and inspect with
-disassemble, memory_read, registers_get and devices_get. load_config / rom_load change ROMs.
+CPC X-Ray: an Amstrad CPC 464/664/6128 emulator for reverse engineering. The server starts
+with the CPC of config/machine.toml (model 464, 664 or 6128; or a bare Z80 test machine).
+Typical use: run (e.g. max_us=3000000 to boot), screen_text to read the screen, step /
+step_over / run_until and inspect with disassemble, memory_read, registers_get and
+devices_get. load_config / rom_load change ROMs.
 Addresses can be ints, hex strings ("BB5A", "&BB5A", "#BB5A") or labels; results use 4-digit
 hex strings. Run tools are bounded (instruction/time limits, wall-clock timeout) and report
 why they stopped. File paths are relative to the project directory."""

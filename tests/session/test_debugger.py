@@ -114,7 +114,7 @@ def test_invalid_breakpoints() -> None:
         session.breakpoint_add("4000", kind="read", location="rom:16")
     with pytest.raises(SessionError, match="needs an address"):
         session.breakpoint_add(kind="read")
-    with pytest.raises(SessionError, match="CPC 464"):
+    with pytest.raises(SessionError, match="CPC machine"):
         Session().breakpoint_add("4000", kind="write")
 
 

@@ -4,18 +4,14 @@ Sources:
 * docs/firmware.md (from the Firmware Guide SOFT 968, sections 14-18): low and high Kernel
   jumpblocks, the main jumpblock (entries 0-201) and the indirections, each with its
   availability - all machines, 664/6128 only (main 190-200), or 6128 only (201, KL BANK SWITCH).
-* The maths jumpblock, which docs/firmware.md does not list, from the Firmware Guide
-  transcription by Dave Cantrell (https://www.cantrell.org.uk/david/tech/cpc/cpc-firmware/
-  math.htm). Each entry reads "&BD64 INTEGER TO REAL (&BD40 for the 464)": the 664 and 6128 share
-  one address, the 464 has another (its maths jumpblock lies where the 664/6128 have the main
-  entries 190-201, so the three machines need separate tables).
+* docs/firmware.md section 7: the maths jumpblock and TEXT INPUT, which SOFT 968 does not
+  document, with one address per machine (compiled from Taylor/Defoe, the CPCWiki BIOS Function
+  Summary and the Whole Memory Guide). They lie behind the main jumpblock, where the 464 has no
+  entries 190-201, so each machine has its own addresses (664 = 6128 - 3) and its own table.
 
-Corrections:
-* "&BDC1 MOVE REAL" in the transcription is &BD61 (all other entries are &24 above their 464
-  address; the 464 address &BD3D is right).
-* The undocumented "INTERNAL SUBROUTINE" maths entries get the label MATHS_INTERNAL_xxxx.
-* KM SCAN KEYS (&BDF4) is listed for all machines, but absent on the 464: after a 464 boot the
-  RAM at &BDF4 is empty while &BDCD-&BDF1 hold JP instructions (checked in phase 4).
+Correction: KM SCAN KEYS (&BDF4) is listed for all machines in the main tables, but absent on the
+464: after a 464 boot the RAM at &BDF4 is empty while &BDCD-&BDF1 hold JP instructions (checked
+in phase 4; the BIOS Function Summary also lists it as 664/6128 only).
 
 Labels (owner's convention): firmware entries are upper-case snake case (KM_WAIT_CHAR), so
 they stand out from the labels of analysed ROMs and RAM, which stay lower case. The restarts
@@ -29,25 +25,17 @@ Usage (from the project root): python -m tools.extract_firmware_symbols
 
 from __future__ import annotations
 
-import html
 import re
 import sys
-import urllib.request
 from pathlib import Path
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
 FIRMWARE_DOC = ROOT / "docs" / "firmware.md"
-MATHS_URL = "https://www.cantrell.org.uk/david/tech/cpc/cpc-firmware/math.htm"
 OUTPUT = ROOT / "src" / "cpcxray" / "debugger" / "firmware_symbols.py"
 MODELS = ("464", "664", "6128")
 AVAILABILITY = {"all": MODELS, "664/6128": ("664", "6128"), "6128": ("6128",)}
 
-MATHS_ENTRY = re.compile(
-    r"^&(?P<address>[0-9A-F]{4}) (?P<name>[A-Z][A-Z0-9 *^/]*?)"
-    r"(?: - not useful)?\s*\(&(?P<address_464>[0-9A-F]{4}) for the 464\)\s*$"
-)
-MATHS_ADDRESS_FIXES = {"MOVE REAL": 0xBD61}  # transcription: &BDC1
 NOT_ON_464 = frozenset({"KM SCAN KEYS"})
 LABEL_RENAMES = {
     "PCBC INSTRUCTION": "JP_BC",  # &000E: JP (BC)
@@ -76,12 +64,10 @@ class Entry(NamedTuple):
     models: tuple[str, ...]
 
 
-def label_for(name: str, address: int) -> str:
+def label_for(name: str) -> str:
     """Turn a firmware name into a label: "KM WAIT CHAR" → KM_WAIT_CHAR (see LABEL_RENAMES)."""
     if name in LABEL_RENAMES:
         return LABEL_RENAMES[name]
-    if name == "INTERNAL SUBROUTINE":
-        return f"MATHS_INTERNAL_{address:04X}"
     name = re.sub(r"\(RST \d\)", "", name)
     return re.sub(r"[^A-Z0-9]+", "_", name.upper()).strip("_")
 
@@ -104,48 +90,40 @@ def models_of(name: str, availability: str) -> tuple[str, ...]:
 
 
 def entries_from_doc() -> list[Entry]:
-    """Kernel, main jumpblock and indirections from docs/firmware.md."""
+    """All entries of docs/firmware.md: kernel, main jumpblock, indirections, section 7."""
     text = FIRMWARE_DOC.read_text(encoding="utf-8")
-    entries = []
+    entries = entries_per_machine(text)
     for row in table_rows(text, "## 4. Low Kernel jumpblock"):
         name = row["Name"] + (f" ({row['Restart']})" if row["Restart"] else "")
         address = int(row["Address"].lstrip("#"), 16)
-        entries.append(Entry(address, label_for(name, address), "low kernel", name, "",
+        entries.append(Entry(address, label_for(name), "low kernel", name, "",
                              models_of(row["Name"], row["Avail"])))  # fmt: skip
     for row in table_rows(text, "## 3. High Kernel jumpblock"):
         address = int(row["Address"].lstrip("#"), 16)
-        entries.append(Entry(address, label_for(row["Name"], address), "high kernel",
+        entries.append(Entry(address, label_for(row["Name"]), "high kernel",
                              row["Name"], "", models_of(row["Name"], row["Avail"])))  # fmt: skip
     for row in table_rows(text, "## 1. Main firmware jumpblock"):
         address = int(row["Address"].lstrip("#"), 16)
         models = models_of(row["Name"], row["Avail"])
-        entries.append(Entry(address, label_for(row["Name"], address), row["Pack"].lower(),
+        entries.append(Entry(address, label_for(row["Name"]), row["Pack"].lower(),
                              row["Name"], row["Notes"], models))  # fmt: skip
     for row in table_rows(text, "## 2. Firmware indirections"):
         address = int(row["Address"].lstrip("#"), 16)
         models = models_of(row["Name"], row["Avail"])
-        entries.append(Entry(address, label_for(row["Name"], address), "indirections",
+        entries.append(Entry(address, label_for(row["Name"]), "indirections",
                              row["Name"], row["Notes"], models))  # fmt: skip
     return entries
 
 
-def maths_entries() -> list[Entry]:
-    """The maths jumpblock: one entry for the 464 and one for the 664/6128 per routine."""
-    with urllib.request.urlopen(MATHS_URL, timeout=30) as response:
-        text = response.read().decode("latin-1")
-    text = html.unescape(re.sub(r"<[^>]+>", " ", text))
+def entries_per_machine(text: str) -> list[Entry]:
+    """Maths jumpblock and TEXT INPUT (docs/firmware.md section 7): one entry per machine."""
     entries = []
-    for line in (re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()):
-        match = MATHS_ENTRY.match(line)
-        if not match:
-            continue
-        name = match["name"].strip()
-        address = MATHS_ADDRESS_FIXES.get(name, int(match["address"], 16))
-        address_464 = int(match["address_464"], 16)
-        entries.append(Entry(address_464, label_for(name, address_464), "maths", name, "",
-                             ("464",)))  # fmt: skip
-        entries.append(Entry(address, label_for(name, address), "maths", name, "",
-                             ("664", "6128")))  # fmt: skip
+    for row in table_rows(text, "## 7. Maths jumpblock"):
+        for model in MODELS:
+            if row[model] != "-":
+                address = int(row[model].lstrip("#"), 16)
+                entries.append(Entry(address, label_for(row["Name"]), row["Section"],
+                                     row["Name"], "", (model,)))  # fmt: skip
     return entries
 
 
@@ -163,12 +141,11 @@ def render(per_model: dict[str, list[Entry]]) -> str:
     lines = [
         '"""CPC firmware jumpblock symbols per machine (D-26), generated - do not edit.',
         "",
-        "Generated by tools/extract_firmware_symbols.py from docs/firmware.md (Firmware Guide",
-        "SOFT 968: Kernel jumpblocks, main jumpblock, indirections) and the maths jumpblock of the",
-        "Firmware Guide transcription by Dave Cantrell; see the tool for the corrections applied.",
-        "The 464 (firmware V1.0) lacks main entries 190-201 and has its maths jumpblock at &BD3D;",
-        "the 664 (V1.1) and 6128 (V1.2) have entries 190-200 and the maths jumpblock at &BD61;",
-        "only the 6128 has entry 201, KL BANK SWITCH.",
+        "Generated by tools/extract_firmware_symbols.py from docs/firmware.md: SOFT 968 (Kernel",
+        "jumpblocks, main jumpblock, indirections) and section 7 (maths jumpblock and TEXT INPUT,",
+        "from Taylor/Defoe and CPCWiki). The 464 (V1.0) lacks main entries 190-201 and has TEXT",
+        "INPUT and the maths jumpblock from &BD3A; the 664 (V1.1) has entries 190-200 and them",
+        "from &BD5B; the 6128 (V1.2) has entry 201, KL BANK SWITCH, too and them from &BD5E.",
         '"""',
         "",
         "from __future__ import annotations",
@@ -214,7 +191,7 @@ def render(per_model: dict[str, list[Entry]]) -> str:
 
 def main() -> int:
     """Extract the entries and write the data module."""
-    per_model = tables(entries_from_doc() + maths_entries())
+    per_model = tables(entries_from_doc())
     OUTPUT.write_text(render(per_model), encoding="utf-8")
     counts = ", ".join(f"{model}: {len(entries)}" for model, entries in per_model.items())
     print(f"written to {OUTPUT} ({counts} entries)")

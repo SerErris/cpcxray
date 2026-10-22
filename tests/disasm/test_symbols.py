@@ -45,16 +45,21 @@ def test_firmware_tables_are_consistent(entries: tuple) -> None:  # type: ignore
 def test_firmware_names_per_machine() -> None:
     """Each machine gets its own names (Firmware Guide via docs/firmware.md).
 
-    464: maths at &BD3D, no entries 190-201, no KM SCAN KEYS; 664: entries 190-200 and maths at
-    &BD61; 6128: also KL BANK SWITCH.
+    464: no entries 190-201, TEXT INPUT and maths from &BD3A, the integer jumpblock, no KM SCAN
+    KEYS; 664: entries 190-200, TEXT INPUT and maths from &BD5B; 6128: also KL BANK SWITCH, TEXT
+    INPUT and maths from &BD5E (docs/firmware.md section 7).
     """
     cpc464, cpc664, cpc6128 = (SymbolTable(model=m) for m in ("464", "664", "6128"))
-    assert cpc464.label_at(0xBD3D) == "MOVE_REAL" and cpc464.label_at(0xBD3A) is None
-    assert cpc464.label_at(0xBDF4) is None
+    assert cpc464.label_at(0xBD3A) == "TEXT_INPUT" and cpc464.label_at(0xBD3D) == "MOVE_REAL"
+    assert cpc464.label_at(0xBD5B) == "REAL_SUBTRACTION" and cpc464.label_at(0xBDF4) is None
+    assert cpc464.label_at(0xBDCA) == "INTEGER_SIGNUM_SGN"
     assert cpc664.label_at(0xBD3A) == "KM_SET_LOCKS" and cpc664.label_at(0xBD3D) == "KM_FLUSH"
-    assert cpc664.label_at(0xBD61) == "MOVE_REAL" and cpc664.label_at(0xBDF4) == "KM_SCAN_KEYS"
-    assert cpc664.label_at(0xBD5B) is None
-    assert cpc6128.label_at(0xBD5B) == "KL_BANK_SWITCH"
+    assert cpc664.label_at(0xBD5B) == "TEXT_INPUT" and cpc664.label_at(0xBD5E) == "MOVE_REAL"
+    assert cpc664.label_at(0xBDA0) == "REAL_LOG" and cpc664.label_at(0xBDF4) == "KM_SCAN_KEYS"
+    assert cpc664.label_at(0xBDBE) is None
+    assert cpc6128.label_at(0xBD5B) == "KL_BANK_SWITCH" and cpc6128.label_at(0xBD5E) == "TEXT_INPUT"
+    assert cpc6128.label_at(0xBD61) == "MOVE_REAL" and cpc6128.label_at(0xBDA3) == "REAL_LOG"
+    assert cpc6128.label_at(0xBD7F) == "REAL_RND" and cpc6128.label_at(0xBD8B) == "REAL_RND_0"
     assert cpc6128.comment_at(0xBC77) == "CAS IN OPEN (AMSDOS patch, V1.0 differs)"
     assert cpc6128.label_at(0x0023) == "KL_FAR_ICALL"
 
@@ -69,7 +74,9 @@ def test_set_firmware_keeps_the_owners_symbols() -> None:
     assert table.label_at(0x8000) == "my_routine" and table.label_at(0xBD3D) == "my_maths_hook"
     assert table.label_at(0xBD5B) == "KL_BANK_SWITCH" and table.label_at(0xBD3A) == "KM_SET_LOCKS"
     table.set_firmware("464")
-    assert table.label_at(0xBD5B) is None and table.label_at(0xBD40) == "INTEGER_TO_REAL"
+    assert (
+        table.label_at(0xBD5B) == "REAL_SUBTRACTION" and table.label_at(0xBD40) == "INTEGER_TO_REAL"
+    )
     with pytest.raises(SymbolError, match="model"):
         table.set_firmware("664plus")
 

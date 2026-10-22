@@ -240,9 +240,11 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   basic11_664.rom, amsdos.rom). Locomotive BASIC jumps into the lower ROM directly (RST 1 to
   fixed addresses), so a BASIC 1.1 only works with the OS it was built with: the 6128's
   BASIC 1.1 (basic11_6128.rom) loops on "Syntax error" under os664.rom.
-- Firmware names: tools/extract_firmware_symbols.py reads docs/firmware.md (kernel, main
-  jumpblock 0-201 with availability, indirections) + the maths jumpblock (Cantrell, both
-  addresses) → FIRMWARE_464/664/6128.
+- Firmware names: tools/extract_firmware_symbols.py reads docs/firmware.md only (kernel, main
+  jumpblock 0-201 with availability, indirections; section 7: TEXT INPUT and the maths
+  jumpblock, not in SOFT 968, one address per machine: 464 from &BD3A, 664 from &BD5B, 6128
+  from &BD5E) → FIRMWARE_464/664/6128. tests/machine/test_firmware_jumpblocks.py checks the
+  names against the jumpblocks of the booted firmware.
 
 - `model = "6128"` (config/cpc6128.toml: os6128.rom, basic11_6128.rom; AMSDOS as on the 464) makes
   `CPC464` a 6128 (`model` "cpc6128"): `MemoryMap(ram_blocks=8)`. Gate Array function 11
@@ -251,8 +253,9 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   pages with the block store (D-14), so read/write paths are as on the 464. `ram_block_at`,
   `block(n)`, `set_block`, `base_ram()` (blocks 0-3: renderer and `screen_text`, the CRTC ignores
   banking). Breakpoint locations / memory views: `ram:<block>` (464: block 0-3 by address).
-- `.sna`: 128 KB dump + RAM configuration, CPC type 2; MEM0/MEM1 chunks load. Provenance and RAM
-  analysis targets key on CPU addresses and do not follow bank switches.
+- `.sna`: CPC type per model (464: 0, 664: 1, 6128: 2); a 6128 saves 128 KB + RAM
+  configuration; MEM0/MEM1 chunks load. Provenance and RAM analysis targets key on CPU
+  addresses and do not follow bank switches.
 
 ## CPC 464 notes (phase 4)
 

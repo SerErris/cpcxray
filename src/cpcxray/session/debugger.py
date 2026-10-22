@@ -183,7 +183,7 @@ class DebuggerMixin:
             raise SessionError("kind must be pc, m1, read, write, access, io_in, io_out, io, "
                                "rom_select or interrupt")  # fmt: skip
         if kind != "pc" and self._observable_bus() is None:
-            raise SessionError(f"{kind} breakpoints need the CPC 464 machine (observable bus)")
+            raise SessionError(f"{kind} breakpoints need a CPC machine (observable bus)")
         needs_address = kind in ADDRESS_KINDS or kind in PORT_KINDS
         if needs_address and address is None:
             raise SessionError(f"a {kind} breakpoint needs an address or port")
@@ -246,7 +246,7 @@ class DebuggerMixin:
             capacity: Ring buffer size (1-1,000,000).
         """
         if self._observable_bus() is None:
-            raise SessionError("the bus trace needs the CPC 464 machine (observable bus)")
+            raise SessionError("the bus trace needs a CPC machine (observable bus)")
         names = kinds or list(ACCESS_KINDS)
         unknown = [name for name in names if name not in ACCESS_KINDS]
         if unknown or not 1 <= capacity <= 1_000_000:

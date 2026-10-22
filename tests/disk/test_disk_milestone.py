@@ -2,7 +2,8 @@
 
 With the owner's ROMs and images (skipped when missing): AMSDOS lists the real 3" CP/M disk in
 A:, loads a BASIC program from it, refuses to write to it (the real image is inserted
-read-only) and saves to a draft image whose contents are then checked host-side.
+read-only) and saves to a draft image whose contents are then checked host-side. The
+catalogue is also read on the 664 and 6128.
 """
 
 from __future__ import annotations
@@ -11,8 +12,19 @@ from pathlib import Path
 
 import pytest
 
+from cpcxray.machine.config import MachineConfig
 from cpcxray.session.session import Session
-from tests.machines import CONFIG_464, boot, requires_disks, requires_roms, with_disks
+from tests.machines import (
+    CONFIG_464,
+    CONFIG_664,
+    CONFIG_6128,
+    boot,
+    requires_664_roms,
+    requires_6128_roms,
+    requires_disks,
+    requires_roms,
+    with_disks,
+)
 
 pytestmark = [requires_roms, requires_disks]
 
@@ -36,6 +48,21 @@ def test_catalogue(session: Session) -> None:
     assert "Drive A: user  0" in lines
     assert "AMSDOS  .COM   1K   EX1     .BAS   2K" in lines
     assert "ED      .COM   7K   XSUB    .COM   1K" in lines
+    assert " 50K free" in lines
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(CONFIG_664, marks=requires_664_roms, id="664"),
+        pytest.param(CONFIG_6128, marks=requires_6128_roms, id="6128"),
+    ],
+)
+def test_catalogue_on_664_and_6128(tmp_path: Path, config: MachineConfig) -> None:
+    """AMSDOS reads the disk in A: on the V1.1/V1.2 firmware as well (664: built-in drive)."""
+    lines = type_and_run(boot(tmp_path, with_disks(config)), "CAT\r")
+    assert "Drive A: user  0" in lines
+    assert "AMSDOS  .COM   1K   EX1     .BAS   2K" in lines
     assert " 50K free" in lines
 
 

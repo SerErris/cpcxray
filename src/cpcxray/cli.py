@@ -4,10 +4,10 @@ Subcommands:
 
 * `config`: load and check a machine configuration.
 * `mcp`: the headless MCP server on stdin/stdout (design.md §6.16, D-28); Claude Code starts it
-  from the project's .mcp.json. By default it drives a CPC 464 with the ROMs of
+  from the project's .mcp.json. By default it drives the CPC (464, 664 or 6128) of
   config/machine.toml (`--machine flat` for the bare Z80). Needs the optional dependency `mcp`.
 
-* `gui`: the Dear PyGui window with a CPC 464 from the configuration. The machine starts
+* `gui`: the Dear PyGui window with the CPC from the configuration. The machine starts
   running (`--paused` starts it stopped at &0000); by default the window also serves MCP over
   HTTP on 127.0.0.1:8765 so Claude can attach (`--mcp-port 0` turns that off).
 * `source-verify`: the round-trip check (D-33) without a session: assemble a source with
@@ -48,7 +48,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p_mcp.add_argument("--project-dir", default=".", help="base directory for relative paths")
     p_mcp.add_argument(
         "--machine", choices=("cpc464", "flat"), default="cpc464",
-        help="cpc464 (ROMs from --config) or flat (bare Z80, 64 KB RAM)",
+        help="cpc464 (any CPC model from --config) or flat (bare Z80, 64 KB RAM)",
     )  # fmt: skip
     p_mcp.add_argument("--config", default=DEFAULT_CONFIG, help="machine.toml for cpc464")
 
@@ -85,7 +85,7 @@ def _cmd_mcp(project_dir: str, machine_kind: str, config: str) -> int:
     Args:
         project_dir: Base directory for relative paths (also for --config).
         machine_kind: "cpc464" (powered on with the configured ROMs) or "flat".
-        config: The machine.toml for the CPC 464.
+        config: The machine.toml for the CPC (464, 664 or 6128).
 
     Returns:
         0 when the client disconnects, 1 if `mcp` is missing or the config is invalid.
@@ -108,7 +108,7 @@ def _cmd_mcp(project_dir: str, machine_kind: str, config: str) -> int:
 
 
 def _cmd_gui(project_dir: str, config: str, mcp_port: int, paused: bool) -> int:
-    """Run `cpcxray gui`: the emulator window with a CPC 464 from the configuration.
+    """Run `cpcxray gui`: the emulator window with the CPC from the configuration.
 
     The machine starts running (it boots like a real CPC) unless `paused` is set.
 

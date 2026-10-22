@@ -35,6 +35,14 @@ def test_session_uses_the_machines_firmware_names(tmp_path: Path) -> None:
     assert session.symbol_list("MOVE_REAL")["symbols"][0]["address"] == "BD3D"
 
 
+def test_sna_saves_cpc_type_664(tmp_path: Path) -> None:
+    """A 664 snapshot has 64 KB and CPC type 1 in its header (464: 0, 6128: 2)."""
+    session = Session(CPC464(MachineConfig(Path("."), model="664")), project_dir=tmp_path)
+    path = tmp_path / "664.sna"
+    assert session.sna_save(str(path))["size"] == 0x100 + 0x10000
+    assert path.read_bytes()[0x6D] == 1
+
+
 @requires_664_roms
 def test_664_firmware_boots(tmp_path: Path) -> None:
     """The 664 OS signs on as firmware v2 with BASIC 1.1 and BASIC executes typed commands.
