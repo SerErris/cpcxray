@@ -149,19 +149,23 @@ def check_toggles_and_freeze(app: Any, dpg: Any) -> None:
 
 
 def check_memory_variables(panels: Any, dpg: Any) -> None:
-    """The memory panel colours the bytes of known variables and names them (FR-DBG-11/12)."""
+    """The Memory tab: a jump shows the variable's page, the table names it, Follow CPU."""
+    memory = panels.tabs["Memory"]
     time = panels.session.variable_list("KL_TIME")["variables"][0]["address"]  # per machine
-    dpg.set_value(panels.items["memory_address"], time)
-    dpg.set_value(panels.items["memory_view"], "ram")
-    panels.refresh(force=True)
-    assert dpg.get_value(panels.items["memory_paging"]).endswith("RAM block 2")
-    first_byte = dpg.get_item_configuration(panels.items["memory_byte_0_0"])["color"]
-    assert tuple(round(c * 255) for c in first_byte[:3]) == (255, 200, 90)  # 1st variable
-    legend = [dpg.get_value(item)
-              for item in dpg.get_item_children(panels.items["memory_legend"], 1)]  # fmt: skip
-    assert legend[0].startswith("in KL_WORKSPACE") and "KL_TIME (4)" in legend[1]
-    dpg.set_value(panels.items["memory_address"], "0000")
-    dpg.set_value(panels.items["memory_view"], "cpu")
+    memory.jump(int(time, 16))
+    first = f"{int(time, 16) & 0xFF00:04X}"
+    assert dpg.get_value(panels.items["memory_address_0"]) == f"{first} "  # the whole page
+    assert any(row["label"] == "KL_TIME" for row in memory.table_rows)
+    memory._cell_clicked(*divmod(int(time, 16) & 0xFF, 16))  # pylint: disable=protected-access
+    assert dpg.get_value(panels.items["memory_selected_name"]) == "KL_TIME"
+    memory.call(memory.toggle_follow)
+    panels.session.step()
+    memory.refresh()
+    status = dpg.get_value(panels.items["memory_follow_status"])
+    assert "since the last stop" in status
+    memory.call(memory.toggle_follow)
+    assert not panels.session.memory_changes_get()["following"]
+    memory.jump(0)
 
 
 def check_symbols_list(panels: Any, dpg: Any) -> None:

@@ -150,6 +150,9 @@ def test_memory_views() -> None:
     machine.memory.upper_roms[5].read(0x14, False)
     assert session.memory_view("C014", 1, view="shadow:rom5")["hex"] == f"{0x77 ^ 0x28:02X}"
     assert session.memory_view("C010", 16, view="shadow")["lines"][0].startswith("C010  -- --")
+    assert session.memory_view("0014", 1, view="rom5")["hex"] == "??"  # only at &C000-&FFFF
+    edge = session.memory_view("BFFF", 2, view="raw:rom5")["hex"]
+    assert edge[:2] == "??" and edge[2:] != "??"  # nothing before &C000, its first byte at it
     with pytest.raises(SessionError, match="unknown view"):
         session.memory_view("C000", 1, view="disk")
 
@@ -252,3 +255,27 @@ def test_bus_trace_records_steps_without_recording(tmp_path: Path) -> None:
     session.run(max_instructions=50)  # a free run: not recorded with the switch off - a gap
     view = session.bus_trace_view()
     assert view["total"] == before + 1 and view["groups"][-1]["gap"]["instructions"] == 50
+
+
+def test_memory_follow_and_changes(tmp_path: Path) -> None:
+    """Follow CPU: writes since the last stop, the last step's accesses, off the bus again."""
+    session = Session(make_test_cpc({}, {}), project_dir=tmp_path)
+    session.memory_write("9000", "3A0080 320090 320190 18F5")  # read / 2 writes / jr back
+    session.registers_set({"pc": 0x9000, "sp": 0xA000})
+    assert session.memory_changes_get()["following"] is False
+    session.memory_follow(True)
+    session.step()
+    changes = session.memory_changes_get()
+    last_step = changes["last_step"] or {}
+    assert last_step["accesses"] == [{"access": "read", "address": "8000",
+                                                 "value": "00"}]  # fmt: skip
+    session.step()
+    changes = session.memory_changes_get()
+    assert [w["address"] for w in changes["written"]] == ["9000"]  # this step only
+    session.run(max_instructions=7)  # a run: everything it writes
+    changes = session.memory_changes_get()
+    assert changes["written_count"] == 2 and changes["last_step"] is None
+    last_written = changes["last_written"] or {}
+    assert last_written["address"] in ("9000", "9001")
+    session.memory_follow(False)
+    assert not session.memory_changes_get()["written"]

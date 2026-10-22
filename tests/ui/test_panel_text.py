@@ -22,12 +22,16 @@ from cpcxray.ui.panels.text import (
     drive_geometry,
     file_detail,
     flag_bits,
+    follow_lines,
+    follow_target,
     gap_text,
     gate_array_lines,
+    innermost,
     keyboard_summary,
     location_text,
     memory_layout,
     ordinal,
+    page_line,
     parse_assignments,
     parse_memory_edit,
     ppi_lines,
@@ -39,7 +43,10 @@ from cpcxray.ui.panels.text import (
     stop_texts,
     trace_detail,
     trace_rows,
+    variable_colour_indexes,
+    variable_detail,
     variable_range_hint,
+    variable_rows,
 )
 
 
@@ -325,3 +332,31 @@ def test_gaps_in_both_traces() -> None:
     assert rows[1].changes == ""  # what came after it was not traced
     view = {"groups": [{"gap": {"instructions": 50, "emulated_us": 100}, "first": 7}]}
     assert bus_lines(view)[0].kind == "gap" and bus_lines(view)[0].record == 7
+
+
+def test_memory_texts() -> None:
+    """Pages, innermost variables, colours in order, the table, detail and Follow texts."""
+    assert page_line(0xB727) == 0xB70 and page_line(0x00FF) == 0
+    window = {"label": "WINDOW", "address": "B726", "last": "B733", "size": 14, "area": False}
+    column = {"label": "COLUMN", "address": "B727", "last": "B727", "size": 1, "area": False,
+              "description": "cursor column"}  # fmt: skip
+    area = {"label": "TXT_WORKSPACE", "address": "B6B5", "last": "B7C2", "size": 270,
+            "area": True}  # fmt: skip
+    variables = [area, window, column]
+    assert innermost(variables, 0xB727) is column and innermost(variables, 0xB700) is None
+    assert variable_colour_indexes(variables, 0xB700, 0x100) == {"WINDOW": 0, "COLUMN": 1}
+    rows = variable_rows(variables)
+    assert [(r["label"], r["range"], r["indent"]) for r in rows] == [
+        ("WINDOW", "B726-B733", False), ("COLUMN", "B727", True)]  # fmt: skip
+    assert variable_detail(column, variables) == "B727 \u00b7 1 byte \u00b7 in WINDOW"
+    changes = {"following": True, "written_count": 3, "last_written": None,
+               "written": [{"address": "B727", "value": "07"}],
+               "last_step": {"pc": "11AD", "accesses": [
+                   {"access": "read", "address": "B72C", "value": "27", "variable": "RIGHT"},
+                   {"access": "write", "address": "B727", "value": "07",
+                    "variable": "COLUMN"}]}}  # fmt: skip
+    assert follow_lines(changes, 0xB700, 0x100) == [
+        "last step at PC 11AD: write B727 = 07 (COLUMN) \u00b7 read B72C = 27 (RIGHT)",
+        "since the last stop: 1 bytes written in view (3 in all)"]  # fmt: skip
+    assert follow_target(changes) == 0xB727  # writes before reads
+    assert follow_target({"last_step": None, "last_written": {"address": "C000"}}) == 0xC000

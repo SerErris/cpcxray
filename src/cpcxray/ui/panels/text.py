@@ -696,3 +696,98 @@ def bus_position(lines: list[BusLine], total: int) -> str:
         return "no records"
     first, last = lines[0].record + 1, lines[-1].record + 1
     return f"records {first:,}-{last:,} of {total:,}"
+
+
+PAGE = 0x100  # a page of the Memory tab: 16 lines of 16 bytes
+LINE_BYTES = 16
+
+
+def page_line(address: int) -> int:
+    """The first line (address / 16) of the page that holds `address`."""
+    return (address & 0xFF00) // LINE_BYTES
+
+
+def innermost(variables: list[dict[str, Any]], address: int) -> dict[str, Any] | None:
+    """The smallest named variable (not a pack area) holding `address`, or None."""
+    holding = [v for v in variables if not v.get("area") and _contains(v, address)]
+    return min(holding, key=lambda v: v["size"]) if holding else None
+
+
+def variable_colour_indexes(variables: list[dict[str, Any]], start: int, length: int
+                            ) -> dict[str, int]:  # fmt: skip
+    """A colour index per variable shown in [start, start + length), in order of appearance."""
+    indexes: dict[str, int] = {}
+    for address in range(start, start + length):
+        variable = innermost(variables, address & 0xFFFF)
+        if variable is not None and variable["label"] not in indexes:
+            indexes[variable["label"]] = len(indexes)
+    return indexes
+
+
+def variable_rows(variables: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The "Variables in view" table: named variables, a structure's fields indented under it.
+
+    Returns:
+        Per variable "label", "range" ("B726-B733" or "B727"), "size", "indent" (True for a
+        field inside a larger named variable) and the variable itself ("variable").
+    """
+    named = [v for v in variables if not v.get("area")]
+    rows = []
+    for variable in named:
+        first, last = int(variable["address"], 16), int(variable["last"], 16)
+        inside = any(other is not variable and other["size"] > variable["size"]
+                     and _contains(other, first) and _contains(other, last)
+                     for other in named)  # fmt: skip
+        span = variable["address"] if first == last else f"{variable['address']}-{variable['last']}"
+        rows.append({"label": variable["label"], "range": span, "size": variable["size"],
+                     "indent": inside, "variable": variable})  # fmt: skip
+    return rows
+
+
+def variable_detail(variable: dict[str, Any], variables: list[dict[str, Any]]) -> str:
+    """The detail line of a selected variable: "B727 · 1 byte · in TXT_CURRENT_WINDOW"."""
+    first = int(variable["address"], 16)
+    parents = [v for v in variables if v is not variable and v["size"] > variable["size"]
+               and _contains(v, first) and not v.get("area")]  # fmt: skip
+    size = f"{variable['size']} byte{'s' if variable['size'] != 1 else ''}"
+    span = variable["address"] if variable["size"] == 1 else (
+        f"{variable['address']}-{variable['last']}")  # fmt: skip
+    parent = f" · in {min(parents, key=lambda v: v['size'])['label']}" if parents else ""
+    return f"{span} · {size}{parent}"
+
+
+def _named_access(access: dict[str, Any]) -> str:
+    """An access as text, e.g. "write B727 = 07 (TXT_CURSOR_COLUMN)"."""
+    name = f" ({access['variable']})" if access.get("variable") else ""
+    return f"{access['access']} {access['address']} = {access['value']}{name}"
+
+
+def follow_lines(changes: dict[str, Any], start: int, length: int) -> list[str]:
+    """Follow CPU's status: what the last step accessed, how much was written since the stop."""
+    lines = []
+    step = changes.get("last_step")
+    if step is not None:
+        accesses = sorted(step["accesses"], key=lambda a: a["access"] != "write")  # writes first
+        text = " · ".join(_named_access(a) for a in accesses) or "no memory accessed"
+        lines.append(f"last step at PC {step['pc']}: {text}")
+    if changes.get("following"):
+        in_view = sum(1 for w in changes["written"]
+                      if start <= int(w["address"], 16) < start + length)  # fmt: skip
+        lines.append(f"since the last stop: {in_view} bytes written in view "
+                     f"({changes['written_count']} in all)")  # fmt: skip
+    return lines
+
+
+def follow_target(changes: dict[str, Any]) -> int | None:
+    """Where Follow CPU goes at a stop.
+
+    The last step's write, else the latest write since the stop, else the last step's read.
+    """
+    step = changes.get("last_step") or {"accesses": []}
+    for access in ("write", "read"):
+        found = [a for a in step["accesses"] if a["access"] == access]
+        if found:
+            return int(found[-1]["address"], 16)
+        if access == "write" and changes.get("last_written"):
+            return int(changes["last_written"]["address"], 16)
+    return None

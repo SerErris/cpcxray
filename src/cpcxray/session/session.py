@@ -44,7 +44,7 @@ from cpcxray.session.analysis import AnalysisMixin
 from cpcxray.session.bus_view import BusViewMixin
 from cpcxray.session.disks import DiskMixin
 from cpcxray.session.errors import SessionError
-from cpcxray.session.trace_view import TraceViewMixin
+from cpcxray.session.memory_follow import MemoryFollowMixin
 from cpcxray.ui.png import encode_png
 from cpcxray.ui.renderer import double_lines, render
 
@@ -78,7 +78,7 @@ class _RunLimits:
 
 
 # The façade owns all debugger state and offers one public method per MCP tool (D-27).
-class Session(AnalysisMixin, TraceViewMixin, BusViewMixin, DiskMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
+class Session(AnalysisMixin, MemoryFollowMixin, BusViewMixin, DiskMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
     """Owns a machine and offers every debugger operation (D-27).
 
     Attributes:
@@ -106,6 +106,7 @@ class Session(AnalysisMixin, TraceViewMixin, BusViewMixin, DiskMixin):  # pylint
         self.analysis_enabled = True  # the analysis observers run while targets exist
         self.trace = Trace(self._format_capture)
         self._setup_trace_view()
+        self._setup_memory_follow()
         self._recording_steps = False  # step/step_over/step_out record into the trace buffer
         self._registers_before: dict[str, int] | None = None  # at the start of a step
         self._pause_requested = threading.Event()
@@ -243,6 +244,7 @@ class Session(AnalysisMixin, TraceViewMixin, BusViewMixin, DiskMixin):  # pylint
         """
         machine, cpu, trace = self.machine, self.machine.cpu, self.trace
         tracing = trace.enabled or self._recording_steps  # free runs: only if switched on
+        self._run_starting()  # Follow CPU: writes "since the last stop"
         self._pause_requested.clear()
         deadline = time.monotonic() + limits.timeout_s
         instructions = emulated_us = 0

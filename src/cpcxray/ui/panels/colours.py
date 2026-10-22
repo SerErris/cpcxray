@@ -121,6 +121,18 @@ AREA_COLOUR: Final = (140, 140, 140)  # inside a pack's area, in no named variab
 # Dear PyGui reads a colour with a negative first component as "use the theme's colour"
 THEME_DEFAULT: Final = (-255, 0, 0, 255)
 
+# Follow CPU marks of the Memory tab (task 5c)
+WRITTEN_LAST: Final = rgb("#8a2e2e")  # written by the last step: strong red (white text)
+WRITTEN_SINCE: Final = rgb("#4a2a2a")  # written since the last stop: dim red
+READ_LAST: Final = rgb("#78b4ff")  # read by the last step: a blue frame
+BADGE_STYLES.update(
+    {
+        "mem_last": (WHITE, WRITTEN_LAST, None),
+        "mem_written": (TEXT, WRITTEN_SINCE, None),
+        "mem_read": (TEXT, PANEL, READ_LAST),
+    }
+)
+
 # the access type chips of the Bus trace tab, as badges
 BADGE_STYLES.update(
     {

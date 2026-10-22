@@ -72,6 +72,7 @@ class Styles:  # pylint: disable=too-many-instance-attributes  # one theme per l
         self._texts: dict[Colour, int | str] = {}
         self._chips: dict[tuple[Colour, Colour, bool], int | str] = {}
         self._tiles: dict[tuple[bool, bool], int | str] = {}
+        self._byte_cells: dict[tuple[Colour, Colour | None, Colour | None], int | str] = {}
         self._plain_rows: dict[tuple[Colour, bool], int | str] = {}
         self.link = _link_theme()
         self.icon_font: int | str | None = None  # the larger font for symbol buttons (app sets it)
@@ -137,6 +138,26 @@ class Styles:  # pylint: disable=too-many-instance-attributes  # one theme per l
                                     colours.ROW_ALTERNATE if hover else (0, 0, 0, 0))  # fmt: skip
             self._plain_rows[key] = theme
         return self._plain_rows[key]
+
+    def byte_cell(
+        self, text: Colour, background: Colour | None, border: Colour | None
+    ) -> int | str:
+        """A byte of the Memory tab's grid: text colour, an optional mark and frame."""
+        key = (text, background, border)
+        if key not in self._byte_cells:
+            with dpg.theme() as theme, dpg.theme_component(dpg.mvButton):
+                fill = (*background, 255) if background is not None else (0, 0, 0, 0)
+                dpg.add_theme_color(dpg.mvThemeCol_Button, fill)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, colours.ROW_ALTERNATE)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, colours.SELECTED_ROW)
+                dpg.add_theme_color(dpg.mvThemeCol_Text, text)
+                dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 2, 0)
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 0)
+                if border is not None:
+                    dpg.add_theme_color(dpg.mvThemeCol_Border, border)
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 1)
+            self._byte_cells[key] = theme
+        return self._byte_cells[key]
 
     def tile(self, rom: bool, here: bool) -> int | str:
         """A paging tile: ROM tiles tinted blue, the tile of the PC framed yellow."""

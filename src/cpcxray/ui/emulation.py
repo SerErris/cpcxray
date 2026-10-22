@@ -66,7 +66,9 @@ class EmulationLoop:  # pylint: disable=too-many-instance-attributes  # loop sta
         self._last_frame = time.perf_counter()
 
     def stop(self) -> None:
-        """Stop running (also ends a "run to address")."""
+        """Stop running (also ends a "run to address"); for the session this is a stop."""
+        if self.running:
+            self.session._free_run_stopped()  # pylint: disable=protected-access  # its stop bookkeeping
         self.running = False
         self.until_address = None
 

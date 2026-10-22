@@ -621,7 +621,9 @@ class DebuggerMixin:
         """Read memory through a view (FR-DBG-03): hex dump lines with ASCII.
 
         Args:
-            address: Start address (in a ROM view: the CPU address or the ROM offset).
+            address: Start address - a CPU address in every view: a ROM view shows its ROM
+                where the CPU sees it (the lower ROM at &0000-&3FFF, an upper ROM at
+                &C000-&FFFF) and nothing ("??", "--") elsewhere.
             length: Number of bytes (max 4096).
             view: "cpu" (what the CPU reads now), "ram" (RAM even under a paged-in ROM),
                 "ram:N" (RAM block N, mapped or not, at offset address & &3FFF: 0-3, 0-7 on
@@ -710,22 +712,30 @@ class DebuggerMixin:
         except (SessionError, ValueError):
             raise SessionError(f"unknown view {view!r}: cpu, ram, ram:N, lower, romN, raw:romN, "
                                "shadow:romN") from None  # fmt: skip
+        base = 0x0000 if rom is self._cpc().memory.lower_rom else 0xC000
+
+        def at(read: Any) -> Any:
+            """The ROM only at its CPU addresses, None elsewhere.
+
+            A view picks what is shown, not where (owner, 2026-10-22).
+            """
+            return lambda a: read(a - base) if base <= a <= base + 0x3FFF else None
+
         if mode == "":
-            return lambda a: rom.peek(a & 0x3FFF)
+            return at(rom.peek)
         if mode == "raw":
-            return lambda a: rom.data[a & 0x3FFF]
+            return at(lambda offset: rom.data[offset])
         if mode == "shadow" and rom.shadow is not None:
             shadow = rom.shadow
 
-            def clear_value(address: int) -> int | None:
+            def clear_value(offset: int) -> int | None:
                 """The clear value the shadow recorded (None if never read)."""
-                offset = address & 0x3FFF
                 access_class = shadow.access_map[offset]
                 if access_class == UNKNOWN:
                     return None
                 return rom.data[offset] if access_class == M1 else shadow.data_values[offset]
 
-            return clear_value
+            return at(clear_value)
         raise SessionError(f"view {view!r} needs a scrambled ROM (shadow) or a valid mode")
 
     # == snapshots =============================================================================
