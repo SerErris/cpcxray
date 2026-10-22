@@ -4,8 +4,8 @@ A tab bar next to the screen:
 
 | Tab         | Shows / does                                                               |
 |-------------|----------------------------------------------------------------------------|
-| CPU         | registers (editable), disassembly around the PC or at an address,          |
-|             | step out, run to address                                                   |
+| CPU         | registers (editable), paging per 16 KB (ROM or RAM block), disassembly     |
+|             | around the PC or at an address (marked per quarter), step out, run to      |
 | Memory      | hex dump through a view (CPU, RAM, ROM, raw ROM, shadow ROM), editing      |
 | Devices     | Gate Array, CRTC, SystemIO, ROM select, FDC                                |
 | Breakpoints | list; add any kind with location qualifier; enable, disable, remove        |
@@ -41,9 +41,11 @@ from cpcxray.ui.panels.text import (
     breakpoint_lines,
     devices_lines,
     mark_pc,
+    paging_lines,
     parse_assignments,
     parse_memory_edit,
     registers_lines,
+    with_paging,
 )
 
 PANEL_WIDTH = 620
@@ -130,13 +132,14 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
                     callback=lambda: self._call(message, action))  # fmt: skip
 
     def _build_cpu(self) -> None:
-        """Registers, register editing, disassembly, step out / run to."""
+        """Registers, register editing, paging, disassembly, step out / run to."""
         self._text("registers")
         with dpg.group(horizontal=True):
             self._entry("register_edit", "hl=4000, a=5", 200, "cpu_message", self._set_registers)
             self._button("Step out", "cpu_message", self.loop.step_out)
             self._entry("run_to", "run to address", 110, "cpu_message", self._run_to)
         self._text("cpu_message")
+        self._text("paging")
         with dpg.group(horizontal=True):
             dpg.add_text("Disassembly at")
             self._input("disassembly_address", "PC (empty) or address/label", 200)
@@ -365,12 +368,18 @@ class DebuggerPanels:  # pylint: disable=too-many-instance-attributes  # one ite
         dpg.set_value(self.items[name], "\n".join(lines))
 
     def _refresh_cpu(self) -> None:
-        """Registers and disassembly (following the PC unless an address is given)."""
+        """Registers, paging and disassembly (following the PC unless an address is given).
+
+        The disassembly marks each 16 KB quarter with the ROM or RAM block the CPU reads there
+        now (FR-DBG-12).
+        """
         session = self.session
         self._set_lines("registers", registers_lines(session.registers_get()))
+        self._set_lines("paging", paging_lines(session.paging_get()))
         address = self._value("disassembly_address").strip() or None
         try:
-            lines = session.disassemble(address, DISASSEMBLY_LINES)["lines"]
+            listing = session.disassemble(address, DISASSEMBLY_LINES)
+            lines = with_paging(listing["lines"], listing["paging"])
         except SessionError as error:
             lines = [f"error: {error}"]
         pc = session.machine.cpu.pc

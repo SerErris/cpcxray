@@ -774,20 +774,24 @@ class Session(AnalysisMixin, DebuggerMixin, DiskMixin):  # pylint: disable=too-m
         """Disassemble `count` instructions (max 256) from `address` (default: PC).
 
         Lines show address, bytes, instruction with symbols and comments; labels get their
-        own line. Non-canonical encodings are marked "[nc]".
+        own line. Non-canonical encodings are marked "[nc]". `paging` describes the 16 KB
+        quarters the lines come from: the ROM or RAM block the CPU reads there now (FR-DBG-12).
         """
         if not 1 <= count <= MAX_DISASSEMBLE:
             raise SessionError(f"count must be 1-{MAX_DISASSEMBLE}")
         current = self.machine.cpu.pc if address is None else self._address(address)
-        lines = []
+        lines, quarters = [], []
         for _ in range(count):
             instruction = self._disassemble(current)
             label = self._label(current)
             if label:
                 lines.append(f"{label}:")
             lines += self._format_instruction(instruction)
+            if current >> 14 not in quarters:
+                quarters.append(current >> 14)
             current = instruction.next_address
-        return {"lines": lines, "next": hex4(current)}
+        paging = self.paging_get()["quarters"]
+        return {"lines": lines, "next": hex4(current), "paging": [paging[q] for q in quarters]}
 
     def _format_instruction(self, instruction: Instruction) -> list[str]:
         """Format an instruction (and its extra lines) for `disassemble`."""

@@ -9,10 +9,13 @@ from cpcxray.ui.panels.text import (
     breakpoint_lines,
     devices_lines,
     flags_text,
+    line_address,
     mark_pc,
+    paging_lines,
     parse_assignments,
     parse_memory_edit,
     registers_lines,
+    with_paging,
 )
 
 
@@ -52,3 +55,36 @@ def test_mark_pc_and_lists() -> None:
     ]
     assert breakpoint_lines([]) == ["(no breakpoints)"]
     assert devices_lines({"crtc": {"selected": 12}}) == ["[crtc]", "  selected: 12"]
+
+
+QUARTERS = [
+    {"start": "0000", "end": "3FFF", "source": "lower", "ram_block": 0,
+     "text": "lower ROM (os6128.rom)"},
+    {"start": "4000", "end": "7FFF", "source": "ram", "ram_block": 5, "text": "RAM block 5"},
+]  # fmt: skip
+
+
+def test_paging_lines() -> None:
+    """One line per quarter; a 6128 names its RAM configuration in the title (FR-DBG-12)."""
+    assert paging_lines({"quarters": QUARTERS, "ram_configuration": 5}) == [
+        "Paging (RAM configuration 5):",
+        "  0000-3FFF  lower ROM (os6128.rom)",
+        "  4000-7FFF  RAM block 5",
+    ]
+    assert paging_lines({"quarters": QUARTERS[:1]})[0] == "Paging:"
+
+
+def test_with_paging_marks_each_quarter_before_its_labels() -> None:
+    """A separator before the first line of each quarter, ahead of that line's label."""
+    lines = ["3FFE  00           nop", "here:", "4000  CF 80 91     rst #08",
+             "                   defw 09180h", "4003  C9           ret"]  # fmt: skip
+    assert with_paging(lines, QUARTERS) == [
+        "; ---- 0000-3FFF: lower ROM (os6128.rom)",
+        "3FFE  00           nop",
+        "; ---- 4000-7FFF: RAM block 5",
+        "here:",
+        "4000  CF 80 91     rst #08",
+        "                   defw 09180h",
+        "4003  C9           ret",
+    ]
+    assert line_address("here:") is None and line_address("4003  C9           ret") == 0x4003

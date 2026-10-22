@@ -5,7 +5,8 @@ A mixin of `Session`; every public method is an MCP tool as well (D-27):
 * breakpoints of all kinds with location qualifiers (debugger/breakpoints.py); a memory
   breakpoint on a known OS/AMSDOS variable covers it and names it when it stops (FR-DBG-11);
 * the bus trace (debugger/bus_trace.py);
-* memory views: CPU, RAM, a ROM image, the shadow ROM of a scrambled ROM;
+* memory views: CPU, RAM, a ROM image, the shadow ROM of a scrambled ROM; the paging per
+  16 KB quarter (`paging_get`, FR-DBG-12);
 * `.sna` snapshots (machine/sna.py, D-25).
 
 Breakpoint and bus-trace observers are registered on the bus only while they are needed (D-12);
@@ -26,6 +27,7 @@ from cpcxray.debugger.breakpoints import (
 )
 from cpcxray.debugger.bus_trace import ACCESS_KINDS, BusTrace
 from cpcxray.decoding.shadow_rom import M1, UNKNOWN
+from cpcxray.machine.memory import BLOCK_SIZE
 from cpcxray.machine.sna import SnapshotError, load_sna, save_sna
 from cpcxray.session.errors import SessionError
 
@@ -293,6 +295,38 @@ class DebuggerMixin:
         return {"tracing": self.bus_trace.enabled, "lines": [r.line() for r in records]}
 
     # == memory views ==========================================================================
+
+    def paging_get(self) -> dict[str, Any]:
+        """What the CPU reads in each 16 KB quarter now (FR-DBG-12).
+
+        Each quarter shows the ROM paged in - the lower ROM, or upper ROM n with its file
+        name - or else the RAM block mapped there (6128 banking, D-14). `ram_block` is the
+        block under the quarter in any case: writes always go to RAM. A 6128 also reports its
+        RAM configuration (Gate Array function 11).
+        """
+        memory = getattr(self.machine, "memory", None)
+        quarters = []
+        for index in range(4):
+            start = index * BLOCK_SIZE
+            quarters.append(self._quarter(start, memory))
+        result: dict[str, Any] = {"quarters": quarters}
+        if memory is not None and memory.ram_blocks > 4:
+            result["ram_configuration"] = memory.ram_configuration
+        return result
+
+    def _quarter(self, start: int, memory: Any) -> dict[str, Any]:
+        """Describe the 16 KB quarter from `start` (see `paging_get`)."""
+        rom = self.machine.symbol_scope(start) or None
+        block = memory.ram_block_at(start) if memory is not None else start // BLOCK_SIZE
+        if rom == "lower":
+            text = f"lower ROM ({memory.lower_rom.name})"
+        elif rom is not None:
+            number = int(rom.removeprefix("rom"))
+            text = f"upper ROM {number} ({memory.upper_roms[number].name})"
+        else:
+            text = f"RAM block {block}"
+        return {"start": f"{start:04X}", "end": f"{start + BLOCK_SIZE - 1:04X}",
+                "source": rom or "ram", "ram_block": block, "text": text}  # fmt: skip
 
     def memory_view(
         self, address: int | str, length: int = 128, view: str = "cpu"

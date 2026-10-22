@@ -183,3 +183,14 @@ def test_steps_are_recorded_runs_only_when_switched_on(tmp_path: Path) -> None:
     session.step(2)  # the trace is off again: the steps go to the buffer, not to the file
     assert len(session.trace_read(100)["lines"]) == 7
     assert len((tmp_path / "out" / "trace.txt").read_text(encoding="utf-8").splitlines()) == 5
+
+
+def test_paging_names_the_rom_or_ram_per_quarter() -> None:
+    """After the OS ROM enables the upper ROM, &C000 shows ROM 3; the RAM below stays block 3."""
+    session = make_session()
+    assert session.paging_get()["quarters"][3]["text"] == "RAM block 3"  # upper ROM off at reset
+    session.run(max_instructions=2)  # ld bc,#7F81 / out (c),c
+    quarters = session.paging_get()["quarters"]
+    assert [q["source"] for q in quarters] == ["lower", "ram", "ram", "rom3"]
+    assert quarters[3]["ram_block"] == 3 and quarters[3]["text"].startswith("upper ROM 3 (")
+    assert "ram_configuration" not in session.paging_get()  # a 464 has no banking

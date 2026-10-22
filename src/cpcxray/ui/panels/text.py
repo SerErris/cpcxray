@@ -65,15 +65,51 @@ def parse_memory_edit(text: str) -> tuple[str, str]:
     return address.strip(), data.strip()
 
 
+def line_address(line: str) -> int | None:
+    """The address of a disassembly instruction line ("C006  CD ..."); None for other lines."""
+    try:
+        return int(line[:4], 16) if line[4:6] == "  " else None
+    except ValueError:
+        return None
+
+
+def paging_lines(paging: dict[str, Any]) -> list[str]:
+    """Format the paging per 16 KB quarter (FR-DBG-12): what the CPU reads there now."""
+    configuration = paging.get("ram_configuration")
+    title = "Paging" if configuration is None else f"Paging (RAM configuration {configuration})"
+    return [f"{title}:"] + [f"  {q['start']}-{q['end']}  {q['text']}" for q in paging["quarters"]]
+
+
+def with_paging(lines: list[str], quarters: list[dict[str, Any]]) -> list[str]:
+    """Put a "; ---- <quarter>: <ROM or RAM>" line before the first line of each 16 KB quarter.
+
+    Args:
+        lines: Disassembly lines (instruction lines, label lines, continuation lines).
+        quarters: Quarter descriptions as `paging_get` / `disassemble` return them.
+    """
+    texts = {int(q["start"], 16) >> 14: f"; ---- {q['start']}-{q['end']}: {q['text']}"
+             for q in quarters}  # fmt: skip
+    result: list[str] = []
+    labels: list[str] = []  # label lines wait for their instruction: the separator goes first
+    current = None
+    for line in lines:
+        address = line_address(line)
+        if address is None:
+            (labels if line.endswith(":") else result).append(line)
+            continue
+        if address >> 14 != current and address >> 14 in texts:
+            current = address >> 14
+            result.append(texts[current])
+        result += [*labels, line]
+        labels.clear()
+    return result + labels
+
+
 def mark_pc(lines: list[str], pc: int, breakpoints: set[int]) -> list[str]:
     """Prefix disassembly lines: ">" at the PC, "*" at a breakpoint, else spaces."""
     marked = []
     for line in lines:
-        address_text = line[:4]
-        try:
-            address = int(address_text, 16) if line[4:6] == "  " else None
-        except ValueError:
-            address = None
+        address = line_address(line)
         marker = " "
         if address is not None and address in breakpoints:
             marker = "*"

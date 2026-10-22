@@ -3,17 +3,11 @@
 Open tasks for later sessions, in the owner's words, with notes on where they apply.
 
 Order (2026-10-22): tasks that share code come one after the other, so no part is built twice.
-The variable tables (1, done) are the base for the disassembly and memory view work (2, 3,
-4); the CPU and Memory tabs are changed once each (2, 3); the user documentation (7) is written
-when the GUI and the MCP tools are stable; the Rust core (8) comes last, because it freezes everything that
-runs per instruction or per bus access (breakpoints, traces, observers).
-
-2. **Paging configuration in the CPU view.** The disassembly in the emulator's CPU view shall
-   show the current page configuration: RAM or ROM, which ROM when the upper ROM is paged in,
-   or which RAM bank (for the 6128).
-   - Where: `ui/panels/tabs.py` (CPU tab), `Session.disassemble`; the memory map knows the
-     paging (`MemoryMap.visible_rom`, `ram_block_at`).
-   - After 1: both change the disassembly output; the variable names are then already there.
+The variable tables (1, done) are the base for the disassembly and memory view work (2, 3, 4);
+the CPU and Memory tabs are changed once each (2 done, 3); the user documentation (7) is
+written when the GUI and the MCP tools are stable; the Rust core (8) comes last, because it
+freezes everything that runs per instruction or per bus access (breakpoints, traces,
+observers).
 
 3. **Memory view: paging configuration and known variables.** Show what is paged in for the
    displayed addresses (ROM / which ROM / RAM bank), and highlight and name the known OS and
@@ -91,6 +85,10 @@ runs per instruction or per bus access (breakpoints, traces, observers).
 
 ## Done
 
+- Task 2, paging in the CPU view (FR-DBG-12): `paging_get` (ROM or RAM block per 16 KB quarter,
+  file names, 6128 RAM configuration), `disassemble` reports the quarters of its lines; the CPU
+  tab shows the paging and marks each quarter in the disassembly. Task 3 can reuse
+  `paging_get` for the memory view.
 - Task 1, known OS and AMSDOS variables (FR-DBG-11, D-34): docs/memory.md (firmware variables
   per machine from Taylor/Defoe and Bread80, the 664 column derived from the ROM code; AMSDOS
   from CPCWiki) → debugger/variable_tables.py (tools/extract_memory_variables.py);

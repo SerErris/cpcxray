@@ -130,3 +130,16 @@ def test_6128_boots_and_banks_from_basic(tmp_path: Path) -> None:
     session.run(max_us=1_000_000)
     assert " 0  99" in session.screen_text()["lines"]
     assert session.machine.memory.block(4)[0] == 99  # type: ignore[attr-defined]
+
+
+def test_paging_follows_the_banking() -> None:
+    """paging_get and the disassembly name the RAM block mapped in each quarter (FR-DBG-12)."""
+    session = Session(make_6128())
+    session.run(max_instructions=2)  # ld bc / out (c),c: configuration 2 (blocks 4-7)
+    paging = session.paging_get()
+    assert paging["ram_configuration"] == 2
+    assert [q["text"] for q in paging["quarters"]] == [
+        "lower ROM (test os)", "RAM block 5", "RAM block 6", "RAM block 7"]  # fmt: skip
+    assert paging["quarters"][0]["ram_block"] == 4  # writes to &0000-&3FFF go to block 4
+    listing = session.disassemble("7FFF", 2)
+    assert [q["text"] for q in listing["paging"]] == ["RAM block 5", "RAM block 6"]

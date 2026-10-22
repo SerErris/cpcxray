@@ -159,6 +159,10 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   GUI's "Analysis" button takes them off the bus (collected data kept, decoding and access map
   continue). GUI indicators: ANALYSIS, one activity LED per drive (shared motor + drive
   addressed last, `Fdc765.drive_lights`).
+- Paging (FR-DBG-12): `paging_get` (session/debugger.py) describes each 16 KB quarter: lower ROM,
+  upper ROM n (file name) or RAM block (6128 banking), plus `ram_block` (writes) and the 6128's
+  RAM configuration; `disassemble` returns `paging` for the quarters of its lines. CPU tab:
+  paging lines above the disassembly, `; ----` separators per quarter (text.py `with_paging`).
 - ui/panels/: tabs.py (Dear PyGui tab bar: CPU, Memory, Devices, Breakpoints, Trace, Bus trace,
   Symbols, Files), text.py (formatting/parsing, tested headless). Panels only call Session
   methods; the visible tab refreshes every 5th frame; PC keys go to a focused text input, not the
