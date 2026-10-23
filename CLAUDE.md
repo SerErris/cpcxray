@@ -53,7 +53,7 @@ ruff format                       # format (Markdown is excluded)
 pylint src tests tools            # must rate 10/10; disables only with a stated reason
 cpcxray config                    # show parsed config/machine.toml, missing ROMs, sjasmplus
 cpcxray mcp                       # headless MCP server on stdio (Claude Code: .mcp.json)
-cpcxray source-verify output/rom.asm output/rom_clear.rom   # round trip (D-33)
+cpcxray source-verify project/rom.asm project/rom_clear.rom  # round trip (D-33)
 cpcxray gui                       # window, starts running (--paused: stopped at &0000); MCP over
                                   #   HTTP on 127.0.0.1:8765 (--mcp-port 0: off)
 CPCXRAY_UPDATE_GOLDEN=1 pytest tests/disasm   # regenerate the disassembler golden listing
@@ -209,8 +209,8 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   `Session._known_variables`, own EQU block); immediates of unknown role only at a variable's
   first byte. `_equ` keeps a space before EQU for labels of 24+ characters.
   analysis/verify.py runs sjasmplus (`--raw`, temp dir). CLI: `cpcxray source-verify SRC BIN`.
-- Outputs: output/<rom>.asm (`source_generate`), checked by `source_verify` (fill policy read
-  from the source's header line).
+- Outputs: project/<rom>.asm (`source_generate`; owner 2026-10-23: beside the analysis),
+  checked by `source_verify` (fill policy read from the source's header line).
 
 ## Decoding and analysis notes (phase 7)
 
@@ -220,7 +220,8 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
 - The disassembler takes `read_opcode` for M1 bytes (raw in a scrambled ROM) and `read_byte`
   for operands (decoded); Session passes machine.peek_opcode / machine.peek.
 - Access map: project/<rom>.m1map (16 KB, D-19), merged at session start, saved on GUI exit and
-  with `m1map_save`. Dumps/maps go to output/<rom>_clear.rom, _rom_map.html/.txt, _coverage.csv.
+  with `m1map_save`. Dumps/maps go to project/<rom>_clear.rom, _rom_map.html/.txt, _coverage.csv (owner
+  2026-10-23: beside the analysis and the source).
   Fill policy "static" comes from the phase 8 classifier.
 - analysis/provenance.py `AnalysisObserver` (bus observer, only while targets exist): RAM tags
   (exact via LDIR/LDDR, probable via value), EXEC_VIA_RAM/INSN_START on the origin bytes,

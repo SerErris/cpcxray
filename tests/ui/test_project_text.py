@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from cpcxray.ui.panels.project_text import (
+    collect_text,
     document,
     drives_line,
     free_slots,
@@ -11,9 +12,13 @@ from cpcxray.ui.panels.project_text import (
     machine_title,
     model_chip,
     number,
+    phases,
     rom_table,
     rom_tag,
     roms_of,
+    source_text,
+    verify_badge,
+    verify_lines,
 )
 
 CONFIG = {
@@ -69,3 +74,44 @@ def test_load_text() -> None:
     assert load_text(entry) == "game.bin \u2192 8000 (3 bytes, loaded)"
     assert load_text(entry | {"loaded": False}).endswith("not loaded)")
     assert load_text(entry | {"exists": False}) == "game.bin \u2192 8000 (file missing)"
+
+
+def test_phase_texts() -> None:
+    """Phases numbered with or without Decode; what was seen; the source; the verify badge."""
+    assert phases(True)[1] == ("decode", "2  Decode")
+    assert [title for _, title in phases(False)] == [
+        "1  Collect", "2  Save analysis", "3  Generate source", "4  Verify"]  # fmt: skip
+    collect = {"instruction_starts": 12, "executed_via_ram": 0, "relocated_blocks": 2,
+               "observations": 0, "captured": False}  # fmt: skip
+    assert collect_text(collect) == (
+        "12 instruction starts \u00b7 2 blocks copied to RAM \u00b7 no copy taken yet"
+    )
+    assert source_text(None) == "no source written yet"
+    source = {"path": "output/x.asm", "lines": 10, "fill_policy": "static",
+              "statistics": {"labels": 3, "externals": 1}}  # fmt: skip
+    assert source_text(source) == (
+        "output/x.asm \u00b7 10 lines \u00b7 3 labels \u00b7 1 outside names \u00b7 fill static"
+    )
+    assert verify_badge(None, False) == ("no source", "plain")
+    assert verify_badge(None, True) == ("not verified", "plain")
+    assert verify_badge({"identical": True}, True) == ("identical \u2713", "ok")
+    assert verify_badge({"identical": False, "difference_count": 4}, True) == (
+        "4 differences",
+        "error",
+    )
+
+
+def test_verify_lines() -> None:
+    """The Verify detail: the file, a length mismatch, the first differences, how many more."""
+    assert verify_lines(None)[0].startswith("assembles the source")
+    differences = [
+        {"address": "C070", "expected": "76", "assembled": "00", "line": 812, "source": "nop"},
+        {"address": "FFFF", "expected": "C9", "assembled": None},
+    ]
+    verify = {"path": "project/x.asm", "identical": False, "difference_count": 3,
+              "assembled_length": 16383, "expected_length": 16384,
+              "differences": differences}  # fmt: skip
+    assert verify_lines(verify) == [
+        "project/x.asm", "length: expected 16384 bytes, assembled 16383",
+        "C070  expected 76, assembled 00  \u00b7 line 812: nop",
+        "FFFF  expected C9, assembled --", "\u2026 and 1 more"]  # fmt: skip

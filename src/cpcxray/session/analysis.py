@@ -12,12 +12,14 @@ A mixin of `Session`: every public method here is an MCP tool as well (D-27). Gr
 Slots are given as "romN" / N / "lower"; when omitted, the only scrambled ROM is used (for
 the database tools: the only analysis target). Default file names derive from the ROM file:
 project/<rom>.m1map for the access map and project/<rom>.analysis.json for the database (both
-loaded and merged when the session starts), output/<rom>_clear.rom, output/<rom>_rom_map.html,
-output/<rom>_coverage.csv, output/<rom>.asm.
+loaded and merged when the session starts); the exports project/<rom>_clear.rom,
+project/<rom>_rom_map.html (and .txt), project/<rom>_coverage.csv and the generated source
+project/<rom>.asm (owner, 2026-10-23: project work, beside the analysis it comes from).
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -52,6 +54,8 @@ from cpcxray.decoding.shadow_rom import ShadowRom
 from cpcxray.decoding.vortex import vortex_decode
 from cpcxray.machine.memory import RomSlot
 from cpcxray.session.errors import SessionError
+
+MAX_VERIFY_SHOWN = 8  # differences kept for the Project tab's Verify phase
 
 if TYPE_CHECKING:
     from cpcxray.debugger.variables import Variable, VariableMap
@@ -103,6 +107,8 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
             path = self._default_path(slot_name, "m1map")
             if path.exists():
                 self._shadow(slot_name).merge_access_map(load_m1map(path))
+        for name in self.analysis_targets:  # what the files hold: nothing unsaved yet
+            self._saved_states[name] = self._analysis_fingerprint(name)
         self._sync_observer()
 
     def _reset_analysis_state(self) -> None:
@@ -115,6 +121,10 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
         self._execution_observer = None
         self._analysis_observing = False
         self._line_maps = {}
+        self.source_results: dict[str, dict[str, Any]] = {}  # the last source_generate per target
+        self.verify_results: dict[str, dict[str, Any]] = {}  # its source_verify (if any)
+        self._saved_states: dict[str, str] = {}  # analysis fingerprint at the last load / save
+        self._coverage: dict[str, tuple[str, dict[str, int]]] = {}  # fingerprint, code/data/unknown
 
     def _add_target(self, target: AnalysisTarget) -> None:
         """Add a target with its database; merge its saved database file if there is one."""
@@ -125,6 +135,7 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
         path = self._database_path(target.name)
         if path.exists():
             self._merge_database(target.name, path)
+        self._saved_states[target.name] = self._analysis_fingerprint(target.name)  # as in the file
 
     def _sync_observer(self) -> None:
         """Keep the analysis observers on the bus while targets exist and analysis is on (D-12).
@@ -201,11 +212,15 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
         return rom.shadow
 
     def _default_path(self, slot_name: str, kind: str) -> Path:
-        """Default file for a slot: project/<rom>.m1map or output/<rom>_<kind>."""
+        """Default file for a slot: project/<rom>.m1map or project/<rom>_<kind>.
+
+        The exports (clear ROM, ROM map, coverage CSV) are project work too and go beside the
+        analysis and the source (owner, 2026-10-23).
+        """
         stem = self._stem(slot_name)
         if kind == "m1map":
             return self._path(f"project/{stem}.m1map")
-        return self._path(f"output/{stem}_{kind}")
+        return self._path(f"project/{stem}_{kind}")
 
     def _stem(self, target: str) -> str:
         """File name stem of a target: the ROM file's stem, or ram_<name> for RAM targets."""
@@ -332,7 +347,7 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
 
         Args:
             slot: The scrambled slot (default: the only one).
-            path: Output file (default output/<rom>_clear.rom).
+            path: Output file (default project/<rom>_clear.rom).
             fill_policy: Never-read bytes: "raw", "data", "ff" or "static" (opcode bytes of
                 statically found code raw, all other never-read bytes decoded; D-20).
             conflict: Value for conflict bytes: "m1" (raw) or "data" (decoded).
@@ -630,7 +645,29 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
             path = self._database_path(name)
             self.analysis_databases[name].save(path, extra)
             saved.append(str(path))
+            self._saved_states[name] = self._analysis_fingerprint(name)
         return {"saved": saved}
+
+    def _analysis_fingerprint(self, name: str) -> str:
+        """A digest of what a target's analysis has collected (for "changed since saved").
+
+        Covers the target flags, the access map of a scrambled ROM, the owner's overrides,
+        the observations and the relocated blocks - everything `analysis_save` writes.
+        """
+        digest = hashlib.blake2b(digest_size=16)
+        digest.update(bytes(self.analysis_targets[name].flags))
+        rom = self._cpc().memory.lower_rom if name == "lower" else None
+        if name.startswith("rom"):
+            rom = self._cpc().memory.upper_roms.get(int(name[3:]))
+        if rom is not None and rom.shadow is not None:
+            digest.update(bytes(rom.shadow.access_map))
+        database = self.analysis_databases[name]
+        digest.update(repr(database.overrides).encode())
+        digest.update(repr(sorted(database.observations.items())).encode())
+        blocks = sorted((b.rom_start, b.ram_start, b.length, b.manual)
+                        for b in self._all_relocations() if b.target == name)  # fmt: skip
+        digest.update(repr(blocks).encode())
+        return digest.hexdigest()
 
     def analysis_load(self, target: str | None = None, path: str | None = None) -> dict[str, Any]:
         """Merge a saved database into the current one (stronger classification wins per byte).
@@ -686,7 +723,7 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
 
         Args:
             target: The target (default: the only one).
-            path: Output file (default output/<rom>.asm).
+            path: Output file (default project/<rom>.asm).
             fill_policy: Never-read bytes of a scrambled ROM: "static" (default; code guesses
                 disassembled), "raw", "data" or "ff" (emitted as data).
             conflict: Value for conflict bytes: "m1" (raw) or "data" (decoded).
@@ -697,7 +734,7 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
         name = self._target_name(target)
         view, database = self._classified(name, fill_policy, conflict)
         stem = self._stem(name)
-        file = self._path(path) if path else self._path(f"output/{stem}.asm")
+        file = self._path(path) if path else self._path(f"project/{stem}.asm")
         _, all_blocks = self._chosen_blocks(self.analysis_targets[name])
         is_ram = name.startswith("ram:")
         title = f"RAM target {name}" if is_ram else f"{self._rom_slot(name).name} (slot {name})"
@@ -710,6 +747,10 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(generated.text, encoding="utf-8")
         self._line_maps[file.resolve()] = generated.line_of_offset
+        self.source_results[name] = {"path": self._project_path(file), "fill_policy": fill_policy,
+                                     "lines": generated.text.count("\n"),
+                                     "statistics": generated.statistics}  # fmt: skip
+        self.verify_results.pop(name, None)  # a new source: not verified yet
         self.analysis_names[name] = generated.names  # the Symbols tab's names "from analysis"
         return {"target": name, "path": str(file), "lines": generated.text.count("\n"),
                 "statistics": generated.statistics,
@@ -722,11 +763,11 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
         header line; differing addresses are listed with both values and the source line.
 
         Args:
-            path: The source (default output/<rom>.asm).
+            path: The source (default project/<rom>.asm).
             target: The target (default: the only one).
         """
         name = self._target_name(target)
-        file = self._path(path) if path else self._path(f"output/{self._stem(name)}.asm")
+        file = self._path(path) if path else self._path(f"project/{self._stem(name)}.asm")
         if not file.exists():
             raise self._error(f"no source {file} (generate it with source_generate)")
         header = re.search(r"fill policy: (\w+), conflicts: (\w+)",
@@ -738,4 +779,18 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
             result = verify_source(file, expected, view.start, self._line_maps.get(file.resolve()))
         except AssemblyError as error:
             raise self._error(str(error)) from None
+        self.verify_results[name] = {
+            "path": self._project_path(file), "identical": result.identical,
+            "difference_count": result.difference_count,
+            "differences": result.differences[:MAX_VERIFY_SHOWN],
+            "assembled_length": result.assembled_length, "expected_length": result.expected_length,
+        }  # fmt: skip
         return {"target": name, "path": str(file), "fill_policy": fill_policy, **asdict(result)}
+
+    def _project_path(self, file: Path) -> str:
+        """A path relative to the project directory where possible."""
+        project_dir: Path = getattr(self, "project_dir", Path.cwd())
+        try:
+            return file.resolve().relative_to(project_dir).as_posix()
+        except ValueError:
+            return str(file)

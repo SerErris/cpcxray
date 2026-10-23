@@ -74,7 +74,11 @@ BADGE_STYLES: Final[dict[str, tuple[Colour, Colour, Colour | None]]] = {
     "key_held": (KEY_HELD_TEXT, HERE, None),  # a key held down
     "flag_on": (WHITE, ACCENT, None),  # a CPU flag that is set
     "flag_off": (TEXT_OFF, ROW_ALTERNATE, None),  # a CPU flag that is clear
+    "tag": (TEXT, ROW_ALTERNATE, None),  # a file name (the Project tab's ROM tags)
+    "tag_here": (HERE, HERE_BACKGROUND, HERE),  # ... of a ROM with a decoder or analysed
 }
+# badges 2 px taller, so descenders show ("_" in a file name was cut off, owner 2026-10-23)
+TALL_BADGES: Final = frozenset({"tag", "tag_here"})
 
 # -- symbol types (task 5g): (text colour, chip background) -----------------------------------
 SYMBOL_TYPES: Final = ("FW", "VAR", "var", "sub", "jump", "data")

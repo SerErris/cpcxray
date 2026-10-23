@@ -83,7 +83,9 @@ class Styles:  # pylint: disable=too-many-instance-attributes  # one theme per l
         """The theme of a badge style (colours.BADGE_STYLES)."""
         if style not in self._badges:
             text, background, border = colours.BADGE_STYLES[style]
-            self._badges[style] = _button_theme(background, text, border, small=True)
+            padding_y = 1 if style in colours.TALL_BADGES else 0
+            self._badges[style] = _button_theme(background, text, border, small=True,
+                                                padding_y=padding_y)  # fmt: skip
         return self._badges[style]
 
     def row_theme(self, colour: Colour | None, selected: bool) -> int | str:
@@ -276,16 +278,24 @@ def _child_theme(background: Colour, border: Colour) -> int | str:
 
 
 def _button_theme(
-    background: Colour, text: Colour, border: Colour | None = None, small: bool = False
+    background: Colour,
+    text: Colour,
+    border: Colour | None = None,
+    small: bool = False,
+    padding_y: int = 0,
 ) -> int | str:
-    """The theme of a button or badge (hovering does not change a badge's look)."""
+    """The theme of a button or badge (hovering does not change a badge's look).
+
+    A badge has no padding above and below (rows of badges stay compact, e.g. the keyboard
+    matrix); a tall one (`padding_y` 1) keeps descenders such as "_" in a file name.
+    """
     with dpg.theme() as theme, dpg.theme_component(dpg.mvButton):
         dpg.add_theme_color(dpg.mvThemeCol_Button, background)
         dpg.add_theme_color(dpg.mvThemeCol_Text, text)
         if small:
             dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, background)
             dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, background)
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 6, 0)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 6, padding_y)
         if border is not None:
             dpg.add_theme_color(dpg.mvThemeCol_Border, border)
             dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 1)

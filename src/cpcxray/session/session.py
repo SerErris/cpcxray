@@ -40,7 +40,7 @@ from cpcxray.machine.config import ConfigError
 from cpcxray.machine.cpc464 import CPC464, build_cpc464
 from cpcxray.machine.flat import FlatMachine, Machine
 from cpcxray.machine.screen import FONT_ADDRESS, screen_text
-from cpcxray.session.analysis import AnalysisMixin
+from cpcxray.session.analysis_view import AnalysisViewMixin
 from cpcxray.session.bus_view import BusViewMixin
 from cpcxray.session.disks import DiskMixin
 from cpcxray.session.errors import SessionError
@@ -81,7 +81,7 @@ class _RunLimits:
 # The façade owns all debugger state and offers one public method per MCP tool (D-27).
 # fmt: off
 class Session(  # pylint: disable=too-many-public-methods,too-many-instance-attributes,too-many-ancestors  # one mixin per tool group
-    AnalysisMixin, MemoryFollowMixin, BusViewMixin, SymbolsMixin, DiskMixin, ProjectMixin
+    AnalysisViewMixin, MemoryFollowMixin, BusViewMixin, SymbolsMixin, DiskMixin, ProjectMixin
 ):
     # fmt: on
     """Owns a machine and offers every debugger operation (D-27).

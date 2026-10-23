@@ -19,7 +19,8 @@ Layout agreed with the owner on 2026-10-22 (design canvas, artboard "Project 3: 
   load into RAM (`[[load]]`: file ▾, at, light, Load, ✕) with "+ file". Apply is enabled only
   while the editor differs from the running machine in what makes it (model, ROMs, drives,
   RAM targets - not the files to load); those changes need a power cycle.
-* Analysis: save the analysis, generate and verify the source (the phases follow).
+* Analysis: target chips, the analysis switch and the numbered phases of the selected target
+  (ui/panels/analysis_phases.py).
 * Snapshot: the .sna path with ▾, Save, Load.
 
 The editor's rows are fixed pools (17 ROM slots, 2 drives, 4 RAM targets) shown or hidden, so
@@ -36,6 +37,7 @@ from typing import Any
 import dearpygui.dearpygui as dpg
 
 from cpcxray.ui.panels import colours
+from cpcxray.ui.panels.analysis_phases import AnalysisPhases
 from cpcxray.ui.panels.base import PANEL_WIDTH, TAB_WIDTH, Tab
 from cpcxray.ui.panels.project_text import (
     CAPTURE_CHOICES,
@@ -78,6 +80,7 @@ class ProjectTab(Tab):  # pylint: disable=too-many-instance-attributes  # editor
 
     title = "Project"
     message = "project_message"
+    live_seconds = 0.3  # editor state and analysis phases follow a running machine (owner)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Create the tab (the widgets come with `build`)."""
@@ -88,6 +91,7 @@ class ProjectTab(Tab):  # pylint: disable=too-many-instance-attributes  # editor
         self.baseline: dict[str, Any] | None = None  # loaded, saved or applied last
         self.config_file: str | None = None  # where Save writes
         self.model_chips: Chips | None = None
+        self.analysis = AnalysisPhases(self)
         self._editing = False
 
     # -- building --------------------------------------------------------------------------------
@@ -100,10 +104,7 @@ class ProjectTab(Tab):  # pylint: disable=too-many-instance-attributes  # editor
                 self.items["machine_editor"] = editor
                 self._build_editor()
         with section(self.styles, "Analysis", width=TAB_WIDTH):
-            with dpg.group(horizontal=True):
-                self.button("Save analysis", self.session.analysis_save)
-                self.button("Generate + verify source", self.generate_source)
-            self.text("files_result", wrap=PANEL_WIDTH - 20)
+            self.analysis.build()
         with section(self.styles, "Snapshot", width=TAB_WIDTH):
             session = self.session
             with self.path_field("sna_path", 300, "output", SNAPSHOT_EXTENSIONS,
@@ -489,22 +490,17 @@ class ProjectTab(Tab):  # pylint: disable=too-many-instance-attributes  # editor
             dpg.configure_item(led, color=colours.LED_ON if entry["loaded"] else colours.ERROR)
             dpg.set_value(self.items[f"loaded_text_{row}"], load_text(entry))
 
-    # -- analysis --------------------------------------------------------------------------------
-
-    def generate_source(self) -> Any:
-        """Generate the source of the only analysis target and verify it (D-33)."""
-        generated = self.session.source_generate()
-        verified = self.session.source_verify()
-        text = (f"{generated['path']}: {generated['lines']} lines; "
-                f"{'identical' if verified['identical'] else 'DIFFERENT'} "
-                f"({verified['difference_count']} differing bytes)")  # fmt: skip
-        dpg.set_value(self.items["files_result"], text)
-        return verified
-
     # -- refreshing ------------------------------------------------------------------------------
 
     def refresh(self) -> None:
-        """The summary of the running machine; the editor's headers and "changed"."""
+        """The summary of the running machine; the editor's headers and "changed"; analysis.
+
+        While the machine runs (`live_seconds`) all but the analysis phases follow: the editor
+        must enable Apply and light Save as soon as a field changes, and the analysis follows a
+        new machine (owner, 2026-10-23); the coverage, which needs a classification, follows
+        at most every few seconds (`AnalysisPhases.refresh`).
+        """
+        self.analysis.refresh(running=self.loop.running)
         running = self.session.config_get()
         config = running["config"]
         if config is None:
@@ -519,7 +515,7 @@ class ProjectTab(Tab):  # pylint: disable=too-many-instance-attributes  # editor
             dpg.configure_item(item, show=shown)
             if shown:
                 analysed = "analysed" in tags[index] or "vortex" in tags[index]
-                set_badge(self.styles, item, tags[index], "here" if analysed else "key")
+                set_badge(self.styles, item, tags[index], "tag_here" if analysed else "tag")
         dpg.set_value(self.items["machine_drives"], drives_line(config))
         self._refresh_loads()
         skipped = running["skipped"]

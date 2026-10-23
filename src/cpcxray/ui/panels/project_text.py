@@ -135,3 +135,80 @@ def document(  # pylint: disable=too-many-arguments,too-many-positional-argument
 def free_slots(used: list[str]) -> list[str]:
     """The ROM slots not configured yet (for "+ ROM in slot")."""
     return [slot for slot in SLOTS if slot not in used]
+
+
+# -- the analysis phases (part 2) ----------------------------------------------------------------
+
+PHASES = ("collect", "decode", "save", "generate", "verify")
+PHASE_TITLES = {"collect": "Collect", "decode": "Decode", "save": "Save analysis",
+                "generate": "Generate source", "verify": "Verify"}  # fmt: skip
+FILL_POLICIES = ("static", "raw", "data", "ff")
+
+
+def phases(has_decoder: bool) -> list[tuple[str, str]]:
+    """The phases of a target as (key, "n  Title").
+
+    Decode only for a ROM with a decoder; numbered 1-5, or 1-4 without it (agreed 2026-10-22).
+    """
+    keys = [key for key in PHASES if has_decoder or key != "decode"]
+    return [(key, f"{number}  {PHASE_TITLES[key]}") for number, key in enumerate(keys, 1)]
+
+
+def collect_text(collect: dict[str, Any]) -> str:
+    """What the run has seen: "1442 instruction starts · 4 blocks copied to RAM · …"."""
+    parts = [f"{collect['instruction_starts']} instruction starts"]
+    if collect["executed_via_ram"]:
+        parts.append(f"{collect['executed_via_ram']} bytes run from RAM copies")
+    if collect["relocated_blocks"]:
+        parts.append(f"{collect['relocated_blocks']} blocks copied to RAM")
+    if collect["observations"]:
+        parts.append(f"{collect['observations']} observations")
+    if "captured" in collect:
+        parts.append("copy taken" if collect["captured"] else "no copy taken yet")
+    return " · ".join(parts)
+
+
+def source_text(source: dict[str, Any] | None) -> str:
+    """The last source written: "project/amsdos.asm · 4321 lines · 812 labels · …"."""
+    if source is None:
+        return "no source written yet"
+    statistics = source.get("statistics", {})
+    parts = [
+        source["path"], f"{source['lines']} lines", f"{statistics.get('labels', 0)} labels",
+        f"{statistics.get('externals', 0)} outside names", f"fill {source['fill_policy']}",
+    ]  # fmt: skip
+    return " \u00b7 ".join(parts)
+
+
+def verify_lines(verify: dict[str, Any] | None) -> list[str]:
+    """The Verify phase's detail: the source file, then the first differences.
+
+    Each difference: "C123  expected 3E, assembled 00  · line 812: ld a,#00".
+    """
+    if verify is None:
+        return ["assembles the source with sjasmplus and compares it with the clear image (D-33)"]
+    lines = [verify["path"]]
+    if verify.get("assembled_length") != verify.get("expected_length"):
+        lines.append(f"length: expected {verify['expected_length']} bytes, assembled "
+                     f"{verify['assembled_length']}")  # fmt: skip
+    for difference in verify.get("differences", []):
+        text = (f"{difference['address']}  expected {difference['expected'] or '--'}, "
+                f"assembled {difference['assembled'] or '--'}")  # fmt: skip
+        if "line" in difference:
+            text += f"  \u00b7 line {difference['line']}"
+            if difference.get("source"):
+                text += f": {difference['source']}"
+        lines.append(text)
+    shown = len(verify.get("differences", []))
+    if verify["difference_count"] > shown:
+        lines.append(f"\u2026 and {verify['difference_count'] - shown} more")
+    return lines
+
+
+def verify_badge(verify: dict[str, Any] | None, has_source: bool) -> tuple[str, str]:
+    """The Verify phase's badge (text, style): identical ✓, n differences, or not yet."""
+    if verify is None:
+        return ("not verified" if has_source else "no source"), "plain"
+    if verify["identical"]:
+        return "identical ✓", "ok"
+    return f"{verify['difference_count']} differences", "error"

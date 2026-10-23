@@ -31,7 +31,7 @@ def test_window_keyboard_type_box_and_panels(tmp_path: Path) -> None:
     if not all(rom.exists for rom in config.roms()) or not VORTEX_DISK.is_file():
         pytest.skip("ROMs or disk images missing")
     machine = CPC464(config)
-    app = App(Session(machine))
+    app = App(Session(machine, project_dir=tmp_path))  # never the repository's project/
     app.loop.max_speed = True
     app.loop.start()
     app.build()
@@ -220,6 +220,12 @@ def check_project_editor(panels: Any, dpg: Any, tmp_path: Path) -> None:
     assert dpg.get_value(panels.items["project_message"]) == "ok"
     assert (tmp_path / "copy.toml").read_text().startswith("# CPC X-Ray machine configuration")
     project.toggle_editor()
+    panels.session.analysis_target_add("rom7")  # the analysis phases of a ROM without decoder
+    project.refresh()
+    assert dpg.get_value(panels.items["phase_title_verify"]) == "4  Verify"
+    assert not dpg.is_item_shown(panels.items["phase_decode"])
+    assert dpg.get_item_label(panels.items["phase_badge_save"]) == "nothing collected"
+    panels.session.analysis_target_remove("rom7")
 
 
 def check_file_selector(panels: Any, dpg: Any, tmp_path: Path) -> None:
@@ -235,7 +241,7 @@ def check_file_selector(panels: Any, dpg: Any, tmp_path: Path) -> None:
     selector.list.select(index, notify=True)  # a click: the name line takes it
     selector.select()
     assert not selector.is_open()
-    assert dpg.get_value(panels.items["sna_path"]) == str(tmp_path / "other.sna")
+    assert dpg.get_value(panels.items["sna_path"]) == "other.sna"  # relative to the project
 
 
 def check_cpu(app: Any, dpg: Any) -> None:
