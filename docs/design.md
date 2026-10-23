@@ -182,7 +182,7 @@ software.
 | D-24 | **Trace sinks:** text file, CSV, JSON Lines, GUI panel; each switchable. | Text for reading, CSV/JSON for scripts, panel for live work. |
 | D-25 | **Snapshots in `.sna` format only.** Analysis state (access map, analysis database) is saved in its own files. | `.sna` holds machine state only and stays compatible with other emulators. |
 | D-26 | **Symbols and annotations from the start:** a project file with labels and comments per address (ROM labels scoped to a slot); firmware jumpblock names preloaded per machine (464: firmware V1.0, TEXT INPUT and maths from &BD3A; 664: entries 190–200, TEXT INPUT and maths from &BD5B; 6128: also KL BANK SWITCH, TEXT INPUT and maths from &BD5E), generated from `docs/firmware.md` by `tools/extract_firmware_symbols.py` and switched with the machine; used by views, trace, listing and source. The owner's label or comment at a firmware address is a layer over the firmware name (the owner's label wins, both comments are shown, removing it brings the name back), never a replacement; only the owner's layer is saved. A `ld rr,nn` immediate is named only as the source generator would (§6.15, `analysis/operands.py`): no name for a number, no low firmware name (restarts) for a value of unknown use. | Readable traces and listings from day one. |
-| D-27 | **One command façade:** a `Session` class (the debugger API) is the only way to act on the machine. GUI, MCP server and scripts are thin clients; MCP tools map 1:1 onto `Session` methods. A parity test fails when a method has no MCP tool. | Guarantees FR-MCP-02: each feature exists once. |
+| D-27 | **One command API, the Session API:** a `Session` class is the only way to act on the machine. GUI, MCP server and scripts are thin clients; MCP tools map 1:1 onto `Session` methods. A parity test fails when a method has no MCP tool. | Guarantees FR-MCP-02: each feature exists once. |
 | D-28 | **MCP transports:** stdio for headless mode (Claude Code starts `cpcxray mcp`); streamable HTTP on 127.0.0.1 for GUI mode. Official Python MCP SDK (`mcp`). | stdio is how Claude Code launches tool servers; HTTP lets Claude attach to the instance the owner is using. Localhost only, because the server can load files and run code. |
 | D-29 | **MCP calls go through a command queue** and are executed between emulation time slices; a running machine pauses while a command needs a consistent state. | Keeps the emulator single-threaded (D-13). |
 | D-30 | **CPC machine profile for the disassembler:** a data table per RST number (name, inline format, comment format, control-flow kind), selectable `generic`/`cpc` (§6.15). | All CPC knowledge in one place; the disassembler core stays generic. |
@@ -794,7 +794,7 @@ differing address with both values and the source line.
 The JSON trace is a chronological record for analysis and scripts; it is never the input of the
 source generator.
 
-### 6.16 Session façade and MCP server (`session/`, `mcp_server/`)
+### 6.16 Session API and MCP server (`session/`, `mcp_server/`)
 
 ```
  Claude Code ──stdio──►┐                          ┌── GUI (Dear PyGui)

@@ -1,4 +1,4 @@
-"""Tests of the Session façade on the phase 3 flat machine (D-27, FR-DBG-02..09, FR-MCP-04/05)."""
+"""Tests of the Session API on the phase 3 flat machine (D-27, FR-DBG-02..09, FR-MCP-04/05)."""
 
 from __future__ import annotations
 

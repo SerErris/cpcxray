@@ -296,6 +296,7 @@ run with targets ──► observers on the bus ──► facts ──► classi
 | `docs/mcp.md` (tool reference) | `python -m tools.generate_mcp_reference` | the `Session` docstrings |
 | `tests/data/golden/…` | `CPCXRAY_UPDATE_GOLDEN=1 pytest tests/disasm` | the disassembler |
 | `docs/img/session.svg`, `machine.svg`, `z80.svg` | `python -m tools.draw_session_diagram` / `draw_machine_diagram` / `draw_z80_diagram` | the layouts in the scripts (shared `Drawing`, arrow rule `ARROW, GAP, HEAD`) - redraw when the structure changes |
+| `docs/img/window_*.png` (README screenshots) | `python -m tools.take_screenshots` (needs a display) | the real window, scripted scenes on the test CPC 464 - retake after GUI changes |
 
 Run `ruff format` after the two extractors. Never edit generated files by hand. Reference
 documents: `docs/firmware.md`, `docs/memory.md`, `docs/cpc_rst.md` (RST conventions),

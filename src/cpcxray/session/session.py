@@ -1,4 +1,4 @@
-"""The `Session` façade: the only API that acts on the machine (design.md §6.16, D-27).
+"""The `Session` API: the only way to act on the machine (design.md §6.16, D-27).
 
 GUI, MCP server and scripts are thin clients of this class; every public method is also an MCP
 tool with the same name and parameters (FR-MCP-02; the parity test enforces it). Results are
@@ -78,7 +78,7 @@ class _RunLimits:
     timeout_s: float
 
 
-# The façade owns all debugger state and offers one public method per MCP tool (D-27).
+# The Session API owns all debugger state and offers one public method per MCP tool (D-27).
 # fmt: off
 class Session(  # pylint: disable=too-many-public-methods,too-many-instance-attributes,too-many-ancestors  # one mixin per tool group
     AnalysisViewMixin, MemoryFollowMixin, BusViewMixin, SymbolsMixin, DiskMixin, ProjectMixin

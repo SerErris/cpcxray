@@ -1,1 +1,1 @@
-"""Tests of the Session façade (debugger API, D-27)."""
+"""Tests of the Session API (D-27)."""

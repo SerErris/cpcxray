@@ -32,7 +32,7 @@ src/cpcxray/
   analysis/             targets, provenance, CPC profile, database, source generator, trace
   disk/                 disk images
   debugger/             debugger, breakpoints, symbols, observers
-  session/              Session façade (the only API to the machine, D-27)
+  session/              Session API (the only way to act on the machine, D-27)
   mcp_server/           MCP server, tools map 1:1 onto Session methods
   ui/                   Dear PyGui app, renderer, panels
 tests/                  mirrors src (cpu/, machine/, devices/, decoding/, analysis/, disasm/,
@@ -64,6 +64,7 @@ python -m tools.extract_memory_variables      # OS/AMSDOS variables (docs/memory
 cpcxray init DIR                  # a project folder (configs, standard ROMs, disk/ project/ output/)
 python -m tools.generate_mcp_reference        # docs/mcp.md tool reference (after tool changes)
 python -m tools.draw_machine_diagram          # docs/img/*.svg (also draw_session_ / draw_z80_diagram)
+python -m tools.take_screenshots              # docs/img/window_*.png, the README screenshots (display)
 python -m build                   # wheel + sdist (pip install build)
 pyinstaller packaging/cpcxray.spec --noconfirm   # the ready-made app in dist/cpcxray/
 ```
