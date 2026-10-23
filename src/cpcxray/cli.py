@@ -31,6 +31,9 @@ from cpcxray.machine.cpc464 import CPC464, build_cpc464
 from cpcxray.project_init import default_project_dir, init_project
 
 DEFAULT_CONFIG = "config/machine.toml"
+DESCRIPTION = "CPC X-Ray: an Amstrad CPC 464/664/6128 emulator for reverse engineering."
+EPILOG = """start:  cpcxray init my_cpc && cd my_cpc && cpcxray gui
+docs:   https://github.com/SerErris/cpcxray/blob/main/docs/cli.md (all commands and options)"""
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -42,7 +45,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     Returns:
         The process exit code (0 on success).
     """
-    parser = argparse.ArgumentParser(prog="cpcxray", description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="cpcxray", description=DESCRIPTION, epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )  # fmt: skip
     parser.add_argument("--version", action="version", version=f"cpcxray {__version__}")
     sub = parser.add_subparsers(dest="command")
     project_dir = str(default_project_dir())
@@ -120,7 +126,7 @@ def _cmd_mcp(project_dir: str, machine_kind: str, config: str) -> int:
     try:
         from cpcxray.mcp_server.server import run_stdio  # pylint: disable=import-outside-toplevel  # optional dependency
     except ImportError as error:
-        print(f"error: {error}; install with: pip install -e '.[mcp]'", file=sys.stderr)
+        print(f"error: {error}; install with: pipx install 'cpcxray[gui,mcp]'", file=sys.stderr)
         return 1
     machine = None
     if machine_kind == "cpc464":

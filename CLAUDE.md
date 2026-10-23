@@ -62,6 +62,8 @@ CPCXRAY_UPDATE_GOLDEN=1 pytest tests/disasm   # regenerate the disassembler gold
 python -m tools.extract_firmware_symbols      # firmware names (464/664/6128); then ruff format
 python -m tools.extract_memory_variables      # OS/AMSDOS variables (docs/memory.md); ruff format
 cpcxray init DIR                  # a project folder (configs, standard ROMs, disk/ project/ output/)
+python -m tools.generate_mcp_reference        # docs/mcp.md tool reference (after tool changes)
+python -m tools.draw_machine_diagram          # docs/img/*.svg (also draw_session_ / draw_z80_diagram)
 python -m build                   # wheel + sdist (pip install build)
 pyinstaller packaging/cpcxray.spec --noconfirm   # the ready-made app in dist/cpcxray/
 ```
@@ -70,6 +72,11 @@ Release: push a tag `vX.Y.Z` (only on the owner's go-ahead) - .github/workflows/
 builds wheel, Linux and Windows apps and creates the GitHub Release; ci.yml checks every push.
 Version in src/cpcxray/__init__.py; CHANGELOG.md; licence GPL-3.0-or-later (LICENSE,
 THIRD_PARTY.md for the ROMs and the font).
+User docs: docs/install.md, user_guide.md, mcp.md (tool reference generated from the Session
+docstrings; tests/test_mcp_reference.py fails while it is stale), claude_code.md.
+Diagrams: docs/architecture.md (docs/img/, drawn by tools/draw_*_diagram.py).
+Developer map: docs/developer_guide.md (architecture, one instruction's path, packages, session
+mixins, GUI, analysis pipeline, how-tos) - keep it current when modules move.
 
 `sjasmplus` must be on the PATH (round-trip check, D-33); `tests/test_tools.py` checks it.
 
