@@ -81,14 +81,37 @@ jobs:
     needs: [wheel, app]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4  # CHANGELOG.md: the release notes
       - uses: actions/download-artifact@v4
         with:
           path: files
           merge-multiple: true
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # the section "## <version> ..." up to the next "## "
+          awk -v version="$version" '
+            /^## / { if (found) exit; if (index($0, "## " version " ") == 1) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "no CHANGELOG.md section for $version"; exit 1; }
+          cat >> notes.md <<NOTES
+
+          **Downloads**
+          - \`cpcxray-${version}-py3-none-any.whl\` - the Python package, for Python 3.12 or newer:
+            \`pipx install "cpcxray[gui,mcp] @ https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/cpcxray-${version}-py3-none-any.whl"\`
+          - \`cpcxray-${version}-linux-x86_64.tar.gz\`, \`cpcxray-${version}-windows-x86_64.zip\` - ready-made
+            programs, no Python needed: unpack and run \`cpcxray\` (\`cpcxray.exe\`); the folder is a project
+            folder already.
+          - \`sjasmplus\` on the PATH is needed only for the round-trip check of generated sources.
+
+          See the [install guide](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/docs/install.md).
+          NOTES
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          prerelease=""
+          [[ "$GITHUB_REF_NAME" == v0.* ]] && prerelease="--prerelease"  # 0.x: beta
           gh release create "$GITHUB_REF_NAME" files/* --repo "$GITHUB_REPOSITORY" \
-            --title "cpcxray ${GITHUB_REF_NAME#v}" \
-            --notes "Install: see README.md. Wheel for Python 3.12+ (pipx), ready-made apps for Linux and Windows (unpack and run cpcxray)."
+            --title "cpcxray ${GITHUB_REF_NAME#v}" --notes-file notes.md $prerelease
