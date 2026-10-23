@@ -121,7 +121,7 @@ software.
 | FR-DBG-06 | Run, pause, step, step over, step out, run to address, reset. |
 | FR-DBG-07 | Breakpoints: PC; M1 at address/range; memory read/write at address/range ("who accesses this byte": stops after the accessing instruction and reports its PC); I/O by mask; ROM-select change; interrupt accepted. Every address-based breakpoint takes a location qualifier: `any` (whatever is paged in), `rom` (any ROM), `rom:<n>` / `lower` (one ROM), `ram` (RAM only), `ram:<block>` (the 16 KB RAM block mapped at the address: 0–3 on a 464, 0–7 by banking on a 6128). |
 | FR-DBG-08 | Bus trace view of M1/MREQ/IORQ/RD/WR accesses (switchable ring buffer). |
-| FR-DBG-09 | Symbols and comments (annotation file), with firmware jumpblock names preloaded. |
+| FR-DBG-09 | Symbols and comments (annotation file), with firmware jumpblock names preloaded; every name has a type (D-35), the owner can add typed labels and own variables, and one search lists all names (symbols, variables, the analysis's names) with counts per type. |
 | FR-DBG-10 | Snapshots in `.sna` format (save and load). |
 | FR-DBG-11 | Known firmware (OS) and AMSDOS RAM variables per machine (464/664/6128): an address is explained as `NAME` or `NAME+offset` (`address_explain`, `variable_list`), operands in disassembly and trace are named, memory breakpoints accept variable names (covering the whole variable) and name the variable when they stop; the memory view lists the variables it shows (`memory_view` `variables`) and the GUI colours their bytes with a colour-matched legend; bus trace lines end with the variable a RAM read or write touched; the generated source names references to variables (`LABEL`/`LABEL+n`) with one `EQU` per variable. BASIC's variables are not included. |
 | FR-DBG-12 | The current paging per 16 KB quarter - lower ROM, upper ROM n (with its file), or the RAM block mapped there (6128 banking) - is shown with the disassembly (CPU view: one line per quarter, a separator where the listing enters a quarter) and the memory view (what the selected view shows: per quarter for the CPU and RAM views, the ROM or block otherwise); available as `paging_get`, and `disassemble` / `memory_view` report it for their range. |
@@ -166,7 +166,7 @@ software.
 | D-08 | **Partial I/O decoding, broadcast to all devices**; each device checks its own address bits. | This is how the CPC decodes ports; one OUT can hit several devices. |
 | D-09 | **ROM selection without ROMDIS:** a table `rom_number → RomSlot` for slots 0–15; the last value written to &DFxx selects the slot, the GA upper-ROM-enable bit decides visibility. Slots can be loaded/unloaded at runtime (followed by a reset). | Owner's CE/OE model. Slots 8–15 are for later 6128 use; the 464 firmware's ROM walk only covers 0–7, so 8–15 are reachable only when selected explicitly. |
 | D-10 | **Unpopulated ROM numbers (and values above 15) → slot 0 (BASIC) answers**, as on a real 464. | The firmware's ROM scan must see the same result as on real hardware. |
-| D-11 | **Per-slot decoder and decode switch.** The decoder is a pure function `decode(addr, raw)`; the slot applies the M1 rule (M1 → raw, otherwise decoded). `decode_enabled` is set in the config and can be toggled at runtime, effective from the next read. | The decode function knows nothing about M1; the decision is made where the access kind is known. Toggling lets the owner compare scrambled and clear behaviour live. |
+| D-11 | **Per-slot decoder and decode switch.** The decoder is a pure function `decode(addr, raw)`; the slot applies the M1 rule (M1 → raw, otherwise decoded). `decode_enabled` is set in the config and can be toggled at runtime (`rom_set_decode`), effective from the next read. The GUI offers no switch (task 5i, owner 2026-10-23): a ROM with a decoder is always decoded there, and the machine editor writes no `decode` key; the switch stays for MCP clients and hand-written configs. | The decode function knows nothing about M1; the decision is made where the access kind is known. A scrambled ROM cannot run without decoding, so in normal use the switch is noise; raw and decoded bytes are compared through the memory views (`raw:romN`, `romN`, `shadow:romN`). |
 | D-12 | **Bus observers are opt-in.** The bus has an unobserved fast path; observer variants are swapped in when observers are registered. | Satisfies NFR-05 without per-access checks. |
 | D-13 | **Single-threaded emulation in time slices** (GUI mode: in the GUI thread, e.g. 20 ms emulated per frame). Other threads (MCP server) communicate only through a command queue (D-29). | No locking; the renderer reads a consistent snapshot. |
 | D-14 | **6128 RAM banking** (phase 11): `MemoryMap.ram` stays the CPU's 64 KB view, holding the blocks mapped now; a configuration change swaps only the pages whose block changes between the view and a block store (all outgoing pages saved first, then the new ones loaded). Debugger, renderer and `.sna` reach physical blocks through `block(n)` / `base_ram()`. | FR-MCH-10. The read and write paths stay exactly as on the 464 (no per-access table lookup), and every user of `memory.ram` keeps working; banking is rare compared with memory accesses, and no configuration maps one block twice, so the view never aliases. |
@@ -190,6 +190,11 @@ software.
 | D-32 | **Byte-exact encoding rule:** an instruction is emitted as a mnemonic only if sjasmplus re-encodes it to identical bytes; non-canonical encodings (e.g. `ED 6B nn` for `ld hl,(nn)`, duplicate `neg`/`retn`/`im`, redundant prefixes) are emitted as `defb` with the mnemonic in a comment. | Guarantees FR-DIS-05. |
 | D-33 | **Built-in round-trip check** (`source_verify`): generate source → sjasmplus → compare byte for byte with the clear dump → report differing addresses. CLI, `Session` method and MCP tool. | Makes "reassemblable" a tested property. |
 | D-34 | **RAM variables as sized, per-machine tables from `docs/memory.md`** (generated into `debugger/variable_tables.py`), separate from the symbol table: a variable has a size and pack areas cover bytes of unknown meaning, so any address inside resolves to `NAME+offset` (smallest variable first). Firmware variables have one address per machine; the undocumented 664 column is derived by aligning the OS ROMs' code (a test repeats it). AMSDOS's variables exist only when AMSDOS is installed: the workspace base comes from AMSDOS_MEMORY_POOL (&BE7D) and counts only if its RSX block is in the firmware's ROM chain; the workspace names follow that base. Owner and firmware labels win over variable names. | Variables are ranges, not points, and depend on the machine and (for AMSDOS) on the running system; a debugger must say "this is the cursor column" for any byte of it. |
+| D-35 | **Symbol types and the owner's variables** (task 5g). Every name has a type: `FW` (firmware jumpblock, D-26), `VAR` (OS/AMSDOS variable, D-34), `var` (the owner's variable), `sub` (subroutine), `jump` (jump target inside code), `data` (table, string). The owner's labels carry `sub` / `jump` / `data` (default `sub`); the owner's variables are named byte ranges with a size, at an absolute address or at an offset in a background ROM's data area (IY, from `KL_ROM_IY_TABLE`, ROM n at +2n), resolved on the running machine like the AMSDOS workspace and used wherever known variables are (operand names, memory view, breakpoints, source `EQU`). The annotation file gains a type word (`sub C4D8 read_sector`) and `var` lines (`var rom5+0012 drives 16 ; comment`); older files load unchanged (no type word = `sub`). The source generator's names (`sub_`/`far_`/`ram_`/`rom_init`/`rsx_` → sub, `l_` → jump, `d_` and header fields → data) are listed as "from analysis" until the owner renames them. The type sets the colour everywhere (FW blue, VAR green, var teal, sub amber, jump orange, data purple). | One vocabulary for all views; the owner's knowledge about a ROM's own RAM must be as useful as the firmware's documented variables, and a ROM's data area moves with the ROMs installed. |
+| D-36 | **Stack tops are estimated from SP loads** (task 5b). The CPU reports every instruction that loads SP (`ld sp,nn`, `ld sp,(nn)`, `ld sp,hl/ix/iy`, reset); the debugger keeps a short list of tops with the instruction that set them. A new SP just below a known top (within about 1 KB) returns to that stack (e.g. after an interrupt); otherwise it is a new top. The stack view shows words from SP up to the top and names the instruction. | Cheap (only SP loads) and visible: the source of the estimate is always shown. |
+| D-37 | **The GUI edits and writes the machine configuration** (task 5i). A configuration travels as its TOML document (`config_get`, `config_read`, `config_write`, `config_apply`); writing produces a fresh, commented machine.toml (comments of a hand-edited file are not kept). Apply powers on a new machine and is offered only while the editor differs from the running machine in what makes it (model, ROMs, drives, RAM targets). `[[load]]` names binary files from the PC with their RAM address; they are loaded on command only (Load, `memory_load`), never at power-on, because the firmware and BASIC clear RAM while they boot and the right moment depends on the system that runs. A light per file is a reminder, not a RAM comparison: on once loaded, off after a reset, a new machine, a snapshot load or a change of the file or address. | A configuration can be built in the GUI without editing TOML by hand; loading at power-on was tried and lost every byte to the boot on 464, 664 and 6128. |
+| D-38 | **Project work lives in `project/`** (owner, 2026-10-23): annotations, access maps, analysis databases, the generated source (`<rom>.asm`) and the exports (`<rom>_clear.rom`, `<rom>_rom_map.html/.txt`, `<rom>_coverage.csv`). `output/` keeps screenshots, memory dumps, traces and snapshots. | The source and its exports belong beside the analysis they come from. |
+| D-39 | **GUI panels refresh while stopped; a few follow a running machine** (task 5). One module per tab with a `Tab` class (`build` / `refresh`), one colour table of the agreed mock-ups (`ui/panels/colours.py`). Panels are frozen while the machine runs, except tabs with `live_seconds`: Devices once a second, Project every 0.3 s (editor state, Apply, analysis phases; the coverage needs a classification and follows at most every 2 s). The analysis phases come from `analysis_status`, whose coverage is classified only when the collected facts changed. | Panels cost emulation speed; only what the owner needs to see while running is refreshed, and the expensive parts are rate-limited. |
 
 ---
 
@@ -638,6 +643,16 @@ Responsible for reset, configuration and wiring; provides `snapshot()` for rende
   view, RAM, ROM, shadow ROM); CPC profile (§6.15); symbols from the annotation file (D-26), ROM
   labels scoped to a slot.
 - Scriptable through `Session` without the GUI (e.g. "boot, type `|CAT`, run until idle, dump").
+- Stack tops from SP loads (D-36, `debugger/stack.py`, `stack_get`); the last stop
+  (`last_stop_get`) and the registers changed by the last step.
+- Steps always record into the trace ring buffer and the bus trace; a step remembers its own
+  memory accesses (`debugger/step_accesses.py`); free runs that were not recorded leave a gap
+  record (instructions, emulated time) in both traces. `trace_records` and `bus_trace_view`
+  read them grouped per instruction, with call depth, changed registers, roles of the
+  accesses (fetch, operand, data), stack meanings and the meaning of port accesses
+  (`debugger/ports.py`).
+- Follow CPU (`memory_follow`, `memory_changes_get`): a write observer, registered only while
+  on, collects the memory written since the last stop.
 
 ### 6.14 Configuration (`config/machine.toml`)
 
@@ -657,7 +672,7 @@ file = "roms/basic10.rom"
 # [rom.upper.5]
 # file = "roms/scrambled.rom"
 # decoder = "vortex"         # M1 raw, data reads decoded (§5.5)
-# decode = true              # initial state of the decode switch (D-11)
+# decode = true              # decode switch at power-on (D-11; the GUI never writes it)
 # analyse = true             # analysis target (D-16)
 
 [rom.upper.7]
@@ -669,7 +684,15 @@ file = "roms/amsdos.rom"
 # start   = 0x8000
 # length  = 0x1000
 # capture = "first_m1"       # or "manual"
+
+# Binary files from the PC and their RAM address, loaded on command only (D-37)
+# [[load]]
+# file    = "bin/game.bin"
+# address = 0x8000
 ```
+
+The machine editor of the Project tab reads and writes this file (D-37); a file it writes is
+fresh and commented (`machine/config.py` `format_config`).
 
 ### 6.15 CPC profile, analysis database and source generator (`analysis/`)
 
@@ -787,18 +810,19 @@ source generator.
 | Group | Tools |
 |---|---|
 | Machine | `machine_status`, `reset`, `load_config`, `rom_load(slot, path)`, `rom_unload(slot)`, `rom_list`, `rom_set_decode(slot, on)`, `memory_load(addr, path)`, `memory_save(addr, len, path)`, `sna_load`, `sna_save` |
+| Configuration (D-37) | `config_get`, `config_read(path)`, `config_write(config, path)`, `config_apply(config, path)`, `rom_header(path, decoder)`, `loads_get`, `memory_file_check(addr, path)` |
 | Execution | `run(max_us / max_instructions / timeout_s)`, `run_until(addr / condition, limits)`, `step(n)`, `step_over`, `step_out`, `pause` — each returns stop reason, PC and a register summary |
 | CPU | `registers_get`, `registers_set` |
-| Memory | `memory_read(addr, len)` (CPU view), `memory_view(addr, len, view)` (hex + ASCII; view = cpu, ram, lower/romN, raw:romN, shadow:romN), `memory_write`, `memory_search(pattern)` |
+| Memory | `memory_read(addr, len)` (CPU view), `memory_view(addr, len, view)` (hex + ASCII; view = cpu, ram, lower/romN, raw:romN, shadow:romN), `memory_write`, `memory_search(pattern)`, `memory_follow(on)`, `memory_changes_get`, `stack_get(count)` |
 | Disassembly | `disassemble(addr, count, view)` with raw bytes, clear bytes and symbols |
 | Breakpoints | `breakpoint_add(address, kind, end, location, port_mask, rom)`, `breakpoint_enable`, `breakpoint_remove`, `breakpoint_list` |
-| Trace | `trace_start(sinks, filters)`, `trace_stop`, `trace_read(last_n / since)`; bus trace: `bus_trace_start(kinds, range)`, `bus_trace_stop`, `bus_trace_read` |
-| Analysis | `analysis_target_add` / `analysis_target_remove` / `analysis_target_list`, `analysis_capture`, `analysis_save` / `analysis_load` (merge), `classify(range, kind)`, `reloc_list` / `reloc_add` / `reloc_remove`, `source_generate(path, fill_policy)`, `source_verify(path)` |
+| Trace | `trace_start(sinks, filters)`, `trace_stop`, `trace_read(last_n / since)`, `trace_records(last)`; bus trace: `bus_trace_start(kinds, range)`, `bus_trace_stop`, `bus_trace_read`, `bus_trace_view(top, count, filters)`, `bus_trace_clear`; `last_stop_get` |
+| Analysis | `analysis_target_add` / `analysis_target_remove` / `analysis_target_list`, `analysis_enable(on)`, `analysis_status(target)` (the Project tab's phases, D-39), `analysis_capture`, `analysis_save` / `analysis_load` (merge), `classify(range, kind)`, `reloc_list` / `reloc_add` / `reloc_remove`, `source_generate(path, fill_policy)`, `source_verify(path)` |
 | Scrambled ROMs | `shadow_status`, `shadow_conflicts`, `m1map_save` / `m1map_load` (merge) / `m1map_ranges`, `rom_decode_from_map(raw, map, fill_policy)`, `rom_map(path)`, `rom_dump(path, fill_policy)` |
 | Input | `type_text(text)`, `key_press(key)`, `key_release(key)` |
 | Screen | `screen_image()` (PNG as MCP image content), `screen_text()` (characters recognised by matching screen cells against the firmware font) |
 | Devices | `devices_get` |
-| Symbols | `symbol_add`, `symbol_remove`, `symbol_list`, `comment_add` |
+| Symbols (D-35) | `symbol_add(addr, label, comment, scope, type)`, `symbol_remove`, `symbol_list`, `comment_add`, `symbol_search(text, types, scope, only_yours)`, `symbol_detail`, `variable_add` / `variable_remove` / `variable_locate`, `variable_list`, `address_explain`, `symbols_load` / `symbols_save` / `symbols_status` |
 | Disk | `disk_list`, `disk_insert(drive, path, writable)`, `disk_eject`, `disk_new(drive, format)`, `disk_save(drive, path)`, `disk_catalog`, `disk_read_file` |
 
 **Rules:**

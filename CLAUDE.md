@@ -106,7 +106,9 @@ decoding and analysis of scrambled ROMs; analysis database, classifier, sjasmplu
 generator and round-trip check; full debugger (breakpoints with location qualifiers, bus trace,
 memory views, `.sna`, GUI panels); µPD765 FDC with DSK/EDSK/raw images (AMSDOS reads and writes
 the 3" disk in A:; Vortex 80-track format in B:); CPC 6128 with RAM banking and CPC 664 (both
-boot to BASIC 1.1); firmware names per machine. Tests run on the plain machine ROMs only:
+boot to BASIC 1.1); firmware names per machine. Task 5 done (2026-10-23): all GUI tabs to the
+agreed mock-ups (CPU, Memory, Devices, Breakpoints, Trace, Bus trace, Symbols, Disks, Project),
+design.md D-35..D-39. Tests run on the plain machine ROMs only:
 config/test_cpc464.toml / test_cpc664.toml / test_cpc6128.toml (OS, BASIC, AMSDOS) via
 tests/machines.py. Open work: docs/todo.md - only with the owner's go-ahead.
 
@@ -181,6 +183,28 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   (formatting/parsing, tested headless). Panels only call Session methods; the visible tab
   refreshes every 5th frame; PC keys go to a focused text input, a hovered list or an open file
   selector, not the CPC. EmulationLoop: run_to(address), step_out.
+
+## GUI tabs notes (task 5)
+
+- One module per tab in ui/panels/ (`Tab`: `build`/`refresh`; headless text helpers in text.py,
+  symbol_text.py, project_text.py - test those, not Dear PyGui). Colours only from colours.py.
+  Owner's layout rules: equal gaps between boxes (`BOX_GAP`, box_row theme), the selected thing
+  yellow, `separator(styles)` in the accent blue between parts of a box (a theme on the
+  separator itself is ignored - it is bound to a group around it), tables with a heading per
+  column where a row has several fields.
+- Dear PyGui 2.3: badges have no vertical padding (rows stay compact) - file names use the
+  tall "tag" badge styles, else "_" is cut off; a table row pool shown/hidden instead of
+  deleting widgets (path fields register selectors and inputs in the context).
+- Panels are frozen while running except `live_seconds` tabs (Devices 1 s, Project 0.3 s);
+  coverage in the analysis phases is classified at most every 2 s while running (D-39).
+- Symbols (D-35): session/symbols_view.py `SymbolsMixin` (`symbol_search`, `symbol_detail`,
+  `variable_add`, `symbols_status`); own variables resolve in debugger/variables.py
+  (`VariableMap.own_variables`, KL_ROM_IY_TABLE); `_label_type` gives the real type.
+- Project (D-37, D-38): session/project.py `ProjectMixin` (config documents, `rom_header`,
+  `[[load]]` files loaded on command only, `loaded_files` reminder), machine/config.py
+  `config_data`/`format_config`/`save_config`; session/analysis_view.py `analysis_status`;
+  ui/panels/analysis_phases.py. Source and exports default to project/. The GUI test uses a
+  temporary project directory (never the repository's project/).
 
 ## Analysis database and source notes (phase 8)
 
@@ -307,7 +331,8 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   analysis/cpc_profile.py) with inline length and flow (call-like RST 2/3, jump-like 1/5).
 - Symbols (debugger/symbols.py): firmware names preloaded per machine (`SymbolTable(model=)`,
   `set_firmware` on `load_config`) from debugger/firmware_symbols.py
-  (generated); user symbols in project/annotations.txt (`[scope:]address label ; comment`).
+  (generated); user symbols in project/annotations.txt (`[type] [scope:]address label ;
+  comment`, type sub/jump/data; `var address|romN+offset label size ; comment`, D-35).
 - Variables (FR-DBG-11, D-34; debugger/variables.py `VariableMap`): firmware and AMSDOS RAM
   variables from docs/memory.md (generated debugger/variable_tables.py), sized, one address per
   machine, pack areas (`*_WORKSPACE`) for unknown bytes; lookup gives `NAME+offset`, smallest

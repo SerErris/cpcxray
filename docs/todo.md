@@ -3,252 +3,10 @@
 Open tasks for later sessions, in the owner's words, with notes on where they apply.
 
 Order (2026-10-22): tasks that share code come one after the other, so no part is built twice.
-The variable tables (1) were the base for the disassembly and memory view work (2, 3, 4);
-the CPU and Memory tabs are changed once each (2, 3 done); the user documentation (7) is
-written when the GUI and the MCP tools are stable; the Rust core (8) comes last, because it
-freezes everything that runs per instruction or per bus access (breakpoints, traces,
-observers).
-
-5. **More graphical Devices page.** Today the Devices tab is a text dump of `devices_get`.
-   Layout agreed with the owner on 2026-10-22 (mock-up: design canvas "cpcxray GUI tabs",
-   artboard "B: two columns"):
-   - Two columns of equal total height (fixed heights in Dear PyGui so the bottom edges line
-     up). Left: Gate Array, ROM select, PPI 8255 (ROM select and PPI share the height left
-     under the Gate Array). Right: CRTC.
-   - Gate Array: header "mode n · colours fw/hw (hex)"; a line "[swatch] border fw/hw" with a
-     swatch the size of a pen swatch (e.g. `border 2/15`); then the 16 pens in a 4 × 4 grid,
-     each a swatch + `fw/hw` (firmware colour decimal, hardware colour hex, e.g. `20/13`); pens
-     the mode does not use with grey numbers (their swatch keeps the true colour: a faded
-     swatch read as another colour, owner 2026-10-22); the pen selected for ink writes ringed yellow; badges for
-     lower/upper ROM enable, RAM configuration, pen select, interrupt timing (µs, R52).
-   - ROM select: the selected number and ROM file, whether it is paged in, installed slots.
-   - PPI: ports A, B, C with a short meaning each (port A: keyboard data via PSG; B: VSYNC,
-     50 Hz, brand; C: keyboard line, motor, PSG function). No PSG box: the PSG is emulated
-     only as far as the keyboard needs.
-   - CRTC: R0-R17 with names and values, the selected register highlighted; footer with the
-     screen start, characters per line × lines, scan lines per character.
-   - Full width below, in this order: FDC (motor LED, selected drive, MSR meaning; one box per
-     drive with activity LED, disk file, read-only/modified, head position bar "cylinder n /
-     tracks"; the last FDC commands), then the keyboard matrix (10 lines × 8 bits labelled
-     with the key names from the ROM key map, held keys highlighted, each line's value).
-   - Where: ui/panels/tabs.py (Devices tab; Dear PyGui drawing / colour widgets); the data
-     stays `Session.devices_get` (MCP parity), extended where the layout needs more (ROM file
-     names, key names, interpreted bits).
-
-5b. **CPU tab layout.** Agreed with the owner on 2026-10-22 (artboard "CPU 3: combined"):
-   - Top box: registers as a table AF/BC/DE/HL main and alternate as byte pairs (`0D 9B`),
-     IX, IY, SP, PC, WZ beside it; flags as eight letter chips (lit when set); I, R, IM,
-     IFF1/2, halted; registers changed by the last step in yellow (the session remembers the
-     registers before each step). Below in the box: set registers, Step out, run to.
-   - Paging: four tiles (range + ROM file / RAM block), ROM tiles tinted, the quarter holding
-     the PC outlined yellow (no extra text).
-   - Below: the disassembly (all remaining width) beside a narrow stack column (about 150 px)
-     of the same height. Disassembly: gutter (▶ PC, ● breakpoint), address, bytes (switchable),
-     mnemonic, operands coloured by symbol type (5g: FW blue, VAR green, var teal, sub amber,
-     jump orange, data purple; the operand lookup has to report the type), PC line on a
-     yellow bar, the `; ----` quarter separators. Fix (done 2026-10-22): immediates that are plain numbers must
-     not be named after the low firmware restarts (today `ld bc,#0000` shows as
-     `ld bc,RESET_ENTRY`); use the source generator's rule (analysis/operands.py roles: low
-     firmware addresses only where the value is used as an address).
-     Stack: words from SP (SP line marked) up to the stack's top; footer two lines: "top &C000"
-     and where it came from ("ld sp at &0092 (lower)").
-   - Stack top rule: the emulator watches instructions that load SP (`ld sp,nn`, `ld sp,(nn)`,
-     `ld sp,hl/ix/iy`, and the reset value) and keeps a short list of tops with the
-     instruction that set them. A new SP value just below a known top (within its area,
-     about 1 KB) is a return to that stack (e.g. the firmware restoring SP after an
-     interrupt): the top and its source stay. Otherwise the value is a new top. Cheap: only
-     on SP loads. The footer always names the instruction, so the estimate is visible.
-
-5c. **Memory tab layout.** Agreed with the owner on 2026-10-22 (artboard "Memory 1: tidy grid +
-   variable table + follow CPU"):
-   - Controls box: address ("at"), ◀ ▶ (one page back/forward), view selector, go to PC / SP /
-     HL, a "Follow CPU" toggle, the write field ("always to RAM").
-   - 16 rows of 16 bytes, every row starting at &xxx0. A vertical scroll bar beside the grid
-     moves line by line (16 bytes) through the whole 64 KB (mouse wheel too). Jumps land on a
-     full page &xx00-&xxFF (e.g. &B700-&B7FF): a typed address, go to PC/SP/HL, Follow CPU
-     and ◀ ▶ (one page) show the page containing the address, the address itself framed.
-   - Paging tiles as in the CPU tab; the quarter in view outlined yellow.
-   - Hex grid: column header 00-0F, a gap after 8 bytes, ASCII column; bytes coloured per
-     known variable as today; the selected variable's bytes framed yellow.
-   - Variables in view: a compact table of fixed height (scrolls): colour chip, range, name
-     (fields of a structure indented under it), size; areas in one grey line above. The
-     description only for the selected variable, in a framed detail line (click a table row
-     or a byte to select; hovering a byte names its variable).
-   - Follow CPU: while on, at every stop (step, breakpoint, pause) the view shows the page of
-     the last access (writes before reads) and selects the variable written last. Status
-     line: "last step at PC xxxx: write addr = value (NAME) · read addr = value (NAME)" and
-     the number of bytes written since the last stop. Highlights: written by the last step
-     (strong red), written since the last stop (dim red), read by the last step (blue frame).
-     Writes since the last stop come from a write observer installed only while Follow is on
-     (D-12); reads only for the last step.
-
-5d. **Breakpoints tab layout.** Agreed with the owner on 2026-10-22 (artboard "Breakpoints 3:
-   combined"), top to bottom:
-   - Last stop (yellow frame): type chip and what triggered ("pc · before the instruction at
-     BB5A TXT_OUTPUT · RAM block 2"), the instruction itself (disassembled, with the RST
-     comment), breakpoint number and hit count. For a memory breakpoint: access, address =
-     value, PC of the instruction, location, variable.
-   - Breakpoints · n: a table with on/off checkbox, #, type chip, where (address or range,
-     port, ROM; the firmware label or variable name in colour), condition (location, mask),
-     hits, ✕ remove; disabled rows dimmed, the breakpoint of the last stop on a yellow bar;
-     clicking a row shows its address in the CPU or Memory tab. Enable all / Disable all /
-     Remove all below.
-   - New breakpoint: the ten breakpoint types as chips coloured by category (code pc/m1
-     yellow, memory read/write/access green, I/O blue, system rom_select/interrupt purple), a
-     one-line explanation of the chosen type, only the fields that type needs (address, end,
-     location;
-     port, mask; ROM), Add. A variable name with an empty end shows the range it will cover.
-
-5e. **Trace tab layout.** Agreed with the owner on 2026-10-22 (artboard "Trace 3: indentation
-   + changes + detail"):
-   - Controls box: "Trace runs" toggle (styled like Follow CPU) with the speed note (off:
-     stepping still recorded; on: free runs about 5x slower); analysis targets only, write
-     file, path, format in one row.
-   - Trace list: address; instruction indented by call depth (▸ call, ◂ return; depth from
-     calls and returns inside the trace, a reading aid), operands coloured by symbol type (5g);
-     a "changes" column further right (about 360 px for the instruction part) with the
-     registers the instruction changed (A=.., F=.., BC=.., SP=..; PC left out); `; ----`
-     separators where execution moves to another ROM / RAM block; the selected row on the
-     yellow bar. ↑/↓ move the selection while the mouse is over the list (otherwise keys
-     still go to the CPC); click selects.
-   - Detail box (yellow frame) for the selected row: address, bytes, instruction, position
-     ("27 / 30") with ▲ ▼ buttons, where it ran and the depth, registers before / after with
-     the changes in yellow. Memory accesses ("reads B733 (TXT_GRAPHICS_CHARACTERS) = 00") for
-     stepped instructions only, from the same per-step data as Follow CPU; traced free runs
-     do not record them (would cost speed; to decide later).
-
-5f. **Bus trace tab layout.** Agreed with the owner on 2026-10-22 (artboard "Bus trace 3:
-   grouped, detail switches"):
-   - Controls box: "Recording" toggle (styled like Follow CPU) with the record count and the
-     speed cost; the access types to record as clickable chips (fetch M1 grey, read blue, write red,
-     in/out purple, interrupt yellow - the same colours as Follow CPU); from / to address and
-     capacity; Clear. Below: "show" checkboxes "fetches and operands" (default off) and
-     "combine word accesses" (default on).
-   - List grouped per instruction: PC, instruction, then its accesses as lines with a type
-     chip (F, R, W, IN, OUT, INT), "address = value" and a meaning: variable names, "stack"
-     (between SP and the stack top of 5b), "stack: return address" for a call,
-     "stack: returns to xxxx" for ret, ports decoded by device and value (e.g. "Gate Array:
-     mode 1, lower ROM on, upper ROM off"); fetches and the instruction's own operand bytes
-     greyed. Combined words show the low address and the 16-bit value (W BFF0 = 7F85).
-   - With both switches set to full detail every bus access appears (the detail of a plain
-     access table), still grouped. `; ----` separators where the ROM / RAM context changes.
-   - The meanings are worked out when reading, from the recorded accesses: recording stays as
-     fast as today.
-   - History: the list scrolls through everything recorded (up to the capacity) with a scroll
-     bar, the mouse wheel and, while the mouse is over the list, ↑ ↓ (line), Page Up / Page
-     Down (screen), Home / End (oldest / newest); a position line ("records 9,973-10,000 of
-     10,000"). At a stop the list shows the newest records unless the owner has scrolled back
-     into the history; then it stays and "↓ newest" returns. The Trace tab (5e) scrolls the
-     same way through its ring buffer.
-   - Note: in the mock-up the scroll bar is only drawn (28 sample records, no history), so the
-     scrolling could not be tried there; check it in the real GUI when implementing (scroll
-     bar, wheel, keys over the list, staying in the history at a stop, "↓ newest").
-
-5g. **Symbols tab layout.** Agreed with the owner on 2026-10-22 (artboard "Symbols 3:
-   combined"), top to bottom:
-   - Symbol types (owner, 2026-10-22; the word is "type"): every symbol has one of six types,
-     the case shows where it comes from:
-     - FW (upper case): Amstrad firmware jumpblock entries and restarts (TXT_OUTPUT);
-     - VAR (upper case): Amstrad OS / AMSDOS variables (TXT_CURSOR_COLUMN, AMSDOS_RETRIES);
-     - var (lower case): the owner's variables or ones from the analysis of a ROM (VDOS);
-     - sub: subroutines, call targets (sub_c2a0, or renamed: read_sector);
-     - jump: jump targets inside code - if/then, loops, choices (l_c1e8);
-     - data: tables, strings, other data (d_c015, disk_messages).
-     sub/jump/data/var come from the analysis (the source generator's sub_ / l_ / d_ names,
-     shown as symbols marked ◇ "from analysis") or from the owner (marked ✎); renaming an
-     analysis label makes it the owner's, its type stays. The type sets the colour everywhere
-     (Symbols list, disassembly and trace operands, Memory tab): FW blue, VAR green, var teal,
-     sub amber, jump orange, data purple.
-   - Search box: search text (label, comment or variable description), scope filter, "only
-     yours", type chips with counts to show/hide each type; a legend line for the types and
-     markers. Variables (FR-DBG-11) are searched too (today only symbols are).
-   - List and detail side by side: a compact list (type chip, address, label in the type's
-     colour, ✎/◇ marker; scrolls) and a detail panel (yellow frame) for the selected entry:
-     address and scope, where the name comes from (e.g. "firmware: main jumpblock, text
-     VDU", or a variable with size and description), the machines it exists on, the
-     instruction at the address; your
-     comment and your label as editable fields with Save / Remove yours; Show in CPU, Show in
-     Memory, Breakpoint here.
-   - Your symbols: a form with the type chips var / sub / jump / data (owner, 2026-10-22:
-     needed for disassembly and analysis). sub, jump, data: address, name, scope, comment.
-     var: name, size, base (absolute address, or the data area (IY) of ROM n from
-     KL_ROM_IY_TABLE) + offset, comment; the form shows where it is now ("→ now at
-     A612-A621") and it follows a moving data area like the AMSDOS variables. Own variables
-     behave like the known variables (FR-DBG-11): name+offset in disassembly, trace, bus trace
-     and the source (EQU), memory view colours and table, breakpoints on the name cover them.
-     Stored in the annotation file with their type (format extension needed, e.g.
-     `var rom5+0012 vd_drive_table 16 ; comment`, `sub C4D8 read_sector ; comment`). Below:
-     the annotation file (path, number of entries, saved or not, Load, Save).
-   - Fix (done 2026-10-22): a comment (or label) of the owner at a firmware or variable address is stored as the
-     owner's layer and shown beside the firmware name and comment; it must not replace them
-     (today `symbol_add("BB5A", comment=...)` turns TXT_OUTPUT into a user symbol and the
-     firmware comment "TXT OUTPUT" is lost).
-
-5h. **Disks tab layout.** Agreed with the owner on 2026-10-22 (artboard "Disks 2: drive chips,
-   list and detail"), top to bottom:
-   - Drive chips ("● A: 464_cpm_22_orig.dsk", "○ B: draft") select the drive to work with.
-   - One full-width card for that drive (yellow frame): activity LED, disk name, badges
-     (read-only / writable, draft, changed), geometry ("3" · 40 tracks · 1
-     side"), head position bar with the cylinder; the image path with a ▾ button that opens a
-     file selector (Dear PyGui file dialog) in the folder of the current image (disk/),
-     filtered to disk images (.dsk, also "all files"), showing name, size and date; Select
-     puts the file into the path field; writable checkbox (off: write-protected for the CPC,
-     the image file never changes) and, on the same row right of it, the buttons as in the
-     "Disks 1" cards: one Insert / Eject button (Eject while a disk is in, Insert - the
-     selected file - when the drive is empty; never both), Save (greyed while nothing to
-     save), Save as… Then new draft with format chips system / data / vortex.
-   - "changed" badge (owner, 2026-10-22): in the style of "read-only"; lit as an orange
-     warning light (dark orange background, bright orange text and border) as soon as the CPC
-     has written to the disk and the change is not saved, dim grey otherwise; also shown in
-     the drive chips; Save and Save as… turn it off.
-   - Save as… writes the new file and the drive then uses it instead of the old image (the
-     old file stays untouched); the new file is the owner's copy, so it is inserted writable
-     (agreed). Done 2026-10-22 in `disk_save` (the GUI buttons follow with the tab).
-   - File list (name, size; files, K used / free; scrolls) beside a detail panel (yellow
-     frame) for the selected file: size on disk and user; the AMSDOS header if there is one
-     (type, name, load, entry, length); then
-     - "after the header (load &xxxx)": the first 16 bytes as one line, hex and ASCII;
-     - "at the entry &xxxx": the 16 bytes at the entry address (hex, no ASCII) and their
-       disassembly with symbol names (a few lines); "entry = load" noted when they coincide;
-     - text files (no header, ASCII) show their first lines instead; files without a header
-       show the first bytes.
-
-5i. **Project tab (was "Files").** Agreed with the owner on 2026-10-22 (artboard "Project 3:
-   machine summary / Edit + analysis phases"); the tab is renamed "Project". Top to bottom:
-   - Machine, collapsed by default to a summary: model and RAM, the config file, "changed"
-     badge (orange, as in Disks) while edits are unsaved, an Edit button; the ROMs as tags
-     (scrambled and analysed ones marked, e.g. "5 · scrambled.rom · vortex · analysed"); one
-     line with the drives and RAM targets.
-   - Edit expands the machine editor (Close collapses it), covering everything a
-     machine.toml holds (design.md §6.14), so a config can be built in the GUI or loaded:
-     config file path with ▾ (file selector), Load, Save, Save as… (writes a fresh,
-     commented TOML; comments of a hand-edited file are not kept), "changed" badge; model
-     chips 464 · 64K / 664 · 64K / 6128 · 128K and the slot for unpopulated ROM numbers;
-     tables with a heading per column (owner, 2026-10-23): ROMs (file with ▾, decoder
-     none / vortex, analyse, description = what the ROM header says, ✕) with "+ ROM in
-     slot"; drives A and B (image with ▾, writable); "RAM code to analyse" (RAM targets:
-     name, from, length, copy taken "when it first runs" / "on command", ✕, "+ RAM range");
-     "Apply (resets the machine)"
-     because model, ROM and drive changes need a power cycle.
-   - Analysis: target chips (ROM and RAM targets) and the "Analysis on" switch; the selected
-     target as numbered phases, each with status badge and button:
-     1. Collect (running with analysis on; coverage bar code / data / unknown, what was seen);
-     2. Decode - only for a ROM with a decoder (scrambled): a bar of how bytes were read
-        (opcode M1, data read and decoded, both = conflict with address, never read), Save
-        access map, Load map, Decode from map, Conflicts…; exports: clear ROM
-        dump (fill policy), ROM map, coverage CSV;
-     3. Save analysis ("changed" while collected data is unsaved; analysis file and access
-        map);
-     4. Generate source (output file, fill policy, lines / labels / outside names);
-     5. Verify (sjasmplus round trip; "identical ✓" or the differences).
-     Without a decoder the phases are 1, 3, 4, 5 (shown as 1-4).
-   - Snapshot: one row with the .sna path, ▾, Save, Load.
-   - Decode switch (owner, 2026-10-23): the GUI has none - a ROM with a decoder is always
-     decoded (it cannot run otherwise). The switch stays for MCP clients (`rom_set_decode`,
-     `decode` in machine.toml); comparing raw and decoded bytes works with the memory views
-     (raw:romN, romN, shadow:romN). design.md D-11 to be updated at the end of task 5.
-   - New behaviour needed: writing a MachineConfig as TOML (the loader only reads), and the
-     GUI editing a config in memory before Apply.
+The variable tables (1) were the base for the disassembly and memory view work (2, 3, 4) and
+the GUI tabs (5), all done; the user documentation (7) is written when the GUI and the MCP
+tools are stable; the Rust core (8) comes last, because it freezes everything that runs per
+instruction or per bus access (breakpoints, traces, observers).
 
 6. **Full keyboard translation (character-based).** A key pressed on the PC keyboard shall give
    the character printed on it on the CPC: on the German keyboard, the key for `|` must type
@@ -303,6 +61,21 @@ observers).
      the Rust observers; a byte-identical generated source is the end-to-end check.
 
 ## Done
+
+- Task 5, the GUI tabs (2026-10-22/23, design.md D-35..D-39; layouts agreed on the design canvas,
+  described in each tab module's docstring): shared foundation (colours.py, widgets.py `Styles`,
+  `Chips`, sections with equal gaps, scroll lists with keys, own file selector); Devices
+  (graphical Gate Array, CRTC, ROM select, PPI, FDC, keyboard matrix; live once a second); CPU
+  (register table, flags, paging tiles, disassembly coloured by symbol type, stack with its top
+  from SP loads, D-36); Memory (page grid, variable table, Follow CPU); Breakpoints (type
+  chips, last stop); Trace (call depth, changed registers, step accesses, gaps); Bus trace
+  (grouped per instruction, roles and meanings, type filter, steps always recorded, gaps);
+  Symbols (six symbol types, own variables, search with counts, detail, annotation file,
+  D-35); Disks (drive chips and card, catalogue and file detail with load/entry addresses and
+  code); Project (machine summary and editor writing machine.toml, `[[load]]` files loaded on
+  command with a reminder light, analysis phases Collect / Decode / Save / Generate / Verify,
+  snapshot; source and exports in project/, D-37, D-38). The GUI's decode switch was dropped
+  (D-11).
 
 - Task 4, variables in the bus trace and the source (FR-DBG-11): bus trace lines end with the
   variable a RAM read/write touched; the source generator names outside references by known
