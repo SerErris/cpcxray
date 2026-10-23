@@ -111,7 +111,7 @@ def test_character_input_reports_only_new_characters() -> None:
 MEMORY_VIEW, LOCATION = 501, 502  # combo item ids for the ComboWatch tests
 
 
-class Combos:
+class Combos:  # pylint: disable=too-few-public-methods  # combo values for one test
     """Combo values for `ComboWatch.holds_keys` (`value_of`)."""
 
     def __init__(self) -> None:

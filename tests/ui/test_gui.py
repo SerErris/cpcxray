@@ -52,6 +52,7 @@ def test_window_keyboard_type_box_and_panels(tmp_path: Path) -> None:
         assert " 42" in app.session.screen_text()["lines"]
         check_typed_characters(app, dpg)
         check_panels(app, dpg, tmp_path)
+        check_combos_watched(app)
     finally:
         dpg.destroy_context()
 
@@ -127,9 +128,13 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     check_project_editor(panels, dpg, tmp_path)
     check_file_selector(panels, dpg, tmp_path)
     check_toggles_and_freeze(app, dpg)
-    # every combo is watched, so its list stays open while it is used (the bug of 0.9.0)
+
+
+def check_combos_watched(app: Any) -> None:
+    """Every combo is watched, so its list stays open while it is used (the bug of 0.9.0)."""
     combos = app._combos  # pylint: disable=protected-access
-    assert panels.items["memory_view"] in combos and panels.items["edit_new_slot"] in combos
+    items = app.panels.items
+    assert items["memory_view"] in combos and items["edit_new_slot"] in combos
     assert len(combos) >= 14
 
 
