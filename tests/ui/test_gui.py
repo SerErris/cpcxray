@@ -37,7 +37,8 @@ def test_window_keyboard_type_box_and_panels(tmp_path: Path) -> None:
     app.build()
     try:
         key_map = machine.key_map()
-        for cpc_name in set(app._host_keys.values()):  # pylint: disable=protected-access
+        codes = app._host_codes  # pylint: disable=protected-access
+        for cpc_name in {*codes.functions.values(), *codes.letters.values()}:
             key_map.key_number(cpc_name)  # raises for an unknown name
         for _ in range(400):  # boot at max speed
             app.render_frame()
@@ -49,9 +50,28 @@ def test_window_keyboard_type_box_and_panels(tmp_path: Path) -> None:
         for _ in range(60):
             app.render_frame()
         assert " 42" in app.session.screen_text()["lines"]
+        check_typed_characters(app, dpg)
         check_panels(app, dpg, tmp_path)
     finally:
         dpg.destroy_context()
+
+
+def check_typed_characters(app: Any, dpg: Any) -> None:
+    """Characters from the hidden input reach the CPC by character (task 6, D-40).
+
+    No PC key is down in the test, so each character is typed as a tap: `[` and `{` (SHIFT +
+    the `[` key) appear on the CPC screen as typed, whatever the PC's layout.
+    """
+    hidden = app._widgets.key_inputs[app._key_input]  # pylint: disable=protected-access
+    dpg.set_value(hidden, "")
+    app.render_frame()
+    dpg.set_value(hidden, 'PRINT "[{"')
+    app.render_frame()
+    assert app.session.machine.keyboard.typing
+    app.session.type_text("\r", wait=False)
+    for _ in range(80):
+        app.render_frame()
+    assert "[{" in app.session.screen_text()["lines"]
 
 
 def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:

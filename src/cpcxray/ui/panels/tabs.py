@@ -113,12 +113,13 @@ class DebuggerPanels:
     def typing(self) -> bool:
         """True while PC keys belong to the panels, not the CPC.
 
-        That is while a text input has the focus, the mouse is over a scroll list (its keys),
-        or a file selector is open.
+        That is while a text input is being typed into (active - an input stays "focused"
+        after a click elsewhere, task 6), the mouse is over a scroll list (its keys), or a file
+        selector is open.
         """
         context = self.context
         return (
-            any(dpg.is_item_focused(item) for item in context.inputs)
+            any(dpg.is_item_active(item) for item in context.inputs)
             or any(scroll_list.hovered() for scroll_list in context.lists)
             or any(selector.is_open() for selector in context.selectors)
         )

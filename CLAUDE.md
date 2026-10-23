@@ -108,7 +108,8 @@ memory views, `.sna`, GUI panels); µPD765 FDC with DSK/EDSK/raw images (AMSDOS 
 the 3" disk in A:; Vortex 80-track format in B:); CPC 6128 with RAM banking and CPC 664 (both
 boot to BASIC 1.1); firmware names per machine. Task 5 done (2026-10-23): all GUI tabs to the
 agreed mock-ups (CPU, Memory, Devices, Breakpoints, Trace, Bus trace, Symbols, Disks, Project),
-design.md D-35..D-39. Tests run on the plain machine ROMs only:
+design.md D-35..D-39. Task 6 done: the PC keyboard reaches the CPC by character (D-40). Tests
+run on the plain machine ROMs only:
 config/test_cpc464.toml / test_cpc664.toml / test_cpc6128.toml (OS, BASIC, AMSDOS) via
 tests/machines.py. Open work: docs/todo.md - only with the owner's go-ahead.
 
@@ -261,9 +262,16 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
 - devices/keyboard.py: keys held per source ("api", "host", "typing"), combined; typing holds
   each character's keys 40 ms and releases 40 ms (the firmware scans once per frame).
 - `type_text(text, wait=True)` runs the machine until typed; `wait=False` only queues (GUI).
-- GUI (ui/host_keys.py): letters/digits by label, symbols by CPC position (owner: German
-  layout), "Type text" box for exact characters. Dear PyGui 2.3 quirks: mvKey_Plus/Colon/Quote/
-  Tilde have wrong (ASCII) values - use ImGui codes; only one dpg context per process.
+- GUI keyboard by character (task 6, D-40; ui/host_keys.py `HostKeyboard`, `CharacterInput`,
+  headless-tested): two hidden inputs collect the characters the PC layout produces (an active
+  input ignores `set_value`, so only the new tail is read and the inputs swap to empty);
+  characters pair with the PC key pressed in the same frame and are held while it is down;
+  function keys by function, Ctrl + letter by label, Shift/Ctrl alone only without a held
+  character, Caps Lock not passed on. Focus rule: take the keys back only when lost, no mouse
+  button down and no other input *active* (inputs stay "focused" after a click elsewhere;
+  `DebuggerPanels.typing` checks active too). Dear PyGui 2.3: many mvKey_ constants are -1 or
+  ASCII values - poll only real keys (ImGui symbol keys 596-606); only one dpg context per
+  process.
 
 ## Renderer and GUI notes (phase 5)
 

@@ -3,22 +3,11 @@
 Open tasks for later sessions, in the owner's words, with notes on where they apply.
 
 Order (2026-10-22): tasks that share code come one after the other, so no part is built twice.
-The variable tables (1) were the base for the disassembly and memory view work (2, 3, 4) and
-the GUI tabs (5), all done; the user documentation (7) is written when the GUI and the MCP
-tools are stable; the Rust core (8) comes last, because it freezes everything that runs per
-instruction or per bus access (breakpoints, traces, observers).
-
-6. **Full keyboard translation (character-based).** A key pressed on the PC keyboard shall give
-   the character printed on it on the CPC: on the German keyboard, the key for `|` must type
-   `|` on the CPC. Today the PC keys map by position (ui/host_keys.py, owner's choice in
-   phase 6), so that key gives `Ü`'s position on the CPC keyboard - physically right, but
-   unusable.
-   - How: translate the character the PC produces into the CPC key combination that types it
-     (the firmware's translation tables, as `type_text` already does: devices/key_map.py), and
-     hold those matrix keys (including SHIFT/CONTROL) while the PC key is down.
-   - Note: Dear PyGui reports key codes, not the characters of the active layout; the
-     character has to come from the text input events (or the OS layout). Keys without a
-     character (cursor keys, COPY, ESC, function keys) stay mapped by position.
+The variable tables (1) were the base for the disassembly and memory view work (2, 3, 4), the
+GUI tabs (5) and the keyboard by character (6), all done; the user documentation (7) is
+written now that the GUI and the MCP tools are stable; the Rust core (8) comes last, because
+it freezes everything that runs per instruction or per bus access (breakpoints, traces,
+observers).
 
 7. **User documentation** (how to use the tool), e.g. `docs/user_guide.md`. After tasks 1-6,
    so it describes the final GUI and MCP tools:
@@ -61,6 +50,13 @@ instruction or per bus access (breakpoints, traces, observers).
      the Rust observers; a byte-identical generated source is the end-to-end check.
 
 ## Done
+
+- Task 6, PC keyboard by character (2026-10-23, design.md D-40): the character the PC's layout
+  produces (AltGr+8 = `[` on a German keyboard) is typed on the CPC with the combination from
+  the firmware's tables, held while the PC key is down (ui/host_keys.py); keys without a
+  character by function, Ctrl + letter, Shift/Ctrl alone; characters the CPC lacks are named
+  in the status line. The matrix analysis: 10 rows × 8 bits, the ROM tables cover every
+  printable ASCII character.
 
 - Task 5, the GUI tabs (2026-10-22/23, design.md D-35..D-39; layouts agreed on the design canvas,
   described in each tab module's docstring): shared foundation (colours.py, widgets.py `Styles`,
