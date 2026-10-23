@@ -147,7 +147,7 @@ def majorities(found: dict[int, Counter[int]]) -> dict[int, int]:
 @requires_6128_roms
 def test_machine_columns_match_the_code(model: str) -> None:
     """Every RAM variable the 6128 code uses is the same variable in the aligned code."""
-    roms = REPO / "roms"
+    roms = REPO / "src" / "cpcxray" / "roms"  # the standard ROMs, in git
     pairs = aligned_ram_operands((roms / "os6128.rom").read_bytes(),
                                  (roms / f"os{model}.rom").read_bytes())  # fmt: skip
     cpc6128, other = VariableMap("6128"), VariableMap(model)
