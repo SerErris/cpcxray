@@ -146,7 +146,7 @@ software.
 | NFR-04 | The emulation core runs headless and is usable from scripts and pytest. |
 | NFR-05 | Tracing and observers cost (nearly) nothing when switched off. |
 | NFR-06 | Every component is testable in isolation. |
-| NFR-07 | ROM images are not committed to the repository; paths come from the config. |
+| NFR-07 | Only the seven standard Amstrad ROMs (OS 464/664/6128, BASIC 1.0, BASIC 1.1 of the 664 and 6128, AMSDOS) are in the repository and the releases, as package data in `src/cpcxray/roms/` (owner, 2026-10-23); every other ROM and all disk images stay local. ROM paths come from the config. |
 | NFR-08 | English firmware and BASIC: 464 (V1.0, BASIC 1.0), 664 (V1.1, BASIC 1.1), 6128 (V1.2, BASIC 1.1). |
 | NFR-09 | Development and target platform: **Linux**. |
 
@@ -851,9 +851,23 @@ source generator.
 Speed is not critical: most work is stepping and tracing; booting to BASIC takes about 1–2 emulated
 seconds; z80test and ZEXALL run on CPython as long background runs.
 
-**Tooling:** `pyproject.toml` (uv or pip), `pytest`, `ruff`, optionally `mypy`, `dearpygui`,
-`numpy` (renderer), `tomllib`, `mcp` (MCP server), **sjasmplus** (external, on the Linux host, for
-the round-trip check).
+**Tooling:** `pyproject.toml` (pip), `pytest`, `ruff`, `pylint`, `dearpygui`, `numpy`
+(renderer), `tomllib`, `mcp` (MCP server), **sjasmplus** (external, for the round-trip check).
+
+**Release** (owner, 2026-10-23; licence GPL-3.0-or-later): a tag `vX.Y.Z` runs
+`.github/workflows/release.yml`, which publishes a GitHub Release with
+- the **wheel** and sdist (`python -m build`) - pure Python, installed with
+  `pipx install "cpcxray[gui,mcp] @ <wheel URL>"`; it holds the package only (code, config
+  templates, the standard ROMs, the DejaVu font), no tests, tools or docs;
+- **ready-made apps** for Linux (built on ubuntu-22.04 for an older glibc) and Windows:
+  PyInstaller one-folder builds (`packaging/cpcxray.spec`, `packaging/launcher.py`; no Python
+  needed), each archive a project folder - the program plus what `cpcxray init` creates. A
+  frozen app's default project folder is its own folder; started without arguments it opens
+  the window.
+
+`cpcxray init [DIR]` creates a project folder (configs for 464/664/6128, the standard ROMs,
+`disk/`, `project/`, `output/`; existing files are kept). `.github/workflows/ci.yml` runs
+ruff, pylint and the tests (with sjasmplus built from source) on every push.
 
 ---
 

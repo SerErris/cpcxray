@@ -13,7 +13,7 @@ import pytest
 from cpcxray.devices.key_map import CONTROL, SHIFT, KeyMap
 from cpcxray.ui.host_keys import CharacterInput, HostKeyboard, HostKeyCodes
 
-OS_ROM = Path(__file__).resolve().parents[2] / "roms" / "os464.rom"
+OS_ROM = Path(__file__).resolve().parents[2] / "src" / "cpcxray" / "roms" / "os464.rom"
 pytestmark = pytest.mark.skipif(not OS_ROM.exists(), reason="OS ROM missing")
 
 # PC key codes for the tests (any numbers): letters 1xx, digits 2xx, others below

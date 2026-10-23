@@ -1,0 +1,23 @@
+# CPC X-Ray machine configuration, written by cpcxray.
+# Paths are relative to the project directory.
+
+[machine]
+model = "464"               # 464, 664 (64 KB) or 6128 (128 KB, banking)
+unpopulated_rom = 0         # the slot that answers for empty ROM numbers (D-10)
+
+[rom.lower]
+file = "roms/os464.rom"
+
+# Upper ROM slots 0-15 (D-09); decoder = "vortex" for a scrambled ROM (always decoded),
+# analyse = true makes the slot an analysis target (D-16)
+
+[rom.upper.0]
+file = "roms/basic10.rom"
+
+[rom.upper.7]
+file = "roms/amsdos.rom"
+
+# A disk image in drive A (put it into disk/; real images are opened read-only):
+# [drive.A]
+# file = "disk/my_disk.dsk"
+# writable = false

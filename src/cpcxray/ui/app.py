@@ -48,6 +48,7 @@ DRIVE_LED_COLOUR = (240, 60, 40)  # drive activity LED lit
 DARK_COLOUR = (110, 110, 110)  # indicator off
 PANEL_REFRESH_FRAMES = 5  # the visible panel is redrawn every 5th frame (10 per second)
 NOTE_SECONDS = 3.0  # how long the status line names a character the CPC cannot type
+MISSING_SECONDS = 60.0  # how long it names missing ROM / disk files after the start
 # ImGui codes of the symbol keys (Apostrophe … GraveAccent): Dear PyGui 2.3 lacks some of them
 IMGUI_SYMBOL_KEYS = range(596, 607)
 
@@ -91,7 +92,7 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
         self._host_keys: tuple[int, ...] = ()  # the PC keys polled every frame
         self._characters = CharacterInput()
         self._key_input = 0  # which hidden input collects the characters now
-        self._unknown_note = ("", 0.0)  # a character the CPC cannot type, and until when
+        self._note = ("", 0.0)  # a note for the status line (missing ROMs, …) and until when
         self.panels = DebuggerPanels(session, self.loop)
         self._frames = 0
 
@@ -117,6 +118,9 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
             with dpg.child_window(width=PANEL_WIDTH + 20, border=False):
                 self.panels.build(styles)
         self.panels.refresh(force=True)  # fill every panel once (they are frozen while running)
+        skipped = getattr(self.session.machine, "skipped_roms", [])
+        if skipped:  # e.g. a ROM file missing from roms/: say so instead of a black screen
+            self._note = ("missing: " + "; ".join(skipped), time.monotonic() + MISSING_SECONDS)
         dpg.create_viewport(
             title=TITLE, width=WIDTH * DISPLAY_SCALE + PANEL_WIDTH + 70, height=2 * HEIGHT + 170
         )
@@ -231,7 +235,7 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
             keyboard.schedule_typing(host.taps, machine.clock_us)
             host.taps.clear()
         if host.unknown:
-            self._unknown_note = (f"no CPC key types {''.join(host.unknown)!r}",
+            self._note = (f"no CPC key types {''.join(host.unknown)!r}",
                                   time.monotonic() + NOTE_SECONDS)  # fmt: skip
             host.unknown.clear()
         if len(dpg.get_value(hidden)) > MAX_INPUT and not down:
@@ -253,7 +257,7 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
         image = render(self.session.machine.snapshot())  # type: ignore[attr-defined]
         dpg.set_value(self._widgets.texture, (image.astype(np.float32) / 255.0).ravel())
         dpg.set_item_label(self._widgets.run_button, "Pause" if self.loop.running else "Run")
-        note, until = self._unknown_note
+        note, until = self._note
         status = self.loop.status_line()
         if note and time.monotonic() < until:
             status = f"{status}  \u00b7  {note}"

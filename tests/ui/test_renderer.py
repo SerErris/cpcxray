@@ -19,7 +19,7 @@ from cpcxray.ui.palette import (
 from cpcxray.ui.png import encode_png
 from cpcxray.ui.renderer import HEIGHT, WIDTH, ScreenSnapshot, double_lines, render
 
-OS_ROM = Path(__file__).resolve().parents[2] / "roms" / "os464.rom"
+OS_ROM = Path(__file__).resolve().parents[2] / "src" / "cpcxray" / "roms" / "os464.rom"
 BRIGHT_RED, BRIGHT_YELLOW, BLUE = 0x0C, 0x0A, 0x04  # hardware colour numbers
 
 

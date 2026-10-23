@@ -1,13 +1,30 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]  # PEP 639 licence metadata (license / license-files)
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "cpcxray"
 dynamic = ["version"]
-description = "CPC X-Ray: an Amstrad CPC 464 emulator for reverse engineering scrambled ROMs"
+description = "CPC X-Ray: an Amstrad CPC 464/664/6128 emulator for reverse engineering ROMs"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE", "THIRD_PARTY.md", "src/cpcxray/fonts/LICENSE-DejaVu.txt"]
+authors = [{ name = "Christoph Linden" }]
 requires-python = ">=3.12"
 dependencies = []
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Disassemblers",
+    "Topic :: System :: Emulators",
+]
+
+[project.urls]
+Homepage = "https://github.com/SerErris/cpcxray"
+Releases = "https://github.com/SerErris/cpcxray/releases"
 
 [project.optional-dependencies]
 gui = ["dearpygui>=2.3,<3", "numpy>=2"]
@@ -24,6 +41,11 @@ version = { attr = "cpcxray.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+# a project folder's templates, the standard Amstrad ROMs (owner, 2026-10-23: the only ROMs
+# shipped) and the GUI font - `cpcxray init` and the window use them from the installed package
+cpcxray = ["templates/*.toml", "roms/*.rom", "fonts/*.ttf", "fonts/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

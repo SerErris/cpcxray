@@ -7,10 +7,10 @@ model = "6128"
 unpopulated_rom = 0          # D-10
 
 [rom.lower]
-file = "roms/os6128.rom"
+file = "src/cpcxray/roms/os6128.rom"
 
 [rom.upper.0]
-file = "roms/basic11_6128.rom"
+file = "src/cpcxray/roms/basic11_6128.rom"
 
 [rom.upper.7]
-file = "roms/amsdos.rom"
+file = "src/cpcxray/roms/amsdos.rom"

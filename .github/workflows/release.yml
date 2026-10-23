@@ -1,0 +1,94 @@
+# A release: on a tag vX.Y.Z build the wheel and sdist, the ready-made apps for Linux and
+# Windows (PyInstaller), and publish them as a GitHub Release. Each app archive is a project
+# folder: the program plus what `cpcxray init` creates (configs, the standard ROMs, ...).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel and sdist
+        run: |
+          pip install build
+          python -m build --outdir dist
+      - name: Smoke test the wheel
+        run: |
+          python -m venv /tmp/check
+          /tmp/check/bin/pip install "$(ls dist/*.whl)[gui,mcp]"
+          /tmp/check/bin/cpcxray --version
+          /tmp/check/bin/cpcxray init /tmp/project
+          /tmp/check/bin/cpcxray config --config /tmp/project/config/machine.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/*
+
+  app:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04  # an older glibc: the app runs on more Linux systems
+            archive: linux-x86_64.tar.gz
+          - os: windows-latest
+            archive: windows-x86_64.zip
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the app
+        run: |
+          pip install ".[gui,mcp]" pyinstaller
+          pyinstaller packaging/cpcxray.spec --noconfirm --distpath dist --workpath build
+      - name: Make it a project folder and smoke test it
+        working-directory: dist/cpcxray
+        run: |
+          ./cpcxray --version
+          ./cpcxray init
+          ./cpcxray config
+      - name: Archive
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          name="cpcxray-${version}-${{ matrix.archive }}"
+          cd dist
+          if [[ "${{ matrix.archive }}" == *.zip ]]; then
+            7z a "../${name}" cpcxray
+          else
+            tar czf "../${name}" cpcxray
+          fi
+          echo "ARCHIVE=${name}" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ matrix.os }}
+          path: ${{ env.ARCHIVE }}
+
+  publish:
+    needs: [wheel, app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: files
+          merge-multiple: true
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" files/* --repo "$GITHUB_REPOSITORY" \
+            --title "cpcxray ${GITHUB_REF_NAME#v}" \
+            --notes "Install: see README.md. Wheel for Python 3.12+ (pipx), ready-made apps for Linux and Windows (unpack and run cpcxray)."

@@ -20,7 +20,7 @@ Software-compatible, not cycle-exact.
 
 ```
 config/machine.toml     machine configuration (§6.14); ROM paths relative to the project root
-roms/                   ROM images — local only, never committed
+roms/                   other ROM images — local only (the standard ones: src/cpcxray/roms/)
 disk/                   disk images (owner's real images, read-only) — local only, never committed
 output/                 generated dumps, maps, sources, traces — local only
 src/cpcxray/
@@ -38,6 +38,8 @@ src/cpcxray/
 tests/                  mirrors src (cpu/, machine/, devices/, decoding/, analysis/, disasm/,
                         session/, mcp_server/ - not mcp/, which would shadow the mcp package)
 tools/                  helper scripts
+packaging/              PyInstaller spec and launcher of the ready-made app
+.github/workflows/       ci.yml (every push), release.yml (tag vX.Y.Z)
 ```
 
 ## Commands
@@ -59,7 +61,15 @@ cpcxray gui                       # window, starts running (--paused: stopped at
 CPCXRAY_UPDATE_GOLDEN=1 pytest tests/disasm   # regenerate the disassembler golden listing
 python -m tools.extract_firmware_symbols      # firmware names (464/664/6128); then ruff format
 python -m tools.extract_memory_variables      # OS/AMSDOS variables (docs/memory.md); ruff format
+cpcxray init DIR                  # a project folder (configs, standard ROMs, disk/ project/ output/)
+python -m build                   # wheel + sdist (pip install build)
+pyinstaller packaging/cpcxray.spec --noconfirm   # the ready-made app in dist/cpcxray/
 ```
+
+Release: push a tag `vX.Y.Z` (only on the owner's go-ahead) - .github/workflows/release.yml
+builds wheel, Linux and Windows apps and creates the GitHub Release; ci.yml checks every push.
+Version in src/cpcxray/__init__.py; CHANGELOG.md; licence GPL-3.0-or-later (LICENSE,
+THIRD_PARTY.md for the ROMs and the font).
 
 `sjasmplus` must be on the PATH (round-trip check, D-33); `tests/test_tools.py` checks it.
 
@@ -89,8 +99,10 @@ default (`addopts` in pyproject.toml). Harnesses: `tests/cpu/singlestep.py` (JSO
   MEMPTR, design decision IDs), not the obvious.
 - `ruff check` and `ruff format --check` must be clean; pytest for all tests.
 - Every component testable in isolation and headless (NFR-04, NFR-06).
-- **No ROM images in git** (NFR-07). ROM paths always come from the config; tests that need real
-  ROMs must skip when the files are missing.
+- **ROMs in git: only the seven standard ones** (NFR-07, owner 2026-10-23): src/cpcxray/roms/
+  (package data, shipped in releases). Every other ROM and all disk images stay local (roms/,
+  disk/ are git-ignored). ROM paths always come from the config; the test configs use the
+  package ROMs; tests that need other files skip when they are missing.
 - Hex in CPC notation (`&C000` / `#C000`) in docs and comments; `0xC000` in Python.
 
 ## Phase rule

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from importlib import resources
 from pathlib import Path
 
 import dearpygui.dearpygui as dpg
@@ -32,7 +33,11 @@ SWATCH_SIZE = 14
 BOX_GAP = 2  # the space between two boxes, across and down, on every tab (owner, 2026-10-22)
 FONT_SIZE = 13
 ICON_FONT_SIZE = 18  # symbol buttons (✕ remove): the text size draws them too small (owner)
-FONT_FILES = (  # system fonts, first found wins (no font file in the repository)
+# the font shipped in the package first (Windows has no DejaVu; ImGui's own font lacks ✎ ◇ ● ✕),
+# then system copies; the first found wins
+PACKAGE_FONT = str(resources.files("cpcxray") / "fonts" / "DejaVuSansMono.ttf")
+FONT_FILES = (
+    PACKAGE_FONT,
     "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
     "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
     "/Library/Fonts/DejaVuSansMono.ttf",

@@ -555,7 +555,7 @@ def format_config(data: Mapping[str, Any]) -> str:
     written anew from the data).
     """
     machine = data.get("machine", {})
-    lines = ["# CPC X-Ray machine configuration (design.md §6.14), written by cpcxray.",
+    lines = ["# CPC X-Ray machine configuration, written by cpcxray.",
              "# Paths are relative to the project directory.", "",
              "[machine]",
              _commented(f"model = {_toml_value(machine.get('model', '464'))}",

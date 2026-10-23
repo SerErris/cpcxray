@@ -14,7 +14,7 @@ from cpcxray.devices.keyboard import (
     Keyboard,
 )
 
-OS_ROM = Path(__file__).resolve().parents[2] / "roms" / "os464.rom"
+OS_ROM = Path(__file__).resolve().parents[2] / "src" / "cpcxray" / "roms" / "os464.rom"
 needs_rom = pytest.mark.skipif(not OS_ROM.exists(), reason="OS ROM missing")
 
 
