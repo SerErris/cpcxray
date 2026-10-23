@@ -31,6 +31,7 @@ from cpcxray.ui.emulation import EmulationLoop
 from cpcxray.ui.host_keys import (
     MAX_INPUT,
     CharacterInput,
+    ComboWatch,
     HostKeyboard,
     HostKeyCodes,
     function_keys,
@@ -91,6 +92,8 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
         self._host_keyboard: HostKeyboard | None = None
         self._host_keys: tuple[int, ...] = ()  # the PC keys polled every frame
         self._characters = CharacterInput()
+        self._combo_watch = ComboWatch()
+        self._combos: list[int] = []  # every combo of the window (their lists, ComboWatch)
         self._key_input = 0  # which hidden input collects the characters now
         self._note = ("", 0.0)  # a note for the status line (missing ROMs, …) and until when
         self.panels = DebuggerPanels(session, self.loop)
@@ -118,6 +121,8 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
             with dpg.child_window(width=PANEL_WIDTH + 20, border=False):
                 self.panels.build(styles)
         self.panels.refresh(force=True)  # fill every panel once (they are frozen while running)
+        self._combos = [item for item in dpg.get_all_items()
+                        if dpg.get_item_type(item) == "mvAppItemType::mvCombo"]  # fmt: skip
         skipped = getattr(self.session.machine, "skipped_roms", [])
         if skipped:  # e.g. a ROM file missing from roms/: say so instead of a black screen
             self._note = ("missing: " + "; ".join(skipped), time.monotonic() + MISSING_SECONDS)
@@ -210,15 +215,22 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
         """Hold the CPC keys for what the PC keyboard types now (ui/host_keys.py, D-40).
 
         The hidden input takes the keys back only when it has lost them and no mouse button is
-        down and no other input is being typed into (taking them every frame would swallow
-        clicks); "active", not "focused": an input stays focused after a click elsewhere.
+        down, no other input is being typed into (taking them every frame would swallow
+        clicks; "active", not "focused": an input stays focused after a click elsewhere) and no
+        combo's list is open (taking the focus closes it, `ComboWatch`).
         """
         machine = self.session.machine
         keyboard = machine.keyboard  # type: ignore[attr-defined]
         hidden = self._widgets.key_inputs[self._key_input]
         elsewhere = dpg.is_item_active(self._widgets.type_box) or self.panels.typing()
         mouse_down = any(dpg.is_mouse_button_down(button) for button in (0, 1, 2))
-        if not dpg.is_item_active(hidden) and not elsewhere and not mouse_down:
+        combo_open = self._combo_watch.holds_keys(
+            any(dpg.is_mouse_button_clicked(button) for button in (0, 1, 2)),
+            any(dpg.is_mouse_button_released(button) for button in (0, 1, 2)),
+            next((combo for combo in self._combos if dpg.is_item_hovered(combo)), None),
+            dpg.get_value,
+        )
+        if not dpg.is_item_active(hidden) and not elsewhere and not mouse_down and not combo_open:
             dpg.focus_item(hidden)
         characters = self._characters.new_characters(dpg.get_value(hidden))
         if elsewhere or self._host_codes is None:

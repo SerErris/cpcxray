@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.1 - bug fix
+
+- Fixed: no drop-down list in the window could be opened - for example the slot of a new ROM in
+  the Project tab's machine editor, the decoder of a ROM, or the view of the Memory tab
+  (cpu, ram, ROMs, raw / decoded ROM). Taking the keyboard back for the CPC closed the list at
+  once; now the window leaves the keys alone while a list is open and gives them back to the
+  CPC right after the choice.
+
 ## 0.9.0 - first public release (beta)
 
 The first public release. Everything planned for version 1 is in; what is missing is real-world

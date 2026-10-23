@@ -25,8 +25,8 @@ Claude Code starts `cpcxray mcp` in your project folder and talks to it over std
 
 - With the Python package, `cpcxray` is on the PATH (pipx puts it there).
 - With a ready-made program, give its full path, e.g.
-  `"command": "/home/me/cpcxray-0.9.0/cpcxray"` or
-  `"command": "C:\\cpcxray-0.9.0\\cpcxray.exe"`; it uses its own folder as the project folder.
+  `"command": "/home/me/cpcxray-0.9.1/cpcxray"` or
+  `"command": "C:\\cpcxray-0.9.1\\cpcxray.exe"`; it uses its own folder as the project folder.
 - Another model or configuration: `"args": ["mcp", "--config", "config/cpc6128.toml"]`.
 
 Start Claude Code in the project folder (`claude`); it asks once whether to use the project's MCP

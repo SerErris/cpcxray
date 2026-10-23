@@ -28,6 +28,8 @@ frame:
 * A combination whose SHIFT / CONTROL differ from those held now gets its modifiers one frame
   before its key: the firmware scans the rows one after another and could otherwise see the
   key without its SHIFT (as for typing, devices/keyboard.py).
+* `ComboWatch` keeps the hidden input from taking the keys back while a combo's list is open
+  (that would close the list at once).
 """
 
 from __future__ import annotations
@@ -109,6 +111,62 @@ class CharacterInput:
     def reset(self) -> None:
         """The input was emptied (the window switched to the other hidden input)."""
         self.seen = ""
+
+
+class ComboWatch:  # pylint: disable=too-few-public-methods  # one decision per frame
+    """Whether a combo's list is open, so the hidden input must not take the keys back.
+
+    Giving the keyboard focus to the hidden input closes an open popup, and a combo opens its
+    list on a mouse click: taking the keys back on the next frame closed every list at once
+    (bug found in 0.9.0). Dear PyGui cannot tell whether a combo's list is open, so it is
+    followed from the clicks: a click on a combo opens its list (a second click on the same
+    combo closes it), any other click while a list is open closes it once the button is
+    released - one frame later, so that the choice made by that click is taken first - and so
+    does a change of the combo's value (a choice made with the keyboard).
+    """
+
+    def __init__(self) -> None:
+        """No list is open."""
+        self.open_combo: int | None = None  # the combo whose list is open
+        self.value: object = None  # its value when the list opened
+        self.closing = False  # a click outside: the list closes on the release
+        self.closed_now = False  # the list closed in this frame: keep the keys one more frame
+
+    def holds_keys(
+        self,
+        clicked: bool,
+        released: bool,
+        hovered_combo: int | None,
+        value_of: Callable[[int], object],
+    ) -> bool:
+        """Update for one frame; True while the hidden input must leave the keyboard alone.
+
+        Args:
+            clicked: A mouse button went down in this frame.
+            released: A mouse button went up in this frame.
+            hovered_combo: The combo under the mouse, or None.
+            value_of: Reads a combo's value.
+        """
+        if self.closed_now:  # the frame after the list closed: now the keys may go back
+            self.closed_now = False
+            return False
+        if clicked:
+            if self.open_combo is None:
+                if hovered_combo is not None:
+                    self._open(hovered_combo, value_of)
+            elif hovered_combo is not None and hovered_combo != self.open_combo:
+                self._open(hovered_combo, value_of)  # straight to another combo's list
+            else:
+                self.closing = True  # an entry of the list, the same combo or elsewhere
+        if self.open_combo is not None and (
+            (self.closing and released) or value_of(self.open_combo) != self.value
+        ):
+            self.open_combo, self.closing, self.closed_now = None, False, True
+        return self.open_combo is not None or self.closed_now
+
+    def _open(self, combo: int, value_of: Callable[[int], object]) -> None:
+        """The list of `combo` is open now."""
+        self.open_combo, self.value, self.closing = combo, value_of(combo), False
 
 
 @dataclass

@@ -49,8 +49,30 @@ observers).
      (SingleStepTests, ZEXDOC/ZEXALL, z80test), the analysis and milestone tests check
      the Rust observers; a byte-identical generated source is the end-to-end check.
 
+## Cleanup
+
+1. **Need a machine toml for the CPC 464: `cpc464.toml`** (2026-10-23). The project folder has
+   `cpc664.toml` and `cpc6128.toml` but the 464 only as `machine.toml`. Agreed approach: keep
+   `machine.toml` as "your machine" (opened by default, changed in the Project tab - e.g. with
+   VDOS added) and add `cpc464.toml` beside the 664 and 6128 files as the plain standard 464.
+   Applies to `cpcxray init` / src/cpcxray/templates/, the repository's config/, the install
+   and user guides (project folder table) and the CLI reference; `machine.toml` starts as a
+   copy of `cpc464.toml`.
+
+## Bugs
+
+(none open)
+
 ## Done
 
+- Bug: no drop-down (combo) in the window opened (found 2026-10-23 in a fresh 0.9.0 install;
+  e.g. the Project tab's slot for a new ROM, the Memory tab's view). Cause: the keyboard focus
+  rule of task 6 gave the focus back to the hidden key input on the frame after the click,
+  which closed the combo's list. Fixed: ui/host_keys.py `ComboWatch` follows the clicks on
+  combos and keeps the keys with the window while a list is open; checked with real (XTest)
+  clicks on the Memory view, the breakpoint location, the trace format and the new ROM slot
+  (slot 5), and the keys go back to the CPC after the choice; headless tests in
+  tests/ui/test_host_keys.py.
 - Task 6, PC keyboard by character (2026-10-23, design.md D-40): the character the PC's layout
   produces (AltGr+8 = `[` on a German keyboard) is typed on the CPC with the combination from
   the firmware's tables, held while the PC key is down (ui/host_keys.py); keys without a

@@ -127,6 +127,10 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     check_project_editor(panels, dpg, tmp_path)
     check_file_selector(panels, dpg, tmp_path)
     check_toggles_and_freeze(app, dpg)
+    # every combo is watched, so its list stays open while it is used (the bug of 0.9.0)
+    combos = app._combos  # pylint: disable=protected-access
+    assert panels.items["memory_view"] in combos and panels.items["edit_new_slot"] in combos
+    assert len(combos) >= 14
 
 
 def check_toggles_and_freeze(app: Any, dpg: Any) -> None:
