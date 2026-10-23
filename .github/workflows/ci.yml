@@ -17,7 +17,8 @@ jobs:
           python-version: "3.12"
       - name: Build sjasmplus (the round-trip check, D-33)
         run: |
-          git clone --depth 1 --branch v1.23.0 https://github.com/z00m128/sjasmplus.git /tmp/sjasmplus
+          git clone --depth 1 --branch v1.23.0 --recurse-submodules --shallow-submodules \
+            https://github.com/z00m128/sjasmplus.git /tmp/sjasmplus
           make -C /tmp/sjasmplus -j4
           sudo make -C /tmp/sjasmplus install
       - name: Install
