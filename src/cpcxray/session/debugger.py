@@ -107,6 +107,7 @@ class DebuggerMixin:
     _breakpoint_observer: BreakpointObserver | None
     _bus_trace_observing: bool
     last_stop: dict[str, Any] | None  # the result of the last run or step (Session sets it)
+    loaded_files: dict[tuple[Path, int], int]  # memory_load's files (Session, project.py)
 
     # -- helpers (provided by Session / AnalysisMixin) -------------------------------------------
 
@@ -757,5 +758,6 @@ class DebuggerMixin:
         except (OSError, SnapshotError) as error:
             raise SessionError(str(error)) from None
         self.stacks.reset()  # the snapshot's stack: its top is not known
+        self.loaded_files.clear()  # the snapshot's memory replaced what was loaded
         self.stacks.loaded(self.machine.cpu.sp, None, "snapshot")
         return {"path": str(file), "version": info["version"], "pc": f"{info['pc']:04X}"}

@@ -1,5 +1,7 @@
 """Tests for the machine configuration loader (design.md §6.14)."""
 
+import dataclasses
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -8,8 +10,11 @@ from cpcxray.machine.config import (
     ROM_SIZE,
     ConfigError,
     RamTargetConfig,
+    config_data,
+    format_config,
     load_config,
     read_rom_image,
+    save_config,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -217,3 +222,68 @@ def test_read_rom_image(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigError, match="cannot read ROM"):
         read_rom_image(tmp_path / "missing.rom")
+
+
+@pytest.mark.parametrize("name", ["machine", "cpc664", "cpc6128", "test_cpc464"])
+def test_written_configs_load_back(name: str, tmp_path: Path) -> None:
+    """A config written by format_config (task 5i) loads to the same configuration."""
+    config = load_config(REPO / "config" / f"{name}.toml")
+    data = config_data(config)
+    written = save_config(data, tmp_path / "written.toml", config.project_dir)
+    back = load_config(written, project_dir=config.project_dir)
+    assert back == dataclasses.replace(config, source=written.resolve())
+    assert written.read_text(encoding="utf-8").startswith("# CPC X-Ray machine configuration")
+
+
+def test_config_data_and_comments(tmp_path: Path) -> None:
+    """Relative paths, decoder keys only with a decoder, RAM targets in hex, a comment column."""
+    path = write_config(tmp_path, textwrap.dedent("""
+        [machine]
+        model = "6128"
+        [rom.upper.5]
+        file = "roms/x.rom"
+        decoder = "vortex"
+        decode = false
+        analyse = true
+        [rom.upper.7]
+        file = "/abs/amsdos.rom"
+        [[analysis.ram]]
+        name = "loader"
+        start = 0x8000
+        length = 0x100
+    """))  # fmt: skip
+    data = config_data(load_config(path, project_dir=tmp_path))
+    assert data["rom"]["upper"] == {
+        "5": {"file": "roms/x.rom", "decoder": "vortex", "decode": False, "analyse": True},
+        "7": {"file": "/abs/amsdos.rom"}}  # fmt: skip
+    text = format_config(data)
+    assert 'model = "6128"              # 464, 664' in text
+    assert 'start = 0x8000\nlength = 0x0100\ncapture = "first_m1"' in text
+    with pytest.raises(ConfigError, match="unsupported model"):
+        save_config({"machine": {"model": "999"}}, tmp_path / "bad.toml", tmp_path)
+    assert not (tmp_path / "bad.toml").exists()
+
+
+def test_files_to_load(tmp_path: Path) -> None:
+    """[[load]]: file and address, written back in hex; validated; never loaded at power-on."""
+    path = write_config(tmp_path, '[[load]]\nfile = "bin/game.bin"\naddress = 0x8000\n')
+    config = load_config(path)
+    assert [(load.file, load.address) for load in config.loads] == [
+        (tmp_path / "bin" / "game.bin", 0x8000)]  # fmt: skip
+    assert config.missing_loads() == list(config.loads)
+    data = config_data(config)
+    assert data["load"] == [{"file": "bin/game.bin", "address": 0x8000}]
+    assert '[[load]]\nfile = "bin/game.bin"\naddress = 0x8000' in format_config(data)
+
+
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [('[[load]]\nfile = "x.bin"\n', r"load\[0\]\.address: missing"),
+     ('[[load]]\nfile = "x.bin"\naddress = 0x10000\n', r"load\[0\]\.address"),
+     ('[[load]]\nfile = "x.bin"\naddress = 1\nat = 2\n', "unknown key"),
+     ('load = "x.bin"\n', "array of tables")],
+)  # fmt: skip
+def test_invalid_loads(tmp_path: Path, text: str, match: str) -> None:
+    """A load entry needs file and an address within 64 KB."""
+    with pytest.raises(ConfigError, match=match):
+        load_config(write_config(tmp_path, text))

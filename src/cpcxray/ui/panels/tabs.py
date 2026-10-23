@@ -12,7 +12,7 @@ A tab bar next to the screen, one module per tab:
 | Bus trace   | bus_trace.py   | bus access trace on/off (access type filter) and its lines     |
 | Symbols     | symbols.py     | search, type chips, list + detail, your symbols, annotation file |
 | Disks       | disks.py       | drives, insert/eject, draft, Save / Save as, catalogue         |
-| Files       | files.py       | .sna save/load, analysis save, source generate + verify        |
+| Project     | project.py     | machine summary + editor (machine.toml), analysis, snapshot    |
 
 Shared pieces: base.py (`Tab`, the panel context), widgets.py (themes and building blocks),
 colours.py (the colour table), scroll_list.py, file_selector.py; text.py formats headless.
@@ -40,8 +40,8 @@ from cpcxray.ui.panels.bus_trace import BusTraceTab
 from cpcxray.ui.panels.cpu import CpuTab
 from cpcxray.ui.panels.devices import DevicesTab
 from cpcxray.ui.panels.disks import DisksTab
-from cpcxray.ui.panels.files import FilesTab
 from cpcxray.ui.panels.memory import MemoryTab
+from cpcxray.ui.panels.project import ProjectTab
 from cpcxray.ui.panels.scroll_list import ScrollList
 from cpcxray.ui.panels.symbols import SymbolsTab
 from cpcxray.ui.panels.trace import TraceTab
@@ -51,7 +51,7 @@ __all__ = ["PANEL_WIDTH", "DebuggerPanels"]
 
 TAB_CLASSES: tuple[type[Tab], ...] = (
     CpuTab, MemoryTab, DevicesTab, BreakpointsTab, TraceTab, BusTraceTab, SymbolsTab, DisksTab,
-    FilesTab,
+    ProjectTab,
 )  # fmt: skip
 
 

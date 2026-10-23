@@ -10,12 +10,16 @@ The configuration is a TOML file, normally `config/machine.toml`:
 * `[[analysis.ram]]`: RAM-range analysis targets (D-23).
 * `[drive.A]`, `[drive.B]`: disk image inserted at power-on (`file`), read-only unless
   `writable = true` (real images are never written, phase 10).
+* `[[load]]`: a plain binary file from the PC and the RAM address it belongs at. It is loaded
+  only on command (the Project tab's Load, `memory_load`), never at power-on: the firmware and
+  BASIC clear RAM while they boot, and when a file may be loaded depends on the system that
+  runs (owner, 2026-10-23).
 
 Loading validates everything strictly (unknown keys are errors, to catch typos such as
 `analyze`) and resolves ROM paths. Missing ROM files are not an error: ROM images are not in
 git (NFR-07), so a fresh checkout must still load its config; `MachineConfig.missing_roms()`
-reports them and `read_rom_image()` fails when one is actually needed. Disk images are handled
-the same way (`missing_disks()`).
+reports them and `read_rom_image()` fails when one is actually needed. Disk images and the
+files to load are handled the same way (`missing_disks()`, `missing_loads()`).
 """
 
 from __future__ import annotations
@@ -111,6 +115,24 @@ class DriveConfig:
 
 
 @dataclass(frozen=True)
+class LoadConfig:
+    """A plain binary file to load into RAM on command (not at power-on).
+
+    Attributes:
+        file: Absolute path of the file.
+        address: Where its first byte goes; the file must end within 64 KB.
+    """
+
+    file: Path
+    address: int
+
+    @property
+    def exists(self) -> bool:
+        """True if the file exists."""
+        return self.file.is_file()
+
+
+@dataclass(frozen=True)
 class MachineConfig:  # pylint: disable=too-many-instance-attributes  # one per config table
     """A loaded and validated machine configuration.
 
@@ -122,6 +144,7 @@ class MachineConfig:  # pylint: disable=too-many-instance-attributes  # one per 
         upper_roms: Upper ROM slots by number.
         ram_targets: RAM-range analysis targets.
         drives: Disk images inserted at power-on, by drive letter.
+        loads: Binary files to load into RAM on command, with their addresses.
         source: Path of the config file this was loaded from, if any.
     """
 
@@ -132,6 +155,7 @@ class MachineConfig:  # pylint: disable=too-many-instance-attributes  # one per 
     upper_roms: dict[int, RomConfig] = field(default_factory=dict)
     ram_targets: tuple[RamTargetConfig, ...] = ()
     drives: dict[str, DriveConfig] = field(default_factory=dict)
+    loads: tuple[LoadConfig, ...] = ()
     source: Path | None = None
 
     def roms(self) -> list[RomConfig]:
@@ -150,6 +174,10 @@ class MachineConfig:  # pylint: disable=too-many-instance-attributes  # one per 
     def missing_disks(self) -> list[DriveConfig]:
         """Return the configured disk images whose file does not exist (not in git either)."""
         return [drive for drive in self.drives.values() if not drive.exists]
+
+    def missing_loads(self) -> list[LoadConfig]:
+        """Return the files to load whose file does not exist."""
+        return [load for load in self.loads if not load.exists]
 
 
 def load_config(path: str | Path, project_dir: str | Path | None = None) -> MachineConfig:
@@ -194,7 +222,7 @@ def parse_config(
     Raises:
         ConfigError: On unknown keys, wrong types or values out of range.
     """
-    _check_keys(data, {"machine", "rom", "analysis", "drive"}, "")
+    _check_keys(data, {"machine", "rom", "analysis", "drive", "load"}, "")
     model, unpopulated_rom = _parse_machine(_table(data, "machine", ""))
     rom = _table(data, "rom", "")
     _check_keys(rom, {"lower", "upper"}, "rom")
@@ -209,6 +237,7 @@ def parse_config(
         upper_roms=_parse_upper_roms(_table(rom, "upper", "rom"), project_dir),
         ram_targets=_parse_ram_targets(_table(data, "analysis", "")),
         drives=_parse_drives(_table(data, "drive", ""), project_dir),
+        loads=_parse_loads(data.get("load", []), project_dir),
         source=source,
     )
 
@@ -291,6 +320,31 @@ def _parse_drives(drives: Mapping[str, Any], project_dir: Path) -> dict[str, Dri
             _get(table, "writable", bool, where, False),
         )  # fmt: skip
     return result
+
+
+def _parse_loads(entries: object, project_dir: Path) -> tuple[LoadConfig, ...]:
+    """Validate the `[[load]]` entries.
+
+    Raises:
+        ConfigError: On unknown or missing keys, or an address outside 64 KB.
+    """
+    if not isinstance(entries, list):
+        raise ConfigError("load: expected an array of tables ([[load]])")
+    loads = []
+    for index, entry in enumerate(entries):
+        where = f"load[{index}]"
+        if not isinstance(entry, dict):
+            raise ConfigError(f"{where}: expected a table")
+        _check_keys(entry, {"file", "address"}, where)
+        for key in ("file", "address"):
+            if key not in entry:
+                raise ConfigError(f"{where}.{key}: missing")
+        file = Path(_get(entry, "file", str, where, ""))
+        address = _get(entry, "address", int, where, 0)
+        if not 0 <= address < MEMORY_SIZE:
+            raise ConfigError(f"{where}.address: {address:#x} outside 0x0000-0xFFFF")
+        loads.append(LoadConfig(file if file.is_absolute() else project_dir / file, address))
+    return tuple(loads)
 
 
 def read_rom_image(path: str | Path) -> bytes:
@@ -420,3 +474,154 @@ def _check_keys(t: Mapping[str, Any], allowed: set[str], where: str) -> None:
 def _join(where: str, key: str) -> str:
     """Join a key path and a key for error messages ("rom" + "lower" → "rom.lower")."""
     return f"{where}.{key}" if where else key
+
+
+# -- writing (task 5i: the Project tab's machine editor) ---------------------------------------
+
+UPPER_COMMENT = [
+    "",
+    '# Upper ROM slots 0-15 (D-09); decoder = "vortex" for a scrambled ROM (always decoded),',
+    "# analyse = true makes the slot an analysis target (D-16)",
+]
+RAM_COMMENT = [
+    "",
+    "# RAM code to analyse (RAM targets, D-23): the copy is taken when it first runs",
+    '# (capture = "first_m1") or on command ("manual")',
+]
+LOAD_COMMENT = [
+    "",
+    "# Binary files from the PC and where they go in RAM; loaded on command (Project tab:",
+    "# Load), never at power-on - the boot clears RAM",
+]
+DRIVE_COMMENT = [
+    "",
+    "# Disk images inserted at power-on; read-only unless writable = true",
+    '# (A: 3" drive, 40 tracks, 1 side; B: 5.25" drive, 80 tracks, 2 sides)',
+]
+
+
+def config_data(config: MachineConfig) -> dict[str, Any]:
+    """The TOML document of a configuration (what `parse_config` reads back).
+
+    Paths inside the project directory are written relative to it, others absolute; keys at
+    their default are left out except `writable` (a drive's write protection is worth seeing).
+    """
+
+    def path_text(path: Path) -> str:
+        """A path relative to the project directory where possible."""
+        try:
+            return path.relative_to(config.project_dir).as_posix()
+        except ValueError:
+            return str(path)
+
+    def rom_table(rom: RomConfig) -> dict[str, Any]:
+        """One `[rom.*]` table."""
+        table: dict[str, Any] = {"file": path_text(rom.file)}
+        if rom.decoder is not None:
+            table["decoder"] = rom.decoder
+        if not rom.decode:  # only research setups start with decoding off
+            table["decode"] = False
+        if rom.analyse:
+            table["analyse"] = True
+        return table
+
+    data: dict[str, Any] = {
+        "machine": {"model": config.model, "unpopulated_rom": config.unpopulated_rom},
+        "rom": {},
+    }
+    if config.lower_rom is not None:
+        data["rom"]["lower"] = rom_table(config.lower_rom)
+    if config.upper_roms:
+        data["rom"]["upper"] = {str(n): rom_table(config.upper_roms[n])
+                                for n in sorted(config.upper_roms)}  # fmt: skip
+    if config.drives:
+        data["drive"] = {letter: {"file": path_text(drive.file), "writable": drive.writable}
+                         for letter, drive in sorted(config.drives.items())}  # fmt: skip
+    if config.loads:
+        data["load"] = [{"file": path_text(load.file), "address": load.address}
+                        for load in config.loads]  # fmt: skip
+    if config.ram_targets:
+        data["analysis"] = {"ram": [
+            {"name": t.name, "start": t.start, "length": t.length, "capture": t.capture}
+            for t in config.ram_targets
+        ]}  # fmt: skip
+    return data
+
+
+def format_config(data: Mapping[str, Any]) -> str:
+    """Write a configuration's TOML document as a fresh, commented machine.toml.
+
+    The comments explain the keys; comments of a hand-edited file are not kept (the file is
+    written anew from the data).
+    """
+    machine = data.get("machine", {})
+    lines = ["# CPC X-Ray machine configuration (design.md §6.14), written by cpcxray.",
+             "# Paths are relative to the project directory.", "",
+             "[machine]",
+             _commented(f"model = {_toml_value(machine.get('model', '464'))}",
+                        "464, 664 (64 KB) or 6128 (128 KB, banking)"),
+             _commented(f"unpopulated_rom = {machine.get('unpopulated_rom', 0)}",
+                        "the slot that answers for empty ROM numbers (D-10)")]  # fmt: skip
+    rom = data.get("rom", {})
+    if "lower" in rom:
+        lines += ["", "[rom.lower]", *_toml_table(rom["lower"])]
+    upper = rom.get("upper", {})
+    if upper:
+        lines += UPPER_COMMENT
+    for number in sorted(upper, key=int):
+        lines += ["", f"[rom.upper.{number}]", *_toml_table(upper[number])]
+    drives = data.get("drive", {})
+    if drives:
+        lines += DRIVE_COMMENT
+    for letter in sorted(drives):
+        lines += ["", f"[drive.{letter}]", *_toml_table(drives[letter])]
+    targets = data.get("analysis", {}).get("ram", [])
+    if targets:
+        lines += RAM_COMMENT
+    for target in targets:
+        lines += ["", "[[analysis.ram]]", *_toml_table(target, hex_keys=("start", "length"))]
+    loads = data.get("load", [])
+    if loads:
+        lines += LOAD_COMMENT
+    for load in loads:
+        lines += ["", "[[load]]", *_toml_table(load, hex_keys=("address",))]
+    return "\n".join(lines) + "\n"
+
+
+def save_config(data: Mapping[str, Any], path: str | Path, project_dir: str | Path) -> Path:
+    """Validate a configuration's TOML document and write it as a commented machine.toml.
+
+    Returns:
+        The written file.
+
+    Raises:
+        ConfigError: If the data is not a valid configuration or the file cannot be written.
+    """
+    parse_config(data, Path(project_dir))
+    file = Path(path)
+    try:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(format_config(data), encoding="utf-8")
+    except OSError as e:
+        raise ConfigError(f"cannot write config {file}: {e}") from e
+    return file
+
+
+def _commented(line: str, comment: str) -> str:
+    """A TOML line with its comment in the comment column."""
+    return f"{line:<28}# {comment}"
+
+
+def _toml_table(table: Mapping[str, Any], hex_keys: tuple[str, ...] = ()) -> list[str]:
+    """`key = value` lines of a flat table (numbers in `hex_keys` as 0x hex)."""
+    return [f"{key} = {_toml_value(value, key in hex_keys)}" for key, value in table.items()]
+
+
+def _toml_value(value: object, as_hex: bool = False) -> str:
+    """A TOML value: string, boolean or integer (hex if asked)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return f"0x{value:04X}" if as_hex else str(value)
+    text = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{text}"'

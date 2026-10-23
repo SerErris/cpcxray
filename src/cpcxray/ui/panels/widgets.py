@@ -77,6 +77,7 @@ class Styles:  # pylint: disable=too-many-instance-attributes  # one theme per l
         self.link = _link_theme()
         self.icon_font: int | str | None = None  # the larger font for symbol buttons (app sets it)
         self.box_row = _box_row_theme()
+        self.separator = _separator_theme(colours.ACCENT)
 
     def badge(self, style: str) -> int | str:
         """The theme of a badge style (colours.BADGE_STYLES)."""
@@ -204,6 +205,27 @@ def _window_theme() -> int | str:
         dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, 3)
         dpg.add_theme_style(dpg.mvStyleVar_TabRounding, 3)
     return theme
+
+
+def _separator_theme(colour: Colour) -> int | str:
+    """A separator line in a colour that stands out (the Project tab's parts, owner 2026-10-23)."""
+    with dpg.theme() as theme, dpg.theme_component(dpg.mvAll):
+        dpg.add_theme_color(dpg.mvThemeCol_Separator, colour)
+    return theme
+
+
+def separator(styles: Styles) -> int | str:
+    """A separator between the parts of a box, in the accent blue (better seen than grey).
+
+    Dear PyGui 2.3 ignores a theme bound to the separator itself; bound to a group around it,
+    the colour applies.
+    """
+    with dpg.group() as group:
+        dpg.add_spacer(height=0)  # a little more room above and below (owner, 2026-10-23)
+        dpg.add_separator()
+        dpg.add_spacer(height=0)
+    dpg.bind_item_theme(group, styles.separator)
+    return group
 
 
 def _box_row_theme() -> int | str:

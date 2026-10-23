@@ -176,7 +176,7 @@ def _cmd_config(path: str) -> int:
 
 
 def _print_config(cfg: MachineConfig) -> None:
-    """Print the config: ROM slots, RAM targets, disk drives, sjasmplus location."""
+    """Print the config: ROM slots, RAM targets, disk drives, files to load, sjasmplus."""
     print(f"config:      {cfg.source}")
     print(f"project dir: {cfg.project_dir}")
     print(f"model:       CPC {cfg.model}, unpopulated ROM -> slot {cfg.unpopulated_rom}")
@@ -195,6 +195,9 @@ def _print_config(cfg: MachineConfig) -> None:
         status = "ok" if drive.exists else "MISSING"
         mode = "writable" if drive.writable else "read-only"
         print(f"  drive {drive.drive}   {status:<8} {drive.file}  {mode}")
+    for load in cfg.loads:
+        status = "ok" if load.exists else "MISSING"
+        print(f"  load      {status:<8} {load.file}  at #{load.address:04X}")
     sjasmplus = shutil.which("sjasmplus")
     print(f"sjasmplus:   {sjasmplus or 'NOT FOUND on PATH'}")
 

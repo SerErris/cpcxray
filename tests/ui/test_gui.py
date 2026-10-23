@@ -92,7 +92,7 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     assert dpg.get_value(panels.items["stop_headline"]).startswith("write B")
     assert dpg.get_value(panels.items["stop_title"]).startswith("breakpoint #1")
     dpg.set_value(panels.items["sna_path"], str(tmp_path / "gui.sna"))
-    tabs["Files"].call(lambda: app.session.sna_save(dpg.get_value(panels.items["sna_path"])))
+    tabs["Project"].call(lambda: app.session.sna_save(dpg.get_value(panels.items["sna_path"])))
     assert (tmp_path / "gui.sna").stat().st_size == 0x100 + 0x10000
     dpg.set_value(panels.items["memory_edit"], "4000: 3E 05")
     tabs["Memory"].call(tabs["Memory"].edit_memory)
@@ -104,6 +104,7 @@ def check_panels(app: Any, dpg: Any, tmp_path: Path) -> None:
     # no list key may read as held at rest (Dear PyGui's mvKey_Prior/Next did: lists jumped back)
     assert not any(dpg.is_key_down(code) for code in list_key_codes().values())
     check_symbols_list(panels, dpg)
+    check_project_editor(panels, dpg, tmp_path)
     check_file_selector(panels, dpg, tmp_path)
     check_toggles_and_freeze(app, dpg)
 
@@ -192,6 +193,33 @@ def check_symbols_list(panels: Any, dpg: Any) -> None:
     panels.session.variable_remove("gui_counter")
     symbols.form_chips.click("sub")
     dpg.set_value(panels.items["symbol_search"], "")
+
+
+def check_project_editor(panels: Any, dpg: Any, tmp_path: Path) -> None:
+    """Project tab (5i): the editor shows the running machine; "changed"; Save as… writes it."""
+    project = panels.tabs["Project"]
+    project.toggle_editor()
+    project.refresh()
+    assert not dpg.is_item_shown(panels.items["machine_changed"])
+    assert not dpg.get_item_configuration(panels.items["edit_apply"])["enabled"]
+    assert project.rom_slots[0] == "lower" and "7" in project.rom_slots
+    project.add_ram_target()
+    project.refresh()
+    assert dpg.is_item_shown(panels.items["machine_changed"])
+    assert dpg.get_item_configuration(panels.items["edit_apply"])["enabled"]  # changes the machine
+    project.remove_ram_target(0)
+    project.add_load()  # a file to load changes no machine: no Apply
+    project.refresh()
+    assert dpg.is_item_shown(panels.items["machine_changed"])
+    assert not dpg.get_item_configuration(panels.items["edit_apply"])["enabled"]
+    project.remove_load(0)
+    project.refresh()
+    assert not dpg.is_item_shown(panels.items["machine_changed"])
+    dpg.set_value(panels.items["config_path"], str(tmp_path / "copy.toml"))
+    project.call(project.save_config_as)
+    assert dpg.get_value(panels.items["project_message"]) == "ok"
+    assert (tmp_path / "copy.toml").read_text().startswith("# CPC X-Ray machine configuration")
+    project.toggle_editor()
 
 
 def check_file_selector(panels: Any, dpg: Any, tmp_path: Path) -> None:

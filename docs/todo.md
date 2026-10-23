@@ -224,17 +224,18 @@ observers).
      config file path with ▾ (file selector), Load, Save, Save as… (writes a fresh,
      commented TOML; comments of a hand-edited file are not kept), "changed" badge; model
      chips 464 · 64K / 664 · 64K / 6128 · 128K and the slot for unpopulated ROM numbers;
-     a ROM table (lower and upper slots: file with ▾, what the ROM header says, decoder
-     none / vortex, decode switch - only with a decoder, analyse checkbox, ✕) with "+ ROM in
-     slot"; drives A and B (image with ▾, writable); RAM targets (name, start, length,
-     capture at first run / on command, ✕, "+ RAM target"); "Apply (resets the machine)"
+     tables with a heading per column (owner, 2026-10-23): ROMs (file with ▾, decoder
+     none / vortex, analyse, description = what the ROM header says, ✕) with "+ ROM in
+     slot"; drives A and B (image with ▾, writable); "RAM code to analyse" (RAM targets:
+     name, from, length, copy taken "when it first runs" / "on command", ✕, "+ RAM range");
+     "Apply (resets the machine)"
      because model, ROM and drive changes need a power cycle.
    - Analysis: target chips (ROM and RAM targets) and the "Analysis on" switch; the selected
      target as numbered phases, each with status badge and button:
      1. Collect (running with analysis on; coverage bar code / data / unknown, what was seen);
      2. Decode - only for a ROM with a decoder (scrambled): a bar of how bytes were read
-        (opcode M1, data read and decoded, both = conflict with address, never read), decode
-        on/off, Save access map, Load map, Decode from map, Conflicts…; exports: clear ROM
+        (opcode M1, data read and decoded, both = conflict with address, never read), Save
+        access map, Load map, Decode from map, Conflicts…; exports: clear ROM
         dump (fill policy), ROM map, coverage CSV;
      3. Save analysis ("changed" while collected data is unsaved; analysis file and access
         map);
@@ -242,6 +243,10 @@ observers).
      5. Verify (sjasmplus round trip; "identical ✓" or the differences).
      Without a decoder the phases are 1, 3, 4, 5 (shown as 1-4).
    - Snapshot: one row with the .sna path, ▾, Save, Load.
+   - Decode switch (owner, 2026-10-23): the GUI has none - a ROM with a decoder is always
+     decoded (it cannot run otherwise). The switch stays for MCP clients (`rom_set_decode`,
+     `decode` in machine.toml); comparing raw and decoded bytes works with the memory views
+     (raw:romN, romN, shadow:romN). design.md D-11 to be updated at the end of task 5.
    - New behaviour needed: writing a MachineConfig as TOML (the loader only reads), and the
      GUI editing a config in memory before Apply.
 

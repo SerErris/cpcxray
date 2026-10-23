@@ -45,6 +45,7 @@ from cpcxray.session.bus_view import BusViewMixin
 from cpcxray.session.disks import DiskMixin
 from cpcxray.session.errors import SessionError
 from cpcxray.session.memory_follow import MemoryFollowMixin
+from cpcxray.session.project import ProjectMixin
 from cpcxray.session.symbols_view import ANNOTATIONS_FILE, SymbolsMixin
 from cpcxray.ui.png import encode_png
 from cpcxray.ui.renderer import double_lines, render
@@ -78,7 +79,11 @@ class _RunLimits:
 
 
 # The façade owns all debugger state and offers one public method per MCP tool (D-27).
-class Session(AnalysisMixin, MemoryFollowMixin, BusViewMixin, SymbolsMixin, DiskMixin):  # pylint: disable=too-many-public-methods,too-many-instance-attributes
+# fmt: off
+class Session(  # pylint: disable=too-many-public-methods,too-many-instance-attributes,too-many-ancestors  # one mixin per tool group
+    AnalysisMixin, MemoryFollowMixin, BusViewMixin, SymbolsMixin, DiskMixin, ProjectMixin
+):
+    # fmt: on
     """Owns a machine and offers every debugger operation (D-27).
 
     Attributes:
@@ -103,6 +108,7 @@ class Session(AnalysisMixin, MemoryFollowMixin, BusViewMixin, SymbolsMixin, Disk
         self.symbols = SymbolTable(model=getattr(self.machine, "firmware_model", "464"))
         self.variables = self._variable_map(self.machine)
         self.analysis_names: dict[str, list[tuple[int, str, str, str]]] = {}  # source_generate
+        self.loaded_files: dict[tuple[Path, int], int] = {}  # memory_load: (file, address) → mtime
         self._setup_debugger()
         self.analysis_enabled = True  # the analysis observers run while targets exist
         self.trace = Trace(self._format_capture)
@@ -390,6 +396,7 @@ class Session(AnalysisMixin, MemoryFollowMixin, BusViewMixin, SymbolsMixin, Disk
         """Reset the machine (CPU registers, clock); memory keeps its contents."""
         self.machine.reset()
         self.stacks.reset()
+        self.loaded_files.clear()  # the boot clears RAM: files loaded before count as gone
         return self.machine_status()
 
     def memory_load(self, address: int | str, path: str) -> dict[str, Any]:
@@ -407,10 +414,13 @@ class Session(AnalysisMixin, MemoryFollowMixin, BusViewMixin, SymbolsMixin, Disk
         if not file.is_file():
             raise SessionError(f"file not found: {file}")
         data = file.read_bytes()
+        if not data:
+            raise SessionError(f"file is empty: {file}")
         if start + len(data) > 0x10000:
             raise SessionError(f"{len(data)} bytes do not fit at {hex4(start)}")
         for offset, value in enumerate(data):
             self.machine.poke(start + offset, value)
+        self.loaded_files[(file.resolve(), start)] = file.stat().st_mtime_ns
         return {"address": hex4(start), "length": len(data), "last": hex4(start + len(data) - 1)}
 
     def memory_save(self, address: int | str, length: int, path: str) -> dict[str, Any]:
@@ -442,8 +452,19 @@ class Session(AnalysisMixin, MemoryFollowMixin, BusViewMixin, SymbolsMixin, Disk
             machine = build_cpc464(self._path(path))
         except ConfigError as error:
             raise SessionError(str(error)) from None
+        self._install_machine(machine)
+        return self.machine_status()
+
+    def _install_machine(self, machine: CPC464) -> None:
+        """Make a freshly powered-on CPC the session's machine (`load_config`, `config_apply`).
+
+        The owner's symbols, breakpoints and the trace stay; the firmware names and variables
+        follow the new model (D-26); the debug observers move to the new bus; the analysis
+        targets come from the new configuration.
+        """
         self.machine = machine
         self.stacks.reset()
+        self.loaded_files.clear()
         self._watch_stack()
         self.symbols.set_firmware(machine.firmware_model)
         self.variables = self._variable_map(machine)
@@ -451,7 +472,6 @@ class Session(AnalysisMixin, MemoryFollowMixin, BusViewMixin, SymbolsMixin, Disk
         self._bus_trace_observing = False
         self._sync_debug_observers()
         self._setup_analysis()
-        return self.machine_status()
 
     def rom_list(self) -> dict[str, Any]:
         """List the installed ROMs (slot, file, header type/version) and the skipped ones."""
