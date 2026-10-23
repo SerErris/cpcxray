@@ -215,6 +215,20 @@ def test_trace_records_with_memory_accesses(tmp_path: Path) -> None:
                                 {"access": "write", "address": "9FFE", "value": "06"}]  # fmt: skip
 
 
+def test_trace_records_carry_comment_blocks(tmp_path: Path) -> None:
+    """A record has the owner's blocks of its address where it ran (task 9); others none."""
+    session = Session(make_test_cpc({}, {}), project_dir=tmp_path)
+    session.memory_write("9000", "00 00")  # nop / nop (RAM: the global scope)
+    session.symbol_add("9001", before="the second nop\n  waits", after="done")
+    session.symbol_add("9001", before="in ROM 3 only", scope="rom3")  # not where it ran
+    session.registers_set({"pc": 0x9000, "sp": 0xA000})
+    session.step(2)
+    first, second = session.trace_records(2)["records"]
+    assert "comment_before" not in first and "comment_after" not in first
+    assert (second["comment_before"], second["comment_after"]) == ("the second nop\n  waits",
+                                                                   "done")  # fmt: skip
+
+
 def test_bus_trace_view(tmp_path: Path) -> None:
     """Grouped per instruction; roles, words, stack meanings; the window; clearing."""
     session = Session(make_test_cpc({}, {}), project_dir=tmp_path)

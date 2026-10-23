@@ -107,9 +107,11 @@ class TraceViewMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Sessi
         "name" and "name_type" FW / VAR / own where an operand is named, "comment"), "registers"
         before
         it (af, bc, de, hl, ix, iy, sp as 4-digit hex), "where" ("lower", "romN", "RAM") and
-        "where_text", "flow" ("call", "return" or ""), "next" (the address after it), and for
-        stepped instructions "accesses" (access, address, value, variable). "after": the
-        registers after the last record (including "pc"), or None if something ran since.
+        "where_text", "flow" ("call", "return" or ""), "next" (the address after it), the
+        owner's comment blocks "comment_before" / "comment_after" the line where it has them
+        (task 9, looked up where it ran), and for stepped instructions "accesses" (access,
+        address, value, variable). "after" (of the result): the registers after the last record
+        (including "pc"), or None if something ran since.
         """
         if not 1 <= last <= MAX_TRACE_RECORDS:
             raise SessionError(f"last must be 1-{MAX_TRACE_RECORDS}")
@@ -142,6 +144,11 @@ class TraceViewMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Sessi
             "where": where, "where_text": where_text, "flow": flow,
             "next": f"{instruction.next_address:04X}",
         }  # fmt: skip
+        scope = where if where == "lower" or where.startswith("rom") else ""  # where it ran
+        owner = self.symbols.owner_at(capture.pc, scope)
+        for position in ("before", "after"):  # the owner's comment blocks (task 9)
+            if owner is not None and getattr(owner, position):
+                record[f"comment_{position}"] = getattr(owner, position)
         accesses = self.step_accesses.by_sequence.get(capture.sequence)
         if accesses is not None:
             record["accesses"] = self._accesses(accesses, capture.pc, instruction.length)

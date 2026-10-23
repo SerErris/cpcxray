@@ -32,7 +32,7 @@ from typing import Any
 
 from cpcxray.analysis.provenance import RamTag
 from cpcxray.cpu.disasm import Flow, Instruction, disassemble
-from cpcxray.debugger.symbols import SymbolError, SymbolTable, parse_address
+from cpcxray.debugger.symbols import SymbolError, SymbolTable, block_lines, parse_address
 from cpcxray.debugger.trace import CAPTURE_BYTES, Capture, Trace, TraceRecord
 from cpcxray.debugger.variables import Variable, VariableHit, VariableMap
 from cpcxray.devices.key_map import KeyMap, KeyMapError
@@ -807,8 +807,10 @@ class Session(  # pylint: disable=too-many-public-methods,too-many-instance-attr
         """Disassemble `count` instructions (max 256) from `address` (default: PC).
 
         Lines show address, bytes, instruction with symbols and comments; labels get their
-        own line. Non-canonical encodings are marked "[nc]". `paging` describes the 16 KB
-        quarters the lines come from: the ROM or RAM block the CPU reads there now (FR-DBG-12).
+        own line, the owner's comment blocks `;` lines before the label / after the
+        instruction (task 9). Non-canonical encodings are marked "[nc]". `paging` describes
+        the 16 KB quarters the lines come from: the ROM or RAM block the CPU reads there now
+        (FR-DBG-12).
         `rows` gives the same split into fields, with the type of each name (the CPU tab).
         """
         if not 1 <= count <= MAX_DISASSEMBLE:
@@ -818,10 +820,15 @@ class Session(  # pylint: disable=too-many-public-methods,too-many-instance-attr
         for _ in range(count):
             instruction = self._disassemble(current)
             label = self._label(current)
+            owner = self.symbols.owner_at(current, self.machine.symbol_scope(current))
+            lines += [f"; {text}".rstrip() for text in block_lines(owner, "before")]
             if label:
                 lines.append(f"{label}:")
             lines += self._format_instruction(instruction)
+            lines += [f"; {text}".rstrip() for text in block_lines(owner, "after")]
+            rows += self._note_rows(current, "before")
             rows += self._disassembly_rows(instruction, label)
+            rows += self._note_rows(current, "after")
             if current >> 14 not in quarters:
                 quarters.append(current >> 14)
             current = instruction.next_address

@@ -65,6 +65,18 @@ observers).
 
 ## Done
 
+- Task 9, multi-line comments (2026-10-23, design.md D-41): comment blocks before a line
+  (e.g. a routine header) and after it (a longer explanation), several lines each, besides the
+  end-of-line comment. `Symbol.before` / `.after` (debugger/symbols.py); annotation file lines
+  `before|after [scope:]address ; text` (older files load unchanged); MCP `symbol_add(before=,
+  after=)`, `comment_add(position="line"|"before"|"after")`, also in `symbol_detail`,
+  `symbol_list`, the search; the generated source writes them as `;` lines (before: above the
+  label; after: below the line; data lines start / end at a block) and still assembles
+  byte-identically; the CPU tab shows them as dim rows; the Symbols tab edits them in two
+  multi-line fields; the Trace tab marks an instruction with a block (¶) and shows the blocks
+  in its detail box (`trace_records`: `comment_before` / `comment_after`, looked up where the
+  instruction ran). Tests: symbol table and file, source generator with sjasmplus, session,
+  trace records, the CPU and Trace tabs' rows.
 - Bug: no drop-down (combo) in the window opened (found 2026-10-23 in a fresh 0.9.0 install;
   e.g. the Project tab's slot for a new ROM, the Memory tab's view). Cause: the keyboard focus
   rule of task 6 gave the focus back to the hidden key input on the frame after the click,

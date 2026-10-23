@@ -148,7 +148,8 @@ access breakpoint on a variable name (`TXT_CURSOR_COLUMN`) covers the whole vari
 The instructions executed, indented by call depth, with the registers each one changed and,
 for steps, its memory accesses. Steps are always recorded; "Trace runs" records free runs too
 (about 5x slower), optionally only analysis-target code, optionally into a file (text, CSV or
-JSON Lines). Gaps mark runs that were not recorded.
+JSON Lines). Gaps mark runs that were not recorded. A ¶ after an instruction marks your comment
+block before or after it; select the row to read the block in the detail box.
 
 ### Bus trace
 Every bus access (opcode fetch, read, write, in, out, interrupt) grouped by instruction, with
@@ -160,7 +161,9 @@ chips filter the view.
 Every name in one searchable list: firmware names, OS / AMSDOS variables, your labels and
 variables, and the names the source generator gave (◇) - with counts per type. Select one for its
 detail (where it comes from, the machines it exists on, the instruction there) and to set your
-own label, type and comment. "Your symbols" adds labels (sub / jump / data) and variables
+own label, type and comment, and the comment blocks **before** and **after** its line - several
+lines each, e.g. a routine header above it or a longer explanation below it; they appear in the
+CPU tab's disassembly and as `;` lines in the generated source. "Your symbols" adds labels (sub / jump / data) and variables
 (name, size, base: an absolute address or the data area of ROM n, so it follows that ROM).
 Save them to the annotation file (`project/annotations.txt`, loaded at the start).
 
@@ -298,7 +301,8 @@ ones: address, expected and assembled value, and the source line. Needs sjasmplu
 A first source is rarely the end. Typical next steps, then Generate and Verify again:
 
 - **Name things** in the Symbols tab: give `sub_c4d8` a real name (`read_sector`, type sub), name
-  jump targets and tables, add comments, define the ROM's own RAM variables (a size and a base -
+  jump targets and tables, add comments - a short one at the end of the line, a header block
+  before a routine, an explanation after a line - define the ROM's own RAM variables (a size and a base -
   for a background ROM best "the data area of ROM n", which moves with the ROMs installed). Save
   them (Symbols tab → Save): they go into `project/annotations.txt`.
 - **Collect more** where the coverage bar still shows unknown bytes: trigger the paths that have
@@ -352,7 +356,13 @@ data rom5:C015   messages        ; scoped to upper ROM 5 (or "lower")
 8000             -               ; a comment only
 var  A000        frame_count  2  ; a variable: address, label, size
 var  rom5+0012   drives      16  ; at an offset in ROM 5's data area
+before rom5:C4D8 ; read_sector: reads one sector into the buffer
+before rom5:C4D8 ;   in:  D = track, E = sector
+after  rom5:C4D8 ; a comment block after the line
 ```
+
+A comment block is one `before` or `after` line per text line, in order; the text after `; ` is
+kept as it is (indentation too), `;` alone is an empty line. Older files load unchanged.
 
 **Outputs** in `project/`: `<rom>.analysis.json` (analysis database), `<rom>.m1map` (access map,
 16 KB, one byte per ROM byte), `<rom>.asm` (the source), `<rom>_clear.rom`, `<rom>_rom_map.html`

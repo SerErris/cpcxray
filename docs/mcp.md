@@ -304,8 +304,10 @@ What the last step accessed, and the memory written since the last stop.
 Disassemble `count` instructions (max 256) from `address` (default: PC).
 
 Lines show address, bytes, instruction with symbols and comments; labels get their
-own line. Non-canonical encodings are marked "[nc]". `paging` describes the 16 KB
-quarters the lines come from: the ROM or RAM block the CPU reads there now (FR-DBG-12).
+own line, the owner's comment blocks `;` lines before the label / after the
+instruction (task 9). Non-canonical encodings are marked "[nc]". `paging` describes
+the 16 KB quarters the lines come from: the ROM or RAM block the CPU reads there now
+(FR-DBG-12).
 `rows` gives the same split into fields, with the type of each name (the CPU tab).
 
 ### Breakpoints
@@ -373,9 +375,11 @@ A gap - instructions that ran untraced (a free run with the trace off) - is a re
 "name" and "name_type" FW / VAR / own where an operand is named, "comment"), "registers"
 before
 it (af, bc, de, hl, ix, iy, sp as 4-digit hex), "where" ("lower", "romN", "RAM") and
-"where_text", "flow" ("call", "return" or ""), "next" (the address after it), and for
-stepped instructions "accesses" (access, address, value, variable). "after": the
-registers after the last record (including "pc"), or None if something ran since.
+"where_text", "flow" ("call", "return" or ""), "next" (the address after it), the
+owner's comment blocks "comment_before" / "comment_after" the line where it has them
+(task 9, looked up where it ran), and for stepped instructions "accesses" (access,
+address, value, variable). "after" (of the result): the registers after the last record
+(including "pc"), or None if something ran since.
 
 ### Bus trace
 
@@ -465,21 +469,33 @@ directory, e.g. "output/screen.png") it is also written to that file.
 
 ### Symbols and variables
 
-#### `symbol_add(address: int | str, label: str | None = None, comment: str | None = None, scope: str = "", type: str | None = None)`
+#### `symbol_add(address: int | str, label: str | None = None, comment: str | None = None, scope: str = "", type: str | None = None, before: str | None = None, after: str | None = None)`
 
-Add or change a label and/or comment at `address`.
+Add or change a label, comment or comment block at `address`.
+
+Parts not given keep what is there. The generated source writes the blocks as comment
+lines before / after the instruction (task 9).
 
 **Args**
 
 - `address`: The address.
 - `label`: Identifier, unique within the scope, the global symbols and the variables.
-- `comment`: Free text.
+- `comment`: Free text at the end of the line.
 - `scope`: "" for global (RAM, firmware), "lower" (OS ROM) or "rom0".."rom15".
 - `type`: The label's type: "sub" (subroutine, the default), "jump" (a jump target inside code) or "data" (a table, a string).
+- `before`: Comment block before the line, e.g. a routine header; several lines separated by line breaks; "" removes it.
+- `after`: Comment block after the line, e.g. a longer explanation; "" removes it.
 
-#### `comment_add(address: int | str, comment: str, scope: str = "")`
+#### `comment_add(address: int | str, comment: str, scope: str = "", position: str = "line")`
 
-Set the comment at `address` (keeps an existing label).
+Set a comment at `address` (keeps an existing label and the other comments).
+
+**Args**
+
+- `address`: The address.
+- `comment`: The text; for a block several lines separated by line breaks; "" removes a block (`symbol_remove` removes everything at the address).
+- `scope`: "" for global, "lower" or "rom0".."rom15".
+- `position`: "line" (at the end of the line), "before" (a block before the line, e.g. a routine header) or "after" (a block after the line).
 
 #### `symbol_remove(address: int | str, scope: str = "")`
 
@@ -487,7 +503,7 @@ Remove the owner's symbol at `address` in `scope` (a firmware name stays).
 
 #### `symbol_list(text: str = "", scope: str | None = None, source: str | None = None, limit: int = 100)`
 
-List symbols whose label or comment contains `text` (see also `symbol_search`).
+List symbols whose label, comment or block contains `text` (see `symbol_search`).
 
 **Args**
 
@@ -502,7 +518,7 @@ Every name for the Symbols tab: symbols, variables and the analysis's names.
 
 **Args**
 
-- `text`: Search text (case-insensitive) in label, comment or a variable's description.
+- `text`: Search text (case-insensitive) in label, comment, comment blocks or a variable's description.
 - `types`: Only these types (FW, VAR, var, sub, jump, data); None for all. Comments without a label (type None) are listed unless a type filter is given.
 - `scope`: Only this scope ("" global, "lower", "romN"); None for all.
 - `only_yours`: Only entries of the owner's (labels, comments, variables).
@@ -524,7 +540,7 @@ Everything about one name of `symbol_search` (the Symbols tab's detail panel).
 
 **Returns**
 
-"address", "scope"; "firmware" (address, label, section, name, note), "machines" it exists on; "yours" (the owner's label, comment, type in this scope); "variable" (a known or owner's variable of that label: size, description, owner, and for the owner's "base" and "now"); "analysis" (the source generator's name and type); "code" (the instruction at the address, names as in the disassembly).
+"address", "scope"; "firmware" (address, label, section, name, note), "machines" it exists on; "yours" (the owner's label, comment, type and comment blocks "before", "after" in this scope); "variable" (a known or owner's variable of that label: size, description, owner, and for the owner's "base" and "now"); "analysis" (the source generator's name and type); "code" (the instruction at the address, names as in the disassembly).
 
 #### `variable_add(label: str, size: int, base: int | str, comment: str | None = None, replaces: str | None = None)`
 

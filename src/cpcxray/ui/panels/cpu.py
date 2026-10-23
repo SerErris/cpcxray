@@ -300,6 +300,8 @@ def _row_texts(row: CodeRow) -> dict[str, tuple[str, colours.Colour | None]]:
     if row.kind == "label":
         colour = colours.name_colour(row.name_type)
         return empty | {"name": (row.text, colour)}  # the operands column (see above)
+    if row.kind == "note":  # the owner's comment block (task 9), in the wide operands column
+        return empty | {"before": (row.text, colours.TEXT_DIM)}
     if row.kind == "empty":
         return empty
     gutter_colour = colours.HERE if row.pc else colours.ERROR

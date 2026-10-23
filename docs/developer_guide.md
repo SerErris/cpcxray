@@ -2,7 +2,7 @@
 
 This guide is the map of the code base: how cpcxray is built, how a machine instruction travels
 through it, where each part lives and how to extend it. It explains; it does not decide. The
-decisions (D-01…D-40), requirements (FR-…, NFR-…) and the architecture in full are in
+decisions (D-01…D-41), requirements (FR-…, NFR-…) and the architecture in full are in
 [design.md](design.md), which is authoritative - code comments cite its IDs (`# D-11`). The
 three block diagrams of session, machine and Z80 core with their legends are in
 [architecture.md](architecture.md). Using the tool: [user guide](user_guide.md), [CLI](cli.md),

@@ -211,6 +211,41 @@ def test_owner_labels_and_comments() -> None:
     assert "defb #01                        ; background ROM; the ROM type" in lines
 
 
+def test_owner_comment_blocks(tmp_path: Path) -> None:
+    """Comment blocks (task 9): before an address above its label, after it below its line.
+
+    In data a block before a byte starts a new data line and a block after a byte ends one,
+    so each block sits at its byte; the source still assembles to the same bytes.
+    """
+    image = bytes.fromhex("CD 05 C0 C9 00 3E 01 C9 11 22 33 44 55 66")
+    view = plain_view(image)
+    database = classified(view, starts=[0])
+    symbols = SymbolTable()
+    symbols.add(0xC005, "set_one", "A = 1", "rom1",
+                before="set_one: loads 1 into A\n\n  out: A = 1")  # fmt: skip
+    symbols.add(0xC005, scope="rom1", after="the caller tests A next")
+    symbols.add(0xC00A, scope="rom1", before="second half of the table")
+    symbols.add(0xC00B, scope="rom1", after="end of the entry")
+    generated = generate_source(
+        view.resolve(database, "static"), database, symbols, title="t", output_name="t.bin",
+        fill_policy="static",
+    )  # fmt: skip
+    lines = generated.text.splitlines()
+    start = lines.index("; set_one: loads 1 into A")
+    assert lines[start : start + 4] == ["; set_one: loads 1 into A", ";", ";   out: A = 1",
+                                        "set_one:"]  # fmt: skip
+    assert lines[start + 4].split() == ["ld", "a,#01", ";", "A", "=", "1;", "[static]"]
+    assert lines[start + 5] == "; the caller tests A next"
+    table = lines.index("; second half of the table")
+    assert lines[table + 1].strip().startswith("defb #33,#44")  # the block starts a data line
+    assert lines[table + 2] == "; end of the entry"  # … and the one after ends it
+    assert lines[table + 3].strip().startswith("defb #55")
+    source = tmp_path / "blocks.asm"
+    source.write_text(generated.text, encoding="utf-8")
+    expected = view.final_image(database, "static")
+    assert verify_source(source, expected, view.start, generated.line_of_offset).identical
+
+
 def test_compare_reports_lines() -> None:
     """Differences carry both values and the source line."""
     result = compare(b"\x01\x02", b"\x01\x03\x04", 0xC000, ["a", "defb 2,3"], [1, 2, 2])

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- New: comment blocks before and after a line - a routine header above it, a longer explanation
+  below it, several lines each - besides the comment at the end of the line. Edit them in the
+  Symbols tab or with `symbol_add` / `comment_add` over MCP; the CPU tab shows them, the Trace
+  tab marks them (¶) and shows them for the selected instruction, and the generated source
+  writes them as comment lines (still byte-identical). They are kept in
+  `project/annotations.txt` as `before` / `after` lines; older files load unchanged.
+
 ## 0.9.1 - bug fix
 
 - Fixed: no drop-down list in the window could be opened - for example the slot of a new ROM in

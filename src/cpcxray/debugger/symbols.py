@@ -27,18 +27,29 @@ named byte ranges with a size: at an absolute address, or at an offset in the da
 of a background ROM, which the firmware assigns at boot - they are resolved like the known
 OS/AMSDOS variables (debugger/variables.py) and used wherever those are.
 
+Comment blocks (task 9, owner 2026-10-23): besides the comment at the end of its line, an
+address can have a block of comment lines *before* it (a routine header) and one *after* it (a
+longer explanation between two instructions). Blocks are the owner's only (`before`, `after`:
+text with line breaks); the source generator writes them as `;` lines around the instruction.
+
 Annotation file format (plain text, one entry per line, `#` starts a comment line):
 
     # [sub|jump|data] [scope:]address  label  [; comment]
     # var address|romN+offset  label  size  [; comment]
+    # before|after [scope:]address  ; one line of a comment block
     BB5A        my_output       ; print char in A (no type: "sub")
+    before rom5:C4D8 ; read_sector: reads one sector into the buffer
+    before rom5:C4D8 ;   in:  D = track, E = sector
     sub rom5:C4D8   read_sector     ; reads one sector
+    after rom5:C4D8  ; the FDC is busy until the result phase
     data C015       disk_messages
     8000        -               ; a comment only, no label
     var rom5+0012   vd_drive_table  16 ; one entry per drive
 
-Addresses are hex (optionally with a leading & or #); `-` stands for "no label". Files of
-earlier versions (no type words, no variables) load unchanged.
+Addresses are hex (optionally with a leading & or #); `-` stands for "no label". A block line
+keeps the text after "; " as it is (indentation too; `;` alone is an empty line); the lines of
+one block are read in file order. Files of earlier versions (no type words, no variables, no
+blocks) load unchanged.
 """
 
 from __future__ import annotations
@@ -54,8 +65,10 @@ GLOBAL = ""
 LABEL_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 SCOPE_PATTERN = re.compile(r"^(lower|rom([0-9]|1[0-5]))$")
 FILE_HEADER = ("# cpcxray annotations\n# [sub|jump|data] [scope:]address  label  [; comment]\n"
-               "# var address|romN+offset  label  size  [; comment]\n")  # fmt: skip
+               "# var address|romN+offset  label  size  [; comment]\n"
+               "# before|after [scope:]address  ; one line of a comment block\n")  # fmt: skip
 OWNER_TYPES = ("sub", "jump", "data")  # the owner's labels; "var": OwnVariable
+BLOCK_POSITIONS = ("before", "after")  # comment blocks around a line (task 9)
 VARIABLE_PATTERN = re.compile(r"^(?:rom(\d{1,2})\+)?([&#]?[0-9A-Fa-f]{1,4})$")
 
 
@@ -64,17 +77,19 @@ class SymbolError(ValueError):
 
 
 @dataclass(frozen=True)
-class Symbol:
-    """A label and/or comment at an address.
+class Symbol:  # pylint: disable=too-many-instance-attributes  # the parts of one entry
+    """A label and/or comments at an address.
 
     Attributes:
         address: 16-bit address.
         label: Label, or None for a comment-only entry.
-        comment: Comment, or None.
+        comment: Comment at the end of the line, or None.
         scope: "" (global), "lower" or "romN".
         source: "firmware" (preloaded) or "user" (saved in the annotation file).
         type: "FW" (firmware), "sub", "jump" or "data" (the owner's labels), or None (a
             comment only).
+        before: Comment block before the line (one line per text line), or None.
+        after: Comment block after the line, or None.
     """
 
     address: int
@@ -83,6 +98,8 @@ class Symbol:
     scope: str = GLOBAL
     source: str = "user"
     type: str | None = None
+    before: str | None = None
+    after: str | None = None
 
     @property
     def key(self) -> tuple[str, int]:
@@ -114,6 +131,42 @@ class OwnVariable:
         """Where it is, as in the annotation file: "A612" or "rom5+0012"."""
         location = f"{self.address:04X}"
         return location if self.rom is None else f"rom{self.rom}+{location}"
+
+
+@dataclass(frozen=True)
+class BlockLine:
+    """One line of a comment block in the annotation file (`before|after [scope:]address ; …`).
+
+    Attributes:
+        address: 16-bit address.
+        scope: "" (global), "lower" or "romN".
+        position: "before" or "after" the line at the address.
+        text: The line's text ("" for an empty line).
+    """
+
+    address: int
+    scope: str
+    position: str
+    text: str
+
+
+def _block_text(text: str | None) -> str | None:
+    """A comment block as stored: lines without trailing blanks, no empty lines at the end.
+
+    None stays None (nothing given); a block without any text becomes None (removed).
+    """
+    if text is None:
+        return None
+    lines = [line.rstrip() for line in text.replace("\r\n", "\n").split("\n")]
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines) or None
+
+
+def block_lines(symbol: Symbol | None, position: str) -> list[str]:
+    """The lines of a symbol's comment block "before" / "after" its line (task 9), or []."""
+    block = getattr(symbol, position) if symbol is not None else None
+    return block.split("\n") if block else []
 
 
 def validate_scope(scope: str) -> str:
@@ -179,59 +232,74 @@ class SymbolTable:
 
     # -- changes -----------------------------------------------------------------------------
 
-    def add(
+    def add(  # pylint: disable=too-many-arguments  # the parts of a symbol
         self,
         address: int,
         label: str | None = None,
         comment: str | None = None,
         scope: str = GLOBAL,
         type: str | None = None,  # pylint: disable=redefined-builtin  # the MCP parameter name
+        *,
+        before: str | None = None,
+        after: str | None = None,
     ) -> Symbol:
         """Add or change the owner's symbol at (scope, address).
 
         A label must be a valid identifier and unique among the global symbols, those of the
-        same scope and the owner's variables. A part not given keeps the owner's earlier one;
-        a label's type is "sub", "jump" or "data" (default: the earlier one, else "sub"). At a
-        firmware address only the owner's layer changes; a label or comment equal to the
-        firmware's is not stored again (annotation files from before the layering may repeat
-        it).
+        same scope and the owner's variables. A part not given (None) keeps the owner's
+        earlier one; an empty comment block ("") removes that block. A label's type is "sub",
+        "jump" or "data" (default: the earlier one, else "sub"). At a firmware address only
+        the owner's layer changes; a label or comment equal to the firmware's is not stored
+        again (annotation files from before the layering may repeat it).
+
+        Args:
+            address: The address.
+            label: The label, or None to keep the earlier one.
+            comment: The comment at the end of the line, or None to keep the earlier one.
+            scope: "" (global), "lower" or "romN".
+            type: "sub", "jump" or "data" for a label.
+            before: The comment block before the line (several lines); "" removes it.
+            after: The comment block after the line; "" removes it.
 
         Returns:
-            The symbol as lookups now see it (both layers, see `at`).
+            The symbol as lookups now see it (both layers, see `at`); an empty one when
+            removing a block left nothing at the address.
 
         Raises:
             SymbolError: On an invalid label, scope, type or address, a duplicate label, or if
-                neither label nor comment is given.
+                no part at all is given.
         """
         validate_scope(scope)
         if type is not None and type not in OWNER_TYPES:
             raise SymbolError(f"invalid type {type!r} (use {', '.join(OWNER_TYPES)})")
         if not 0 <= address <= 0xFFFF:
             raise SymbolError(f"address {address} out of range")
-        if label is None and comment is None:
-            raise SymbolError("a symbol needs a label, a comment or both")
+        if label is None and comment is None and before is None and after is None:
+            raise SymbolError("a symbol needs a label, a comment or a comment block")
         existing = self._symbols.get((scope, address))
-        if label is None and existing is not None:
-            label = existing.label
-        if comment is None and existing is not None:
-            comment = existing.comment
-        if type is None and existing is not None:
-            type = existing.type
+        if existing is not None:
+            label = existing.label if label is None else label
+            comment = existing.comment if comment is None else comment
+            type = existing.type if type is None else type
+            before = existing.before if before is None else before
+            after = existing.after if after is None else after
+        before, after = _block_text(before), _block_text(after)
         if label is not None:
             self._check_label(label, address, scope)
         firmware = self._firmware.get(address)
         if firmware is not None:
             label = None if label == firmware.label else label
             comment = None if comment == firmware.comment else comment
-        if label is None and comment is None:  # nothing of the owner's left
-            self._symbols.pop((scope, address), None)
+        if label is None and comment is None and before is None and after is None:
+            self._symbols.pop((scope, address), None)  # nothing of the owner's left
         else:
             type = (type or "sub") if label is not None else None
-            self._symbols[(scope, address)] = Symbol(address, label, comment, scope, "user", type)
+            self._symbols[(scope, address)] = Symbol(
+                address, label, comment, scope, "user", type, before, after
+            )
         self.modified = True
         found = self.at(address, scope)
-        assert found is not None  # the firmware symbol or the owner's just stored
-        return found
+        return found if found is not None else Symbol(address, scope=scope)  # nothing left
 
     def remove(self, address: int, scope: str = GLOBAL) -> Symbol:
         """Remove the owner's symbol at (scope, address) and return it.
@@ -334,7 +402,8 @@ class SymbolTable:
         comments = [c for c in (firmware.comment, owner.comment) if c]
         return Symbol(
             address, owner.label or firmware.label, " · ".join(comments) or None, owner.scope,
-            type=owner.type if owner.label else firmware.type,
+            type=owner.type if owner.label else firmware.type, before=owner.before,
+            after=owner.after,
         )  # fmt: skip
 
     def owner_at(self, address: int, scope: str = GLOBAL) -> Symbol | None:
@@ -380,7 +449,8 @@ class SymbolTable:
         A firmware name with the owner's symbol over it is listed once, with source "user".
 
         Args:
-            text: Only symbols whose label or comment contains this text (case-insensitive).
+            text: Only symbols whose label, comment or a comment block contains this text
+                (case-insensitive).
             scope: Only this scope, or None for all.
             source: Only "firmware" or "user", or None for both.
         """
@@ -395,8 +465,10 @@ class SymbolTable:
             and (source is None or symbol.source == source)
             and (
                 not needle
-                or needle in (symbol.label or "").lower()
-                or needle in (symbol.comment or "").lower()
+                or any(
+                    needle in (text or "").lower()
+                    for text in (symbol.label, symbol.comment, symbol.before, symbol.after)
+                )
             )
         ]
         return sorted(result, key=lambda symbol: symbol.key)
@@ -418,14 +490,20 @@ class SymbolTable:
         """
         was_modified = self.modified
         count = 0
+        blocks: dict[tuple[str, int, str], list[str]] = {}  # the lines of each block, in order
         for number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
             try:
                 entry = parse_annotation_line(line)
-                if entry is not None:
+                if isinstance(entry, BlockLine):
+                    key = (entry.scope, entry.address, entry.position)
+                    blocks.setdefault(key, []).append(entry.text)
+                elif entry is not None:
                     self._merge_entry(entry)
             except SymbolError as error:
                 raise SymbolError(f"{path}:{number}: {error}") from None
             count += entry is not None
+        for (scope, address, position), lines in blocks.items():  # a block of the file replaces
+            self.add(address, scope=scope, **{position: "\n".join(lines)})
         self.modified = was_modified  # what the file holds is not an unsaved change
         return count
 
@@ -434,7 +512,8 @@ class SymbolTable:
         if isinstance(entry, OwnVariable):
             self.add_variable(entry, replaces=entry.label)
         else:
-            self.add(entry.address, entry.label, entry.comment, entry.scope, entry.type)
+            self.add(entry.address, entry.label, entry.comment, entry.scope, entry.type,
+                     before=entry.before, after=entry.after)  # fmt: skip
 
     def save(self, path: str | Path) -> int:
         """Write the owner's symbols and variables to an annotation file.
@@ -444,14 +523,14 @@ class SymbolTable:
         """
         user = self.owner_symbols()
         variables = self.own_variables()
-        text = (FILE_HEADER + "".join(format_annotation_line(s) for s in user)
+        text = (FILE_HEADER + "".join(format_symbol_lines(s) for s in user)
                 + "".join(format_variable_line(v) for v in variables))  # fmt: skip
         Path(path).write_text(text, encoding="utf-8")
         self.modified = False
         return len(user) + len(variables)
 
 
-def parse_annotation_line(line: str) -> Symbol | OwnVariable | None:
+def parse_annotation_line(line: str) -> Symbol | OwnVariable | BlockLine | None:
     """Parse one annotation file line; None for blank and `#` comment lines.
 
     A line without a type word is a "sub" label (or a comment only), as in older files.
@@ -467,6 +546,12 @@ def parse_annotation_line(line: str) -> Symbol | OwnVariable | None:
     comment_text = comment.strip() or None
     if fields and fields[0] == "var":
         return _parse_variable(fields[1:], comment_text, line)
+    if fields and fields[0] in BLOCK_POSITIONS:
+        if len(fields) != 2:
+            raise SymbolError(f"expected 'before|after [scope:]address ; text', got {line!r}")
+        scope, _, address_text = fields[1].rpartition(":")
+        block_text = comment.removeprefix(" ").rstrip()  # keeps the indentation of the text
+        return BlockLine(parse_address(address_text), validate_scope(scope), fields[0], block_text)
     symbol_type = fields.pop(0) if fields and fields[0] in OWNER_TYPES else None
     if len(fields) not in (1, 2):
         raise SymbolError(f"expected '[type] [scope:]address label [; comment]', got {line!r}")
@@ -514,8 +599,23 @@ def parse_variable_base(text: str) -> tuple[int | None, int]:
     return rom, parse_address(match.group(2))
 
 
+def format_symbol_lines(symbol: Symbol) -> str:
+    """Format a symbol as annotation file lines: its block before, its line, its block after."""
+    location = f"{symbol.scope}:{symbol.address:04X}" if symbol.scope else f"{symbol.address:04X}"
+
+    def file_lines(position: str, block: str | None) -> str:
+        """One `before|after address ; text` line per line of the block."""
+        if not block:
+            return ""
+        return "".join(f"{position:<6} {location:<11} ; {text}".rstrip() + "\n"
+                       for text in block.split("\n"))  # fmt: skip
+
+    line = format_annotation_line(symbol) if symbol.label or symbol.comment else ""
+    return file_lines("before", symbol.before) + line + file_lines("after", symbol.after)
+
+
 def format_annotation_line(symbol: Symbol) -> str:
-    """Format a symbol as an annotation file line (with trailing newline)."""
+    """Format a symbol's label and comment as an annotation file line (with trailing newline)."""
     location = f"{symbol.scope}:{symbol.address:04X}" if symbol.scope else f"{symbol.address:04X}"
     line = f"{symbol.type or '':<4} {location:<11} {symbol.label or '-':<20}"
     if symbol.comment:

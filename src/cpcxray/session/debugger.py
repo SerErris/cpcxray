@@ -31,6 +31,7 @@ from cpcxray.debugger.breakpoints import (
 )
 from cpcxray.debugger.bus_trace import ACCESS_KINDS, BusTrace
 from cpcxray.debugger.stack import StackTops
+from cpcxray.debugger.symbols import block_lines
 from cpcxray.decoding.shadow_rom import M1, UNKNOWN
 from cpcxray.devices.key_map import KeyMapError
 from cpcxray.machine.memory import BLOCK_SIZE
@@ -247,6 +248,16 @@ class DebuggerMixin:
                 row |= {"name": name, "name_type": self._label_type(word)}
             rows.append(row)
         return rows
+
+    def _note_rows(self, address: int, position: str) -> list[dict[str, Any]]:
+        """The owner's comment block before / after `address` as disassembly rows (task 9).
+
+        Rows "kind" "note" with "text" and "position" ("before": above the label, "after":
+        below the instruction's lines).
+        """
+        owner = self.symbols.owner_at(address, self.machine.symbol_scope(address))
+        return [{"kind": "note", "text": text, "position": position}
+                for text in block_lines(owner, position)]  # fmt: skip
 
     def _label_type(self, address: int) -> str:
         """The symbol type of the name `_operand_label` gives an address (task 5g colours).

@@ -112,7 +112,8 @@ def test_symbol_detail(tmp_path: Path) -> None:
     detail = session.symbol_detail("BB5A", "", "TXT_OUTPUT")
     assert detail["firmware"]["section"] == "text vdu"
     assert detail["machines"] == ["464", "664", "6128"]
-    assert detail["yours"] == {"label": None, "comment": "hooked", "type": None}
+    assert detail["yours"] == {"label": None, "comment": "hooked", "type": None, "before": None,
+                              "after": None}  # fmt: skip
     assert detail["code"]["address"] == "BB5A"
     time = session.symbol_detail("KL_TIME", "", "KL_TIME")
     assert time["variable"]["size"] == 4 and time["variable"]["owner"] == "firmware"
@@ -140,3 +141,28 @@ def test_symbols_status_and_typed_add(tmp_path: Path) -> None:
     fresh = make_session(tmp_path)  # loads project/annotations.txt
     assert fresh.symbol_list("texts")["symbols"][0]["type"] == "data"
     assert fresh.variable_list("frame_count")["total"] == 1
+
+
+def test_comment_blocks(tmp_path: Path) -> None:
+    """symbol_add / comment_add with blocks; the disassembly and the detail show them (task 9)."""
+    session = make_session(tmp_path)
+    added = session.symbol_add("C000", "load_count", scope="rom3",
+                               before="load_count: reads the counter\n  out: A")  # fmt: skip
+    assert added["before"] == "load_count: reads the counter\n  out: A"
+    session.comment_add("C000", "stored next", "rom3", position="after")
+    session.comment_add("C000", "the counter", "rom3")  # at the end of the line
+    with pytest.raises(SessionError, match="position"):
+        session.comment_add("C000", "x", "rom3", position="above")
+    session.run(max_instructions=2)  # ROM 3 paged in at &C000
+    lines = session.disassemble("C000", 2)["lines"]
+    assert lines[:3] == ["; load_count: reads the counter", ";   out: A", "load_count:"]
+    assert lines[3].startswith("C000") and lines[3].endswith("; the counter")
+    assert lines[4] == "; stored next"
+    kinds = [row["kind"] for row in session.disassemble("C000", 1)["rows"]]
+    assert kinds == ["note", "note", "label", "instruction", "note"]
+    yours = session.symbol_detail("C000", "rom3")["yours"]
+    assert (yours["before"], yours["after"]) == ("load_count: reads the counter\n  out: A",
+                                                 "stored next")  # fmt: skip
+    assert session.symbol_search("reads the counter")["total"] == 1
+    session.comment_add("C000", "", "rom3", position="before")  # "" removes the block
+    assert session.symbol_detail("C000", "rom3")["yours"]["before"] is None

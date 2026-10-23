@@ -8,10 +8,12 @@ import pytest
 
 from cpcxray.debugger.firmware_symbols import FIRMWARE_464, FIRMWARE_664, FIRMWARE_6128
 from cpcxray.debugger.symbols import (
+    BlockLine,
     OwnVariable,
     Symbol,
     SymbolError,
     SymbolTable,
+    block_lines,
     format_annotation_line,
     merge,
     parse_annotation_line,
@@ -298,3 +300,60 @@ def test_old_lines_are_sub_labels() -> None:
     comment = parse_annotation_line("9000 - ; buffer")
     assert isinstance(comment, Symbol) and comment.type is None
     assert parse_variable_base("&A612") == (None, 0xA612)
+
+
+def test_comment_blocks_before_and_after() -> None:
+    """A block before / after a line (task 9): kept, replaced, removed with "", searchable."""
+    table = SymbolTable()
+    table.add(0xC4D8, "read_sector", scope="rom5", before="read_sector\n  in: D = track\n\n")
+    symbol = table.at(0xC4D8, "rom5")
+    assert symbol is not None and symbol.before == "read_sector\n  in: D = track"  # tail cut
+    table.add(0xC4D8, comment="reads one sector", scope="rom5", after="FDC busy")
+    symbol = table.owner_at(0xC4D8, "rom5")
+    assert symbol is not None and (symbol.label, symbol.before, symbol.after) == (
+        "read_sector",
+        "read_sector\n  in: D = track",
+        "FDC busy",
+    )  # the parts not given were kept
+    assert block_lines(symbol, "before") == ["read_sector", "  in: D = track"]
+    assert [s.address for s in table.symbols("d = track")] == [0xC4D8]  # blocks are searched
+    table.add(0xC4D8, scope="rom5", before="")
+    assert table.owner_at(0xC4D8, "rom5").before is None  # type: ignore[union-attr]
+    table.add(0xC500, scope="rom5", after="only a block")  # a block alone is a symbol
+    table.add(0xC500, scope="rom5", after="")
+    assert table.owner_at(0xC500, "rom5") is None  # nothing of the owner's left
+    table.add(0xBB5A, before="hooked by the loader")  # over a firmware name
+    firmware = table.at(0xBB5A)
+    assert firmware is not None and (firmware.label, firmware.before) == (
+        "TXT_OUTPUT",
+        "hooked by the loader",
+    )
+    with pytest.raises(SymbolError, match="comment block"):
+        table.add(0xC600, scope="rom5")
+
+
+def test_comment_blocks_in_the_annotation_file(tmp_path: Path) -> None:
+    """Blocks are `before|after address ; text` lines around the entry; indentation is kept."""
+    table = SymbolTable()
+    table.add(0xC4D8, "read_sector", "one sector", "rom5", before="read_sector\n\n  in: D")
+    table.add(0xC4D8, scope="rom5", after="FDC busy")
+    table.add(0x9000, before="a block without label or comment")
+    path = tmp_path / "annotations.txt"
+    table.save(path)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    entry = lines.index("before rom5:C4D8   ; read_sector")
+    assert lines[entry : entry + 5] == [
+        "before rom5:C4D8   ; read_sector",
+        "before rom5:C4D8   ;",
+        "before rom5:C4D8   ;   in: D",
+        "sub  rom5:C4D8   read_sector          ; one sector",
+        "after  rom5:C4D8   ; FDC busy",
+    ]
+    loaded = SymbolTable()
+    loaded.load(path)
+    assert loaded.owner_symbols() == table.owner_symbols()
+    assert parse_annotation_line("after &C000 ;    indented") == BlockLine(
+        0xC000, "", "after", "   indented"
+    )
+    with pytest.raises(SymbolError, match="scope:"):
+        parse_annotation_line("before rom5:C000 extra ; text")

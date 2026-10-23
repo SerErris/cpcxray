@@ -42,6 +42,7 @@ from cpcxray.ui.panels.text import (
     split_label,
     stop_texts,
     trace_detail,
+    trace_notes,
     trace_rows,
     variable_colour_indexes,
     variable_detail,
@@ -148,6 +149,26 @@ def test_disassembly_view() -> None:
     assert view[4].pc and view[4].gutter == "\u25b6"
     assert (view[5].before, view[5].name, view[5].after) == ("a,(", "TXT_GRAPHICS", ")")
     assert view[5].comment == "graphics flag" and not view[5].pc
+
+
+def test_disassembly_view_with_comment_blocks() -> None:
+    """A block before goes above the label (after the separator), a block after below (task 9)."""
+    rows = [
+        {"kind": "note", "text": "read_sector: one sector", "position": "before"},
+        {"kind": "note", "text": "", "position": "before"},
+        {"kind": "label", "text": "read_sector", "name_type": "sub"},
+        {"kind": "instruction", "address": "4000", "bytes": "00", "mnemonic": "nop",
+         "operands": ""},
+        {"kind": "note", "text": "the FDC is busy now", "position": "after"},
+    ]  # fmt: skip
+    view = disassembly_view({"rows": rows, "paging": QUARTERS}, 0x4000, set())
+    assert [r.kind for r in view] == ["separator", "note", "note", "label", "instruction",
+                                      "note"]  # fmt: skip
+    assert [r.text for r in view if r.kind == "note"] == [
+        "; read_sector: one sector",
+        ";",
+        "; the FDC is busy now",
+    ]
 
 
 def test_memory_layout_colours_variables_and_builds_the_legend() -> None:
@@ -297,6 +318,20 @@ def test_trace_rows_and_detail() -> None:
     detail = trace_detail(records, None, rows[5])
     assert detail["position"] == "4 / 4" and detail["registers"][0][2] == ""  # no "after"
     assert detail["line"].endswith("memory accesses: stepped instructions only")
+
+
+def test_trace_rows_mark_comment_blocks() -> None:
+    """A record with a comment block is marked; the detail shows the blocks cut short."""
+    records = [
+        _record("9000", "nop", "", "9001", "A000", where="RAM"),
+        {**_record("9001", "nop", "", "9002", "A000", where="RAM"),
+         "comment_before": "one\ntwo\nthree\nfour\nfive", "comment_after": "done"},
+    ]  # fmt: skip
+    rows = trace_rows(records, None)  # type: ignore[arg-type]
+    assert [row.blocks for row in rows if row.kind == "instruction"] == [False, True]
+    assert trace_detail(records, None, rows[1])["notes"] == []  # type: ignore[arg-type]
+    assert trace_notes(records[1]) == ["; one", "; two", "; three", "; four", "; …",
+                                       ";   done"]  # fmt: skip
 
 
 def test_bus_lines() -> None:

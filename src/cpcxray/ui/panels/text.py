@@ -85,9 +85,10 @@ class CodeRow:  # pylint: disable=too-many-instance-attributes  # one field per 
     """One row of the CPU tab's disassembly.
 
     Attributes:
-        kind: "separator" (a 16 KB quarter starts: `text`), "label", "instruction" or
-            "data" (an instruction's extra line, e.g. a RST's inline defw).
-        text: The separator's or label's text.
+        kind: "separator" (a 16 KB quarter starts: `text`), "label", "instruction",
+            "data" (an instruction's extra line, e.g. a RST's inline defw) or "note" (a line
+            of the owner's comment block before / after an instruction, task 9).
+        text: The separator's, label's or note's text.
         gutter: "▶" at the PC, "●" at a breakpoint, else "".
         address, data_bytes, mnemonic: The columns of an instruction ("" for others).
         before, name, after: The operands split around the name in them (`name` may be "").
@@ -122,11 +123,16 @@ def disassembly_view(listing: dict[str, Any], pc: int, breakpoints: set[int]) ->
     texts = {int(q["start"], 16) >> 14: f"{q['start']}-{q['end']} {q['text']}"
              for q in listing["paging"]}  # fmt: skip
     rows: list[CodeRow] = []
-    waiting: list[CodeRow] = []  # a label row waits for its instruction: the separator first
-    quarter = None
+    waiting: list[CodeRow] = []  # label and header rows wait for their instruction: the
+    quarter = None  # separator comes first
     for row in listing["rows"]:
         if row["kind"] == "label":
             waiting.append(CodeRow("label", text=f"{row['text']}:", name_type=row["name_type"]))
+            continue
+        if row["kind"] == "note":  # a block before waits like a label; one after follows
+            (waiting if row["position"] == "before" else rows).append(
+                CodeRow("note", text=f"; {row['text']}".rstrip())
+            )
             continue
         if row["kind"] == "instruction":
             address = int(row["address"], 16)
@@ -534,6 +540,7 @@ class TraceRow:  # pylint: disable=too-many-instance-attributes  # one field per
         name_type: The symbol type (FW, VAR, var, sub, jump, data): the colour of `name`.
         changes: The registers it changed (`register_changes`).
         where: Where it ran (for a separator: its text).
+        blocks: The owner has a comment block before / after it (task 9): marked "¶".
     """
 
     kind: str
@@ -548,6 +555,7 @@ class TraceRow:  # pylint: disable=too-many-instance-attributes  # one field per
     name_type: str = ""
     changes: str = ""
     where: str = ""
+    blocks: bool = False
 
 
 def registers_after(records: list[dict[str, Any]], after: dict[str, str] | None,
@@ -597,7 +605,8 @@ def trace_rows(records: list[dict[str, Any]], after: dict[str, str] | None) -> l
         rows.append(TraceRow("instruction", index, record["address"], depth, marker,
                              record["mnemonic"], before, name, rest,
                              record.get("name_type", ""),
-                             register_changes(record["registers"], following), where))  # fmt: skip
+                             register_changes(record["registers"], following), where,
+                             "comment_before" in record or "comment_after" in record))  # fmt: skip
         if record["flow"] == "call" and taken:
             depth += 1
         elif record["flow"] == "return" and taken:
@@ -607,13 +616,18 @@ def trace_rows(records: list[dict[str, Any]], after: dict[str, str] | None) -> l
             for row in rows]  # fmt: skip
 
 
+NOTE_LINES = 4  # lines of each comment block in the Trace tab's detail box
+
+
 def trace_detail(records: list[dict[str, Any]], after: dict[str, str] | None,
                  row: TraceRow) -> dict[str, Any]:  # fmt: skip
     """The detail box of a selected row: position, where/depth/accesses, registers table.
 
     Returns:
         "position" ("27 / 30"), "bytes" ("140B  3A 33 B7"), "line" (where · depth · accesses),
-        "registers": (name, before, after, changed) in the order of the box (two per line).
+        "registers": (name, before, after, changed) in the order of the box (two per line),
+        "notes": the owner's comment blocks as `;` lines (task 9; at most NOTE_LINES each, a
+        longer block ends with "; …").
     """
     record = records[row.index]
     following = registers_after(records, after, row.index)
@@ -631,7 +645,21 @@ def trace_detail(records: list[dict[str, Any]], after: dict[str, str] | None,
             registers.append((name, before[name.lower()], value_after, changed))
     return {"position": f"{row.index + 1} / {len(records)}",
             "bytes": f"{record['address']}  {record['bytes']}", "line": " · ".join(parts),
-            "registers": registers}  # fmt: skip
+            "registers": registers, "notes": trace_notes(record)}  # fmt: skip
+
+
+def trace_notes(record: dict[str, Any]) -> list[str]:
+    """A trace record's comment blocks as `;` lines (task 9), each cut to NOTE_LINES lines.
+
+    The block after the line is indented a little, so the two read apart.
+    """
+    notes = []
+    for position, prefix in (("before", "; "), ("after", ";   ")):
+        block = record.get(f"comment_{position}")
+        lines = block.split("\n") if block else []
+        shown = lines[:NOTE_LINES] + (["…"] if len(lines) > NOTE_LINES else [])
+        notes += [f"{prefix}{line}".rstrip() for line in shown]
+    return notes
 
 
 @dataclass(frozen=True)

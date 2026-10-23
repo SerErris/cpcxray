@@ -9,7 +9,7 @@ Software-compatible, not cycle-exact.
 
 ## Design documents
 
-- **`docs/design.md` is authoritative**: requirements (FR-*/NFR-*), decisions **D-01..D-34**,
+- **`docs/design.md` is authoritative**: requirements (FR-*/NFR-*), decisions **D-01..D-41**,
   architecture (§6), test strategy (§8), implementation plan (§9). Read the relevant sections
   before working on a component.
 - `docs/vortex_decrypt.md` (scrambling rule) and `docs/cpc_rst.md` (RST conventions) are
@@ -248,6 +248,8 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   exact, or value-matched inside a copied run (`AnalysisObserver.trusted_origin`).
 - Owner symbols (project/annotations.txt): an owner label replaces generated names incl.
   `rsx_<name>`; owner comments also on data lines (a commented data byte starts a line).
+  Comment blocks (task 9, D-41): `;` lines at column 0, before → above the label, after →
+  below the line; a block before / after a data byte starts / ends a data line.
 - analysis/source_gen.py: one item per instruction / far object / header field, data merged
   into lines; labels only at line starts (else hex), firmware symbols outside via EQU; other
   outside references by known variables (`LABEL+n`, `variables=` from
@@ -360,7 +362,11 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
 - Symbols (debugger/symbols.py): firmware names preloaded per machine (`SymbolTable(model=)`,
   `set_firmware` on `load_config`) from debugger/firmware_symbols.py
   (generated); user symbols in project/annotations.txt (`[type] [scope:]address label ;
-  comment`, type sub/jump/data; `var address|romN+offset label size ; comment`, D-35).
+  comment`, type sub/jump/data; `var address|romN+offset label size ; comment`, D-35;
+  `before|after [scope:]address ; text` one line per line of a comment block, D-41).
+  `Symbol.before` / `.after` hold the blocks; `add(..., before=, after=)`: None keeps, ""
+  removes; `symbol_add` / `comment_add(position=)` over MCP; CPU tab rows "note"; Trace tab
+  ¶ mark and detail lines (`trace_records`: `comment_before` / `comment_after`, by where it ran).
 - Variables (FR-DBG-11, D-34; debugger/variables.py `VariableMap`): firmware and AMSDOS RAM
   variables from docs/memory.md (generated debugger/variable_tables.py), sized, one address per
   machine, pack areas (`*_WORKSPACE`) for unknown bytes; lookup gives `NAME+offset`, smallest

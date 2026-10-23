@@ -3,9 +3,11 @@
 A mixin of `Session` (every public method is an MCP tool, D-27):
 
 * the owner's labels and comments (`symbol_add` with a type "sub" / "jump" / "data",
-  `symbol_remove`), and the owner's variables (`variable_add`, `variable_remove`): a named
-  byte range at an absolute address or in a background ROM's data area; they behave like the
-  known OS/AMSDOS variables everywhere (debugger/variables.py);
+  `symbol_remove`) - a comment at the end of the line and comment blocks before / after it
+  (task 9: routine headers, longer explanations; `comment_add` with a position);
+* the owner's variables (`variable_add`, `variable_remove`): a named byte range at an absolute
+  address or in a background ROM's data area; they behave like the known OS/AMSDOS variables
+  everywhere (debugger/variables.py);
 * `symbol_search` for the Symbols tab: one list of every name - firmware (FW), known variables
   (VAR), the owner's variables (var) and labels (sub, jump, data), and the names the source
   generator gave (marked "analysis", until the owner renames them) - with counts per type;
@@ -62,27 +64,53 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         comment: str | None = None,
         scope: str = GLOBAL,
         type: str | None = None,  # pylint: disable=redefined-builtin  # the tool's word (5g)
+        *,
+        before: str | None = None,
+        after: str | None = None,
     ) -> dict[str, Any]:
-        """Add or change a label and/or comment at `address`.
+        """Add or change a label, comment or comment block at `address`.
+
+        Parts not given keep what is there. The generated source writes the blocks as comment
+        lines before / after the instruction (task 9).
 
         Args:
             address: The address.
             label: Identifier, unique within the scope, the global symbols and the variables.
-            comment: Free text.
+            comment: Free text at the end of the line.
             scope: "" for global (RAM, firmware), "lower" (OS ROM) or "rom0".."rom15".
             type: The label's type: "sub" (subroutine, the default), "jump" (a jump target
                 inside code) or "data" (a table, a string).
+            before: Comment block before the line, e.g. a routine header; several lines
+                separated by line breaks; "" removes it.
+            after: Comment block after the line, e.g. a longer explanation; "" removes it.
         """
         try:
-            symbol = self.symbols.add(self._address(address), label, comment, scope, type)
+            symbol = self.symbols.add(self._address(address), label, comment, scope, type,
+                                      before=before, after=after)  # fmt: skip
         except SymbolError as error:
             raise SessionError(str(error)) from None
         return {"address": hex4(symbol.address), "label": symbol.label,
-                "comment": symbol.comment, "scope": symbol.scope, "type": symbol.type}  # fmt: skip
+                "comment": symbol.comment, "scope": symbol.scope, "type": symbol.type,
+                "before": symbol.before, "after": symbol.after}  # fmt: skip
 
-    def comment_add(self, address: int | str, comment: str, scope: str = GLOBAL) -> dict[str, Any]:
-        """Set the comment at `address` (keeps an existing label)."""
-        return self.symbol_add(address, comment=comment, scope=scope)
+    def comment_add(
+        self, address: int | str, comment: str, scope: str = GLOBAL, position: str = "line"
+    ) -> dict[str, Any]:
+        """Set a comment at `address` (keeps an existing label and the other comments).
+
+        Args:
+            address: The address.
+            comment: The text; for a block several lines separated by line breaks; "" removes
+                a block (`symbol_remove` removes everything at the address).
+            scope: "" for global, "lower" or "rom0".."rom15".
+            position: "line" (at the end of the line), "before" (a block before the line, e.g.
+                a routine header) or "after" (a block after the line).
+        """
+        if position == "line":
+            return self.symbol_add(address, comment=comment, scope=scope)
+        if position not in ("before", "after"):
+            raise SessionError("position must be line, before or after")
+        return self.symbol_add(address, scope=scope, **{position: comment})
 
     def symbol_remove(self, address: int | str, scope: str = GLOBAL) -> dict[str, Any]:
         """Remove the owner's symbol at `address` in `scope` (a firmware name stays)."""
@@ -171,7 +199,7 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
     def symbol_list(
         self, text: str = "", scope: str | None = None, source: str | None = None, limit: int = 100
     ) -> dict[str, Any]:
-        """List symbols whose label or comment contains `text` (see also `symbol_search`).
+        """List symbols whose label, comment or block contains `text` (see `symbol_search`).
 
         Args:
             text: Search text (case-insensitive); empty lists all.
@@ -184,7 +212,8 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         found = self.symbols.symbols(text, scope, source)
         entries = [
             {"address": hex4(s.address), "label": s.label, "comment": s.comment,
-             "scope": s.scope, "source": s.source, "type": s.type}
+             "scope": s.scope, "source": s.source, "type": s.type, "before": s.before,
+             "after": s.after}
             for s in found[:limit]
         ]  # fmt: skip
         return {"symbols": entries, "total": len(found)}
@@ -200,7 +229,8 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         """Every name for the Symbols tab: symbols, variables and the analysis's names.
 
         Args:
-            text: Search text (case-insensitive) in label, comment or a variable's description.
+            text: Search text (case-insensitive) in label, comment, comment blocks or a
+                variable's description.
             types: Only these types (FW, VAR, var, sub, jump, data); None for all. Comments
                 without a label (type None) are listed unless a type filter is given.
             scope: Only this scope ("" global, "lower", "romN"); None for all.
@@ -222,7 +252,8 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
                     if (scope is None or entry["scope"] == scope)
                     and (not only_yours or entry["mark"] == "yours")
                     and (not needle or any(needle in (entry.get(key) or "").lower()
-                                           for key in ("label", "comment")))]  # fmt: skip
+                                           for key in ("label", "comment", "before", "after")))
+                    ]  # fmt: skip
         counts = dict.fromkeys(SYMBOL_TYPES, 0)
         for entry in matching:
             if entry["type"] in counts:
@@ -236,7 +267,8 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         """Every entry `symbol_search` filters (symbols, variables, analysis names)."""
         entries = [
             {"type": s.type, "address": hex4(s.address), "label": s.label, "comment": s.comment,
-             "scope": s.scope, "mark": "yours" if s.source == "user" else None}
+             "scope": s.scope, "mark": "yours" if s.source == "user" else None,
+             "before": s.before, "after": s.after}
             for s in self.symbols.symbols()
         ]  # fmt: skip
         if self.variables is not None:
@@ -269,7 +301,8 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
 
         Returns:
             "address", "scope"; "firmware" (address, label, section, name, note), "machines" it
-            exists on; "yours" (the owner's label, comment, type in this scope); "variable"
+            exists on; "yours" (the owner's label, comment, type and comment blocks "before",
+            "after" in this scope); "variable"
             (a known or owner's variable of that label: size, description, owner, and for the
             owner's "base" and "now"); "analysis" (the source generator's name and type); "code"
             (the instruction at the address, names as in the disassembly).
@@ -288,7 +321,8 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         return {
             "address": hex4(value), "scope": scope, "machines": machines,
             "firmware": firmware._asdict() if firmware is not None else None,
-            "yours": ({"label": owner.label, "comment": owner.comment, "type": owner.type}
+            "yours": ({"label": owner.label, "comment": owner.comment, "type": owner.type,
+                       "before": owner.before, "after": owner.after}
                       if owner is not None and owner.scope == scope else None),
             "variable": self._variable_detail(variable) if variable is not None else None,
             "analysis": self._analysis_name(value, scope),

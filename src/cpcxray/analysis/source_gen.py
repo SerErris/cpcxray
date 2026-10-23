@@ -25,7 +25,10 @@ Labels exist only where a line starts: the owner's label of the address first (i
 `rsx_<name>`; the jumpblock comment keeps the RSX name), then header names and firmware symbols,
 else names by use: `ram_xxxx` inside a relocated block, `far_xxxx` for far address objects,
 `sub_xxxx` for call targets, `l_xxxx` for jump targets, `d_xxxx` for other referenced addresses.
-Owner comments go to the end of the line; a commented data byte starts a new data line. A
+Owner comments go to the end of the line; a commented data byte starts a new data line. The
+owner's comment blocks (task 9) become `;` lines at column 0: the block before an address above
+its label (a routine header), the block after it below its line; a data run starts at a block
+before and ends at a block after, so each block sits exactly at its byte. A
 reference to an address that is not a line start is written in hex; a reference to an address
 outside the source that has a global (firmware or owner) symbol uses it, defined by an `EQU`. A
 label always has the value of the number it replaces, so the bytes stay the same.
@@ -503,6 +506,12 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         symbol = self._owner_symbol(offset)
         return symbol.comment or "" if symbol is not None else ""
 
+    def _owner_block(self, offset: int, position: str) -> list[str]:
+        """The owner's comment block before / after a byte's line as `;` lines (task 9)."""
+        symbol = self._owner_symbol(offset)
+        block = getattr(symbol, position) if symbol is not None else None
+        return [f"; {text}".rstrip() for text in block.split("\n")] if block else []
+
     def _symbol_label(self, offset: int) -> str | None:
         """Return the owner/firmware label of a byte's address, if any."""
         symbol = self.symbols.at(self.view.address(offset), self._scope(offset))
@@ -646,9 +655,14 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         self._context = self.view.block_at(item.offset)
         self._lines += self._before(item.offset)
         self._lines += self._open_never_read(index)
+        self._lines += self._owner_block(item.offset, "before")
         if item.kind == "data":
             end = index
-            while end + 1 < len(self.items) and self._continues_data(self.items[end + 1], item):
+            while (
+                end + 1 < len(self.items)
+                and not self._owner_block(self.items[end].offset, "after")
+                and self._continues_data(self.items[end + 1], item)
+            ):
                 end += 1
             self._emit_data(item.offset, self.items[end].offset + 1, item.group)
             following = end + 1
@@ -659,6 +673,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
                 self._line_of_offset[offset] = start_line
             following = index + 1
         last = self.items[following - 1]
+        self._lines += self._owner_block(last.offset, "after")
         self._lines += self._close_never_read(following)
         self._lines += self._after(last.offset + last.length)
         return following
@@ -713,6 +728,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             and item.offset not in self._boundaries
             and item.offset not in self._access_edges
             and not self._owner_comment(item.offset)  # a commented byte starts a line
+            and not self._owner_block(item.offset, "before")
             and item.offset not in self._copy_marks
         )
 

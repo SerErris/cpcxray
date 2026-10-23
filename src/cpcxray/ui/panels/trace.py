@@ -139,6 +139,8 @@ class TraceList:
                 dpg.add_text(row.name, color=colour)
             if row.after:
                 dpg.add_text(row.after)
+            if row.blocks:  # the owner's comment block before / after it (task 9)
+                dpg.add_text("  \u00b6", color=colours.TEXT_DIM)
         dpg.add_text(row.changes, color=colours.TEXT_BYTES)
         return item
 
@@ -218,6 +220,7 @@ class TraceTab(Tab):  # pylint: disable=too-many-instance-attributes  # trace st
                 dpg.add_button(arrow=True, direction=dpg.mvDir_Down,
                                callback=lambda: self.list.handle_key("down"))  # fmt: skip
             self.text("trace_where", color=colours.TEXT_DIM, wrap=TAB_WIDTH - 20)
+            self.text("trace_notes", color=colours.TEXT_DIM, show=False)  # comment blocks
             with dpg.group(horizontal=True, horizontal_spacing=0):
                 for column in range(2):
                     with dpg.group():
@@ -262,6 +265,8 @@ class TraceTab(Tab):  # pylint: disable=too-many-instance-attributes  # trace st
                       f"{row.after}".rstrip())  # fmt: skip
         dpg.set_value(items["trace_position"], detail["position"])
         dpg.set_value(items["trace_where"], detail["line"])
+        dpg.set_value(items["trace_notes"], "\n".join(detail["notes"]))
+        dpg.configure_item(items["trace_notes"], show=bool(detail["notes"]))
         for number, (name, before, after, changed) in enumerate(detail["registers"]):
             line, column = divmod(number, 2)
             dpg.set_value(items[f"trace_reg_{line}_{column}"], f"{name:<4}")

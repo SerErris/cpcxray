@@ -7,8 +7,9 @@ bottom:
   with counts that show or hide each type (FW, VAR, var, sub, jump, data); a legend line.
 * A compact list (type, address, label in the type's colour, ✎ yours / ◇ from the analysis)
   beside the selected entry's detail (framed yellow): address and scope, where the name comes
-  from, the machines it exists on, the instruction there; your label (with its type) and your
-  comment to edit - Save / Remove yours; Show in CPU, Show in Memory, Breakpoint here.
+  from, the machines it exists on, the instruction there; your label (with its type), your
+  comment and your comment blocks before / after the line (task 9: several lines each, e.g. a
+  routine header) to edit - Save / Remove yours; Show in CPU, Show in Memory, Breakpoint here.
 * Your symbols: the type chips var / sub / jump / data; sub, jump, data take address, name,
   scope and comment; var takes name, size, base (absolute, or the data area of ROM n) plus
   offset and comment, and shows where it is now.
@@ -48,6 +49,7 @@ MAX_ENTRIES = 5000
 FORM_TYPES = ("var", *OWNER_TYPES)
 ANNOTATIONS = "project/annotations.txt"
 CODE_TYPES = ("sub", "jump")  # shown in the CPU tab; the others in the Memory tab
+BLOCK_HEIGHT = 46  # a comment block field: three lines
 
 
 class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filters, list, form
@@ -128,6 +130,11 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
         with dpg.group(horizontal=True):
             dpg.add_text("your comment", color=colours.TEXT_DIM)
             self.input("symbol_edit_comment", "comment", 236)
+        for position in ("before", "after"):
+            with dpg.group(horizontal=True):
+                dpg.add_text(f"{position:<12}", color=colours.TEXT_DIM)
+                self.input(f"symbol_edit_{position}", f"comment lines {position} the line", 236,
+                           multiline=True, height=BLOCK_HEIGHT, tab_input=False)  # fmt: skip
         with dpg.group(horizontal=True):
             self.items["symbol_save"] = self.button("Save", self.save_selected)
             self.items["symbol_remove"] = self.button("Remove yours", self.remove_selected)
@@ -192,7 +199,11 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
         return self.entries[self.list.selected]
 
     def save_selected(self) -> Any:
-        """Store your label / comment of the selected entry (a variable of yours: change it)."""
+        """Store your label / comments of the selected entry (a variable of yours: change it).
+
+        The comment blocks are stored as they are in their fields: an empty field removes a
+        block.
+        """
         entry = self._selected_entry()
         label = self.value("symbol_edit_label").strip() or None
         comment = self.value("symbol_edit_comment").strip() or None
@@ -200,11 +211,12 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
             own = self._detail_shown[1]["variable"]
             return self.session.variable_add(label or entry["label"], own["size"], own["base"],
                                              comment, replaces=entry["label"])  # fmt: skip
-        if label is None and comment is None:
-            raise ValueError("give a label, a comment or both")
+        before, after = self.value("symbol_edit_before"), self.value("symbol_edit_after")
+        if label is None and comment is None and not before.strip() and not after.strip():
+            raise ValueError("give a label, a comment or a comment block")
         symbol_type = self.value("symbol_edit_type") if label else None
         result = self.session.symbol_add(entry["address"], label, comment, entry["scope"],
-                                         symbol_type)  # fmt: skip
+                                         symbol_type, before=before, after=after)  # fmt: skip
         if label:
             self._selected_key = (result["type"], entry["address"], entry["scope"], label)
         return result
@@ -324,8 +336,8 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
         self._fill_edit_fields(entry, detail)
 
     def _fill_edit_fields(self, entry: dict[str, Any] | None, detail: dict[str, Any]) -> None:
-        """Your label, type and comment of the entry, ready to change."""
-        label, comment, symbol_type = "", "", "sub"
+        """Your label, type, comment and comment blocks of the entry, ready to change."""
+        label, comment, symbol_type, before, after = "", "", "sub", "", ""
         yours = detail.get("yours")
         variable = detail.get("variable")
         if entry is not None and entry["type"] == "var" and entry["mark"] == "yours":
@@ -333,13 +345,18 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
         elif yours is not None:
             label, comment = yours["label"] or "", yours["comment"] or ""
             symbol_type = yours["type"] or "sub"
+            before, after = yours.get("before") or "", yours.get("after") or ""
         elif entry is not None and entry["mark"] == "analysis":
             label, symbol_type = entry["label"], entry["type"]
         dpg.set_value(self.items["symbol_edit_label"], label)
         dpg.set_value(self.items["symbol_edit_comment"], comment)
         dpg.set_value(self.items["symbol_edit_type"], symbol_type)
+        dpg.set_value(self.items["symbol_edit_before"], before)
+        dpg.set_value(self.items["symbol_edit_after"], after)
         is_variable = entry is not None and entry["type"] in ("VAR", "var")
         dpg.configure_item(self.items["symbol_edit_type"], show=not is_variable)
+        for position in ("before", "after"):  # a variable has no line to comment around
+            dpg.configure_item(self.items[f"symbol_edit_{position}"], enabled=not is_variable)
         removable = entry is not None and entry["mark"] == "yours"
         dpg.configure_item(self.items["symbol_remove"], enabled=removable)
         dpg.bind_item_theme(self.items["symbol_remove"], self.styles.plain_button if removable
