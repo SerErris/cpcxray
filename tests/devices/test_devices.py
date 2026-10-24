@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from cpcxray.devices.gate_array import INTERRUPT_PERIOD_US
 from cpcxray.devices.system_io import FRAME_US, port_b_meaning, port_c_meaning
+from cpcxray.devices.video_timing import INTERRUPT_PERIOD_US, LINE_US
 from cpcxray.machine.cpc464 import CPC464
 
 
@@ -70,27 +70,30 @@ def test_gate_array_is_not_decoded_on_other_ports(machine: CPC464) -> None:
 
 
 def test_interrupt_timer_and_acknowledge(machine: CPC464) -> None:
-    """INT is latched every 3,328 µs and cleared by the acknowledge (D-05)."""
+    """After reset the first INT comes at line 54: line 2 resyncs R52, then 52 lines (D-05)."""
     gate_array = machine.gate_array
-    assert gate_array.interrupt_in_us == INTERRUPT_PERIOD_US and gate_array.line_counter == 0
-    gate_array.tick(INTERRUPT_PERIOD_US - 1)  # counts down ...
+    first_us = 2 * LINE_US + INTERRUPT_PERIOD_US
+    assert gate_array.interrupt_in_us == first_us and gate_array.line_counter == 0
+    machine.clock_us = first_us - 1
+    gate_array.tick(machine.clock_us)
     assert not gate_array.interrupt_pending
     assert gate_array.interrupt_in_us == 1 and gate_array.line_counter == 51
-    gate_array.tick(1)  # ... reaches 0: interrupt, reload
-    assert gate_array.interrupt_pending
-    assert gate_array.interrupt_in_us == INTERRUPT_PERIOD_US
+    machine.clock_us = first_us
+    gate_array.tick(machine.clock_us)  # R52 reaches 52: interrupt, back to 0
+    assert gate_array.interrupt_pending and gate_array.line_counter == 0
     assert gate_array.state()["interrupt_in_us"] == INTERRUPT_PERIOD_US
     assert machine.bus.int_ack() == 0xFF
     assert not machine.gate_array.interrupt_pending
 
 
-def test_rmr_bit4_clears_interrupt_and_restarts_period(machine: CPC464) -> None:
-    """RMR bit 4 clears a pending interrupt and restarts the 300 Hz period."""
-    machine.gate_array.tick(5000)
-    assert machine.gate_array.interrupt_pending
+def test_rmr_bit4_clears_interrupt_and_counter(machine: CPC464) -> None:
+    """RMR bit 4 clears a pending interrupt and the line counter R52 (rule 4)."""
+    machine.clock_us = 5000
+    machine.gate_array.tick(machine.clock_us)
+    assert machine.gate_array.interrupt_pending and machine.gate_array.line_counter > 0
     machine.bus.io_out(0x7F00, 0x99)  # RMR with bit 4
     assert not machine.gate_array.interrupt_pending
-    assert machine.gate_array.interrupt_in_us == INTERRUPT_PERIOD_US
+    assert machine.gate_array.line_counter == 0
 
 
 # -- CRTC, ROM select ----------------------------------------------------------------------

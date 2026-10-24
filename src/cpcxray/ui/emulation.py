@@ -20,10 +20,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from cpcxray.devices.video_timing import FRAME_US  # one CPC frame (D-05)
 from cpcxray.session.commands import CommandQueue
 from cpcxray.session.session import Session
 
-FRAME_US = 19968  # one CPC frame (D-05)
 CPC_FPS = 50  # the CPC's own frame rate: the reference for the GUI's display speed
 MAX_CATCH_UP_US = 5 * FRAME_US  # after a stall, do not try to catch up more than this
 MAX_SPEED_WALL_BUDGET_S = 0.015  # per GUI frame, leaves time for rendering at 50-60 Hz

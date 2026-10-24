@@ -87,7 +87,9 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
             ram_blocks=8 if self.firmware_model == "6128" else 4,  # only the 6128 banks
         )
         self.keyboard = Keyboard()
-        self.gate_array = GateArray(self.memory.set_rom_enables, self.memory.set_ram_configuration)
+        self.gate_array = GateArray(
+            self.memory.set_rom_enables, self.memory.set_ram_configuration, self._clock
+        )
         self.crtc = Crtc()
         self.rom_select = RomSelect(self.memory.select_upper)
         self.system_io = SystemIO(self.keyboard, self._clock, port_b_constant)
@@ -208,7 +210,8 @@ class CPC464:  # pylint: disable=too-many-instance-attributes  # the machine's c
             shadow.instruction_pc = cpu.pc
         cost = cpu.step()
         self.clock_us += cost
-        self.gate_array.tick(cost)
+        if self.clock_us >= self.gate_array.next_line_us:  # a scan line began (D-05)
+            self.gate_array.tick(self.clock_us)
         if self.keyboard.typing:
             self.keyboard.tick(self.clock_us)
         return cost

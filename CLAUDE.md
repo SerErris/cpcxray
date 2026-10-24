@@ -354,7 +354,9 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   researched: MAME and the OS ROM's first instruction `ld bc,#7F89 / out (c),c`), the Z80 last.
 - Devices decode their own port bits; the bus broadcasts OUT and ANDs IN values (D-08).
   Write-only devices return `NOT_DRIVEN` from `io_in`. Bus observers swap in observed methods.
-- 300 Hz interrupt and VSYNC per D-05; port B constant &1E confirmed by the boot.
+- 300 Hz interrupt and VSYNC per D-05 (revised 2026-10-25): one simulated frame
+  (devices/video_timing.py, 64 µs lines); the Gate Array's line counter R52 with the four real
+  rules, first INT 2 lines into VSYNC, resync each frame. Port B constant &1E confirmed by the boot.
 - `cpcxray mcp` drives a CPC 464 from config/machine.toml by default (`--machine flat` for the
   bare Z80). `screen_text` reads text from screen RAM using the ROM font (§5.4).
 

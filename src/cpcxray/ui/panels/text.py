@@ -283,7 +283,7 @@ def gate_array_lines(gate_array: dict[str, Any]) -> list[str]:
     return [
         f"mode {gate_array['mode']} \u00b7 colours fw/hw (hex)",
         f"pen select {pen_text} \u00b7 IRQ in {gate_array['interrupt_in_us']} \u00b5s "
-        f"\u00b7 R52 {gate_array['line_counter_r52']}",
+        f"\u00b7 R52 {gate_array['line_counter_r52']} \u00b7 line {gate_array['frame_line']}",
     ]
 
 

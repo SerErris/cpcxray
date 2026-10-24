@@ -120,3 +120,19 @@ def test_bad_files(tmp_path: Path) -> None:
     with pytest.raises(SessionError):
         Session(machine).sna_load(str(path))
     save_sna(machine, tmp_path / "ok.sna")
+
+
+def test_interrupt_counter_round_trip(tmp_path: Path) -> None:
+    """R52 (&B3) and the pending INT (&B4) survive save and load; the phase is the machine's."""
+    session = running_machine()
+    gate_array = session.machine.gate_array  # type: ignore[attr-defined]
+    gate_array.r52, gate_array.interrupt_pending = 37, True
+    path = tmp_path / "state.sna"
+    session.sna_save(str(path))
+    assert path.read_bytes()[0xB3:0xB5] == bytes([37, 1])
+    fresh = Session(make_test_cpc(OS, UPPER))
+    fresh.step(3)
+    fresh.sna_load(str(path))
+    loaded = fresh.machine.gate_array  # type: ignore[attr-defined]
+    assert (loaded.r52, loaded.interrupt_pending) == (37, True)
+    assert loaded.next_line_us > fresh.machine.clock_us >= loaded.next_line_us - 64

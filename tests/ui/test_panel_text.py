@@ -202,10 +202,11 @@ def test_memory_layout_colours_variables_and_builds_the_legend() -> None:
 def test_device_texts() -> None:
     """The Devices tab's texts: colours fw/hw, Gate Array lines, ROM select, PPI, CRTC, FDC."""
     assert colour_numbers(20, 0x13) == "20/13"
-    gate_array = {"mode": 1, "pen": 15, "interrupt_in_us": 1784, "line_counter_r52": 24}
+    gate_array = {"mode": 1, "pen": 15, "interrupt_in_us": 1784, "line_counter_r52": 24,
+                  "frame_line": 80}  # fmt: skip
     assert gate_array_lines(gate_array) == [
         "mode 1 \u00b7 colours fw/hw (hex)",
-        "pen select P15 \u00b7 IRQ in 1784 \u00b5s \u00b7 R52 24",
+        "pen select P15 \u00b7 IRQ in 1784 \u00b5s \u00b7 R52 24 \u00b7 line 80",
     ]
     rom_select = {"selected": 7, "answering": 7, "file": "amsdos.rom", "paged_in": False,
                   "installed": ["lower", "0", "7"]}  # fmt: skip

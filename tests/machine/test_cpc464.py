@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from cpcxray.cpu.bus import Cycle
-from cpcxray.devices.gate_array import INTERRUPT_PERIOD_US
+from cpcxray.devices.video_timing import INTERRUPT_PERIOD_US, LINE_US
 from cpcxray.machine.config import MachineConfig, RomConfig
 from cpcxray.machine.cpc464 import CPC464
 from cpcxray.machine.memory import RomSlot
@@ -38,7 +38,10 @@ def test_reset_sequence_starts_in_lower_rom() -> None:
 
 
 def test_interrupt_reaches_cpu_at_300_hz() -> None:
-    """With IM 1 and EI, the CPU takes the Gate Array interrupt every 3,328 µs."""
+    """With IM 1 and EI, the CPU takes the Gate Array interrupt every 3,328 µs.
+
+    After reset the resync at frame line 2 sets R52 to 0, so the first one comes at line 54.
+    """
     machine = CPC464()
     # &0000: IM 1 / EI / loop: JR loop; &0038: EI / RET (the handler counts nothing, we watch PC)
     code = bytearray(0x4000)
@@ -48,13 +51,16 @@ def test_interrupt_reaches_cpu_at_300_hz() -> None:
     machine.reset()
     machine.cpu.sp = 0x8000
     entries = []
-    while machine.clock_us < 4 * INTERRUPT_PERIOD_US:
+    first_us = 2 * LINE_US + INTERRUPT_PERIOD_US
+    while machine.clock_us < first_us + 3 * INTERRUPT_PERIOD_US - 100:
         pc_before = machine.cpu.pc
         machine.step()
         if machine.cpu.pc == 0x38 and pc_before != 0x38:
             entries.append(machine.clock_us)
-    assert len(entries) == 3  # at 3328, 6656, 9984 (+ the acceptance cost)
-    assert all(0 <= entry - n * INTERRUPT_PERIOD_US < 10 for n, entry in enumerate(entries, 1))
+    assert len(entries) == 3  # at 3456, 6784, 10112 (+ the acceptance cost)
+    assert all(
+        0 <= entry - first_us - n * INTERRUPT_PERIOD_US < 10 for n, entry in enumerate(entries)
+    )
 
 
 def test_bus_observers_swap_methods() -> None:

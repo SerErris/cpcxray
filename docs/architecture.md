@@ -137,10 +137,10 @@ port; keys come from the window, from MCP or from typed text. The drives hold di
 machine: once per window frame it draws screen RAM with the Gate Array's inks and the CRTC
 registers.
 
-**Simplified on purpose:** the interrupt is latched every 3,328 µs (300 Hz) and VSYNC is
-computed from the clock (D-05), there are no scan lines, the CRTC has no timing, sound and
-cassette are not emulated, and the FDC has no overrun timing. The firmware and the ROMs we
-analyse work with this; demos that race the video beam do not.
+**Simplified on purpose:** scan lines and VSYNC are computed from the clock, and the 300 Hz
+interrupt follows the Gate Array's line counter R52 on those lines (D-05); the CRTC has no
+timing, sound and cassette are not emulated, and the FDC has no overrun timing. The firmware
+and the ROMs we analyse work with this; demos that race the video beam do not.
 
 | Line | Meaning |
 |---|---|

@@ -80,7 +80,8 @@ Legends and the steps in words: [architecture.md](architecture.md#2-the-machine)
    instruction's bytes and registers (`_trace_instruction`; disassembled only when read).
 2. **`CPC464.step`** (machine/cpc464.py) sets the CPU's INT line from the Gate Array, tells the
    bus and the shadow ROMs the instruction's PC, calls `Z80.step`, adds the cost to the clock,
-   ticks the Gate Array (300 Hz interrupt, VSYNC) and the keyboard's typing schedule.
+   ticks the Gate Array when a scan line began (line counter R52, 300 Hz interrupt locked to
+   VSYNC) and the keyboard's typing schedule.
 3. **`Z80.step`** (cpu/z80.py) fetches the opcode with `bus.fetch` (an M1 cycle), decodes it
    through handler tables built per CPU instance from the opcode bit fields, and does its
    reads, writes and I/O through `bus.read` / `bus.write` / `bus.io_in` / `bus.io_out` - in
@@ -131,9 +132,10 @@ first.
 
 ### devices/ - I/O
 
-`gate_array.py` (mode, pens, inks, ROM enables, interrupt timer, 6128 RAM configuration),
-`crtc.py` (register file only, D-06), `rom_select.py`, `system_io.py` (PPI + PSG replacement:
-keyboard port, VSYNC bit, D-07), `keyboard.py` (the 10 × 8 matrix, key sources "api" / "host" /
+`gate_array.py` (mode, pens, inks, ROM enables, line counter R52 and the 300 Hz interrupt,
+6128 RAM configuration), `video_timing.py` (the simulated frame: 64 µs lines, VSYNC lines; shared
+by the Gate Array and SystemIO, D-05), `crtc.py` (register file only, D-06), `rom_select.py`,
+`system_io.py` (PPI + PSG replacement: keyboard port, VSYNC bit, D-07), `keyboard.py` (the 10 × 8 matrix, key sources "api" / "host" /
 "typing", timed typing), `key_map.py` (key names and the firmware's translation tables read from
 the OS ROM), `fdc765.py` (µPD765 with two drives).
 
@@ -389,7 +391,7 @@ GPL-3.0-or-later; third-party material in `THIRD_PARTY.md`. Build locally with
 | fix an instruction's timing | `cpu/timing.py` |
 | change how an instruction is shown | `cpu/disasm.py`, `analysis/cpc_profile.py` (RSTs) |
 | change paging, ROM slots, banking | `machine/memory.py`, `devices/gate_array.py`, `devices/rom_select.py` |
-| change interrupts / VSYNC | `devices/gate_array.py`, `devices/system_io.py` (D-05) |
+| change interrupts / VSYNC | `devices/gate_array.py`, `devices/system_io.py`, `devices/video_timing.py` (D-05) |
 | change the screen | `ui/renderer.py`, `ui/palette.py`, `machine/screen.py` |
 | change keyboard input | `devices/keyboard.py`, `devices/key_map.py`, `ui/host_keys.py` |
 | change disk behaviour | `devices/fdc765.py`, `disk/dsk.py`, `disk/cpm.py`, `session/disks.py` |

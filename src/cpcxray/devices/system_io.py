@@ -16,7 +16,9 @@ all of the PSG this emulator needs for input. Values written to the other PSG re
 10, "write") are stored for the device view and `.sna` snapshots; no sound is produced.
 
 VSYNC (D-05) is computed when port B is read: `(clock_us % 19968) < 512`, i.e. the first 8
-scan lines of each 19,968 µs frame. The port B constant (manufacturer and 50 Hz bits) is
+scan lines of each 19,968 µs frame. The frame constants live in devices/video_timing.py, shared
+with the Gate Array, whose line counter puts the first interrupt of a frame 2 lines into VSYNC.
+The port B constant (manufacturer and 50 Hz bits) is
 configurable; &1E means Amstrad, 50 Hz (to be confirmed by the boot milestone, §4).
 """
 
@@ -26,9 +28,8 @@ from collections.abc import Callable
 from typing import Any
 
 from cpcxray.devices.keyboard import Keyboard
+from cpcxray.devices.video_timing import FRAME_US, VSYNC_US  # shared with the Gate Array (D-05)
 
-FRAME_US = 19968  # 312 lines of 64 µs (§5.3)
-VSYNC_US = 512  # 8 lines
 KEYBOARD_PSG_REGISTER = 14
 DEFAULT_PORT_B = 0x1E  # Amstrad (bits 3-1 = 111), 50 Hz (bit 4); VSYNC added on read
 

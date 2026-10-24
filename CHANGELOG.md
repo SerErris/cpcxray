@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed: BASIC could hang in `MC WAIT FLYBACK` (for example after a disc LOAD). The 300 Hz
+  interrupt now follows the Gate Array's real line counter (R52): the first interrupt of a frame
+  comes 2 scan lines into VSYNC, and the phase is resynchronised every frame, also after an RMR
+  bit 4 write or a snapshot load. The Devices tab shows the frame line next to R52.
 - New: groups for your variables and RAM labels, and code contexts - for programs that use the
   same RAM differently (VDOS and CP/M, for example). Put variables and global labels in groups
   (Symbols tab: Groups panel, or `group_add` / `variable_add(group=)` / `symbol_add(group=)`),

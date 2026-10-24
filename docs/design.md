@@ -160,7 +160,7 @@ software.
 | D-02 | **Dear PyGui** for the frontend. | Immediate mode, fast, suits many debug panels plus a screen texture. |
 | D-03 | **Instruction-level stepping**; the bus accesses of each instruction are emitted in the correct order with their signals. | Satisfies FR-CPU-03/04. Decoding needs correct M1 attribution and ordering, not timing. |
 | D-04 | **Time base: 1 µs = 1 "NOP" = 4 T-states.** Each instruction costs a whole number of NOPs from a per-opcode table (e.g. NOP 1, LD A,(HL) 2, CALL nn 5, LDIR 6 per repeat, extra cost when a condition is taken). Interrupts are accepted only at instruction boundaries. | On the CPC every instruction is stretched to whole NOPs. One tick per instruction would distort timing by a factor of 3–5; the table lookup costs almost nothing. |
-| D-05 | **Simplified interrupt and VSYNC model:** INT is latched every 3,328 µs (300 Hz) and cleared on acknowledge; GA function 10 bit 4 clears a pending INT and restarts the period. VSYNC = `(clock_us % 19968) < 512`, computed when &F5xx is read. No scan lines, no GA line counter, no resynchronisation. | One frame (19,968 µs) is exactly 6 interrupt periods, so the first interrupt of each frame always sees VSYNC, which is all the firmware needs (frame flyback, `MC WAIT FLYBACK`). |
+| D-05 | **Simulated frame, real interrupt rules** (revised 2026-10-25): scan lines are 64 µs steps of the machine clock (devices/video_timing.py), VSYNC = frame lines 0-7 (`(clock_us % 19968) < 512`, computed when &F5xx is read). INT comes from the Gate Array's line counter R52, clocked by the same lines: +1 per line, INT at 52 (R52 = 0); resync 2 lines after VSYNC start (R52 >= 32 → INT; R52 = 0 always); the acknowledge clears INT and R52 bit 5; GA function 10 bit 4 clears INT and R52. No CRTC timing (D-06). | 312 lines = 6 × 52, but that alone is not enough: software needs the first interrupt 128 µs *into* VSYNC (a loop waiting for VSYNC, `MC WAIT FLYBACK`, and the handler's frame flyback check must see it; Soft 968 ch. 13), and the phase must come back after RMR bit 4 writes and snapshot loads. The old free-running 3,328 µs timer had neither: after a disc LOAD BASIC could hang in `MC WAIT FLYBACK`. |
 | D-06 | **CRTC is a register file only**, no timing. The renderer uses R1, R6, R9, R12, R13. | The firmware scrolls via R12/R13; ignoring them garbles the display. |
 | D-07 | **One `SystemIO` device replaces PPI and sound chip.** It handles port B reads (configurable constant + VSYNC bit) and the keyboard read sequence (§6.9); the key matrix is a 10-byte row array. All other PPI/PSG writes are ignored. | About 20 lines of code. The firmware decodes key rows itself, so it must see row data; trapping firmware keyboard calls would be fragile because expansion ROMs patch jumpblocks. |
 | D-08 | **Partial I/O decoding, broadcast to all devices**; each device checks its own address bits. | This is how the CPC decodes ports; one OUT can hit several devices. |
@@ -241,10 +241,14 @@ software.
 | Interrupt period (52 lines, 300 Hz) | 3,328 | 13,312 |
 | Frame (312 lines, 50.08 Hz) | 19,968 | 79,872 |
 
-- INT: when `clock_us >= next_int_us`, INT is latched and `next_int_us += 3328`. It stays pending
-  until accepted (one pending interrupt survives a long DI phase, as on the real machine).
-- VSYNC: `(clock_us % 19968) < 512` (first 8 lines of a frame); no event, computed on read.
-- Not modelled: GA line counter, resynchronisation at VSYNC, bit-5 clear on acknowledge.
+- Scan line n runs from n × 64 to n × 64 + 63 µs; frame line = n % 312 (devices/video_timing.py).
+- INT: the Gate Array's line counter R52 per D-05: +1 per line, INT at 52; at frame line 2
+  (128 µs into VSYNC) INT if R52 >= 32 and R52 = 0; acknowledge clears INT and R52 bit 5; RMR
+  bit 4 clears INT and R52. Steady state: INT at frame lines 2, 54, 106, 158, 210, 262. INT
+  stays pending until accepted (one pending interrupt survives a long DI phase).
+- VSYNC: `(clock_us % 19968) < 512` (frame lines 0-7); no event, computed on read.
+- Not modelled: CRTC timing (VSYNC position and width from R3-R9), NTSC, the HSYNC position
+  within a line.
 
 ### 5.4 Screen memory layout
 
@@ -536,9 +540,11 @@ with the runtime value; the owner can recapture.
 
 - Decode: A15 = 0, A14 = 1.
 - State: `pen`, `inks[16]`, `border`, `mode` (applied at the next frame for rendering),
-  `lower_rom_enabled`, `upper_rom_enabled`, `int_pending`, `next_int_us`, `ram_config` (function
-  11, passed to the memory map for 6128 banking; reset to 0).
-- Interrupt generation per D-05: `tick(clock_us)` latches INT, `int_ack()` clears it.
+  `lower_rom_enabled`, `upper_rom_enabled`, `interrupt_pending`, `r52`, `next_line_us`,
+  `ram_config` (function 11, passed to the memory map for 6128 banking; reset to 0).
+- Interrupt generation per D-05: the machine calls `tick(clock_us)` once the clock reaches
+  `next_line_us` (rules 1 and 2 per scan line), `acknowledge_interrupt()` applies rule 3.
+  `interrupt_in_us` and `frame_line` are derived for the device view.
 - Changing the ROM enables notifies the `MemoryMap`.
 
 ### 6.8 CRTC (`devices/crtc.py`)
@@ -591,8 +597,8 @@ def run(self, budget_us: int):
         us = self.cpu.step()
         budget_us -= us
         self.clock_us += us
-        if self.clock_us >= self.ga.next_int_us:   # 300 Hz (D-05)
-            self.ga.raise_int()
+        if self.clock_us >= self.ga.next_line_us:  # a scan line began (D-05)
+            self.ga.tick(self.clock_us)
         for dev in self.tickers:                   # FDC later
             dev.tick(us)
 ```
