@@ -23,7 +23,7 @@ from cpcxray.decoding.vortex import DECODERS
 from cpcxray.session.analysis import AnalysisMixin
 
 CODE_KINDS = ("insn_start", "insn_body", "rst_operand")
-DATA_KINDS = ("far_addr", "string", "word_table", "byte_data")
+DATA_KINDS = ("far_addr", "string", "word_table", "word_data", "byte_data")
 
 
 class AnalysisViewMixin(AnalysisMixin):  # pylint: disable=abstract-method  # Session implements the stubs

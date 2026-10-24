@@ -7,7 +7,7 @@ exactly one entry per target byte and accumulates knowledge over many runs (D-31
 Per byte:
 
 * data kind (`Kind`): instruction start or body, RST inline operand, far address object, string,
-  word table, byte data or unknown;
+  word table (addresses), word data (numbers), byte data or unknown;
 * source (`Source`) of that classification: observed at run time, static guess (classifier), or
   the owner. A classification is only replaced by one from an equal or stronger source:
   owner > observed > static.
@@ -43,6 +43,7 @@ class Kind(IntEnum):
     STRING = 5
     WORD_TABLE = 6
     BYTE_DATA = 7
+    WORD_DATA = 8  # words that are numbers, not addresses (appended: older files stay valid)
 
 
 class Source(IntEnum):

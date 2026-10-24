@@ -272,7 +272,7 @@ run with targets ──► observers on the bus ──► facts ──► classi
   relocated blocks, marks code run from RAM back on its ROM origin (D-21, D-22); the execution
   observer records instruction starts, RST operands and far address objects.
 - **Database** (analysis/database.py, D-31): per byte a kind (instruction start / body, RST
-  operand, far address, string, word table, byte data, unknown) and its source (owner >
+  operand, far address, string, word table, word data, byte data, unknown) and its source (owner >
   observed > static). Only **facts** are authoritative - kinds are rebuilt from them by the
   classifier before every use. Saved as `project/<rom>.analysis.json`, merged at start.
 - **Classifier** (analysis/classifier.py): `TargetView` (clear image, access map, relocated

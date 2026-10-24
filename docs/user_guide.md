@@ -308,8 +308,9 @@ A first source is rarely the end. Typical next steps, then Generate and Verify a
 - **Collect more** where the coverage bar still shows unknown bytes: trigger the paths that have
   not run yet.
 - **Correct a classification** where the automatic one is wrong (e.g. a table taken for code):
-  the MCP tool `classify` sets code, string, word table or byte data for a range - your choice
-  always wins over the observed and the guessed one.
+  the MCP tool `classify` sets code, string, word table (addresses, written with their names),
+  word data (numbers such as parameters or offsets, always in hex) or byte data for a range -
+  your choice always wins over the observed and the guessed one.
 
 A session therefore looks like: start `cpcxray gui` in the project folder → the target's phases
 show where you left off → collect (1), check the decoding (2), save (3) → generate (4) and verify

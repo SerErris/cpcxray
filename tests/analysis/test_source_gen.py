@@ -8,8 +8,12 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+from cpcxray.analysis.classifier import classify_target
+from cpcxray.analysis.cpc_profile import CpcProfile
+from cpcxray.analysis.database import Kind, TargetDatabase
 from cpcxray.analysis.provenance import RelocatedBlock
 from cpcxray.analysis.source_gen import generate_source, split_data, string_operands
+from cpcxray.analysis.targets import INSN_START
 from cpcxray.analysis.verify import compare, verify_source
 from cpcxray.cpu.disasm import disassemble
 from cpcxray.debugger.symbols import SymbolTable
@@ -241,6 +245,30 @@ def test_owner_comment_blocks(tmp_path: Path) -> None:
     assert lines[table + 2] == "; end of the entry"  # … and the one after ends it
     assert lines[table + 3].strip().startswith("defb #55")
     source = tmp_path / "blocks.asm"
+    source.write_text(generated.text, encoding="utf-8")
+    expected = view.final_image(database, "static")
+    assert verify_source(source, expected, view.start, generated.line_of_offset).identical
+
+
+def test_word_data_stays_numbers(tmp_path: Path) -> None:
+    """Word data are numbers: &0010 stays `defw #0010`; in a word table it is SIDE_CALL (RST 2)."""
+    # call &0010 (so the name SIDE_CALL is in use) / ret, then the same two words twice
+    image = bytes.fromhex("CD 10 00 C9 10 00 34 12 10 00 34 12")
+    view = plain_view(image)
+    database = TargetDatabase(view.name, view.start, view.length)
+    database.add_override(4, 7, Kind.WORD_TABLE)
+    database.add_override(8, 11, Kind.WORD_DATA)
+    profile = CpcProfile(image_range=(view.start, view.start + view.length - 1))
+    classify_target(database, view, bytes([INSN_START] + [0] * 11), profile)
+    generated = generate_source(
+        view.resolve(database, "static"), database, SymbolTable(), title="t",
+        output_name="t.bin", fill_policy="static",
+    )  # fmt: skip
+    lines = code_lines(generated.text)
+    assert "defw SIDE_CALL" in lines  # a word table: addresses with their names
+    values = lines.index("defw #0010")  # word data: always the number
+    assert lines[values + 1] == "defw #1234"
+    source = tmp_path / "values.asm"
     source.write_text(generated.text, encoding="utf-8")
     expected = view.final_image(database, "static")
     assert verify_source(source, expected, view.start, generated.line_of_offset).identical

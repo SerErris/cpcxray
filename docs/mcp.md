@@ -684,7 +684,7 @@ Classify an address range as the owner (strongest source, kept in the database).
 
 - `first`: First address (CPU address in the target, e.g. "C123").
 - `last`: Last address (inclusive).
-- `kind`: "code" (consecutive instructions from `first`), "string", "word_table", "byte_data", or "auto" to drop the owner's classification of exactly this range again.
+- `kind`: "code" (consecutive instructions from `first`), "string", "word_table" (words that are addresses: written with their names), "word_data" (words that are numbers - parameters, offsets, constants: always written in hex), "byte_data", or "auto" to drop the owner's classification of exactly this range again.
 - `target`: The target (default: the only one).
 
 #### `reloc_list(target: str | None = None)`

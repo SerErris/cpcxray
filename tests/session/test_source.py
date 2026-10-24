@@ -63,6 +63,9 @@ def test_classify_override(tmp_path: Path) -> None:
         session.classify("BFFF", "C003", "string")
     session.classify("C100", "C103", "auto")
     assert session.analysis_target_list()["targets"][0]["kinds"]["string"] == 0
+    session.classify("C100", "C103", "word_data")  # numbers, not addresses
+    assert session.analysis_target_list()["targets"][0]["kinds"]["word_data"] == 4
+    session.classify("C100", "C103", "auto")
 
 
 def test_save_and_load_database(tmp_path: Path) -> None:

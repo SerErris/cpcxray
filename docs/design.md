@@ -750,7 +750,7 @@ far_c7f3:
 
 - Per target byte: clear value, access flags (M1, data, conflict, read with decoding off, executed
   via RAM, modified after copy/capture), data kind (`INSN_START`, `INSN_BODY`, `RST_OPERAND`,
-  `FAR_ADDR`, `STRING`, `WORD_TABLE`, `BYTE_DATA`, `UNKNOWN`) and its source (observed / static
+  `FAR_ADDR`, `STRING`, `WORD_TABLE` (words that are addresses), `WORD_DATA` (words that are numbers, never named; owner 2026-10-24), `BYTE_DATA`, `UNKNOWN`) and its source (observed / static
   guess / owner).
 - Symbols, comments and owner overrides from the annotation file (e.g. "&C123–&C140 is a string
   table"; RST 6 inline length).

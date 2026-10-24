@@ -692,7 +692,9 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
         Args:
             first: First address (CPU address in the target, e.g. "C123").
             last: Last address (inclusive).
-            kind: "code" (consecutive instructions from `first`), "string", "word_table",
+            kind: "code" (consecutive instructions from `first`), "string", "word_table"
+                (words that are addresses: written with their names), "word_data" (words that
+                are numbers - parameters, offsets, constants: always written in hex),
                 "byte_data", or "auto" to drop the owner's classification of exactly this
                 range again.
             target: The target (default: the only one).
@@ -704,7 +706,7 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
         if not 0 <= first_offset <= last_offset < database.length:
             raise self._error(f"range outside the target {name}")
         kinds = {"code": Kind.INSN_START, "string": Kind.STRING, "word_table": Kind.WORD_TABLE,
-                 "byte_data": Kind.BYTE_DATA}  # fmt: skip
+                 "word_data": Kind.WORD_DATA, "byte_data": Kind.BYTE_DATA}  # fmt: skip
         if kind == "auto":
             database.remove_override(first_offset, last_offset)
         elif kind in kinds:

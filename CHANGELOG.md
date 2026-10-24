@@ -8,6 +8,10 @@
   tab marks them (¶) and shows them for the selected instruction, and the generated source
   writes them as comment lines (still byte-identical). They are kept in
   `project/annotations.txt` as `before` / `after` lines; older files load unchanged.
+- New: the data kind `word_data` (`classify`) for words that are numbers - parameters,
+  offsets, time constants. They are always written in hex: a parameter &0010 no longer turns
+  into `defw SIDE_CALL` (the name of RST 2), as it did in a `word_table`, whose words are
+  addresses and keep their names. Existing analysis databases stay valid.
 
 ## 0.9.1 - bug fix
 

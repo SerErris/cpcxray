@@ -12,7 +12,8 @@ from the trace, D-31) and the final clear image (`TargetView.resolve`):
 | non-canonical encoding        | `defb` + the mnemonic as comment (D-32)                      |
 | far address object            | `defw target` + `defb rom_select` with comments              |
 | strings                       | `defb "TEXT"`, CPC terminator as `"E"+#80`                   |
-| word table (owner)            | `defw label`                                                 |
+| word table (owner)            | `defw label` (words are addresses)                           |
+| word data (owner)             | `defw #0010` (words are numbers: never a name)               |
 | other data                    | `defb`, 8 per line                                           |
 | relocated block               | `DISP #rrrr` … `ENT`, labels in RAM coordinates (D-22)       |
 | position-independent RAM copy | at its ROM address, a comment line where it starts (D-22)    |
@@ -106,7 +107,7 @@ class _Item:  # pylint: disable=too-many-instance-attributes  # one record per e
         kind: "insn", "far", "data" (one byte, merged into lines later) or "header".
         instruction: The decoded instruction ("insn").
         source: Classification source of the instruction.
-        group: Data group: "string", "words" or "bytes".
+        group: Data group: "string", "words" (addresses), "values" (numbers) or "bytes".
         comment: Extra comment (header entries, jumpblock RSX names).
         forced_label: A label the layout requires (header).
     """
@@ -360,12 +361,18 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         return None if self._crosses_boundary(offset, 3) else _Item(offset, 3, "far")
 
     def _data_group(self, offset: int) -> str:
-        """Data group of a byte: owner strings and header names, owner word tables, bytes."""
+        """Data group of a byte: owner strings and header names, owner word tables, bytes.
+
+        A word table holds addresses (written with their names), word data holds numbers
+        (always hex: a parameter &0010 must not become SIDE_CALL, the name of RST 2).
+        """
         kind = self.database.kinds[offset]
         if kind == Kind.STRING:
             return "string"
         if kind == Kind.WORD_TABLE:
             return "words"
+        if kind == Kind.WORD_DATA:
+            return "values"
         header = self.header
         if header is not None and header.name_table <= offset < header.table_end:
             return "string"
@@ -911,10 +918,11 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         """Cut data into lines: (start offset, length, text)."""
         image = self.view.image
         pieces = []
-        if group == "words":
+        if group in ("words", "values"):  # addresses with their names, numbers in hex
             for offset in range(first, last - 1, 2):
                 word = self._word(offset)
-                pieces.append((offset, 2, f"defw {self._lookup(word) or hex_word(word)}"))
+                name = self._lookup(word) if group == "words" else None
+                pieces.append((offset, 2, f"defw {name or hex_word(word)}"))
             if (last - first) % 2:
                 pieces.append((last - 1, 1, f"defb {hex_byte(image[last - 1])}"))
         elif group == "string":  # one line per CPC string (ends at the bit-7 character)
