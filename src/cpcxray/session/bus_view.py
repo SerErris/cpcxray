@@ -109,12 +109,15 @@ class BusViewMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         """Fill a group's instruction text and its accesses (roles, meanings, words)."""
         pc = int(group["pc"], 16)
         instruction = self._disassemble(pc)
-        row = self._disassembly_rows(instruction, None)[0]
+        location = group["where"] or ""  # the M1 fetch's: where the instruction ran
+        scope = location if location == "lower" or location.startswith("rom") else ""
+        context = self._code_context(pc, scope)  # D-43: names as this code sees them
+        row = self._disassembly_rows(instruction, None, context)[0]
         group |= {key: row[key] for key in ("mnemonic", "operands", "name", "name_type")
                   if key in row}  # fmt: skip
         group["where"] = self._where_text(group["where"])
         accesses = self._accesses_of(group.pop("raw"), pc, instruction.length, meanings,
-                                     fetches=fetches)  # fmt: skip
+                                     fetches=fetches, context=context)  # fmt: skip
         if combine:
             accesses = _combine_words(accesses)
         _stack_roles(accesses, instruction.flow)
@@ -128,8 +131,12 @@ class BusViewMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         meanings: PortMeanings,
         *,
         fetches: bool,
+        context: str | None = None,
     ) -> list[dict[str, Any]]:
-        """An instruction's accesses with role and meaning (fetches and operands if asked)."""
+        """An instruction's accesses with role and meaning (fetches and operands if asked).
+
+        `context`: the group of the instruction's context (D-43), for the variables.
+        """
         accesses = []
         for index, kind, address, value in raw:
             access = CYCLE_NAMES[kind]
@@ -137,20 +144,24 @@ class BusViewMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
             if role != "data" and not fetches:
                 continue
             meaning = (
-                self._access_meaning(access, address, value, meanings) if role == "data" else role
+                self._access_meaning(access, address, value, meanings, context)
+                if role == "data"
+                else role
             )
             accesses.append({"index": index, "access": access, "address": f"{address:04X}",
                              "value": f"{value:02X}", "role": role, "meaning": meaning,
                              "word": False})  # fmt: skip
         return accesses
 
-    def _access_meaning(self, access: str, address: int, value: int, meanings: PortMeanings) -> str:
+    def _access_meaning(  # pylint: disable=too-many-arguments,too-many-positional-arguments  # one access
+        self, access: str, address: int, value: int, meanings: PortMeanings, context: str | None
+    ) -> str:
         """A data access in words: a variable, the stack, a port's device, an interrupt."""
         if access in ("in", "out"):
             return meanings.meaning(access, address, value)
         if access == "interrupt":
             return "interrupt acknowledge"
-        if hits := self._variable_hits(address):
+        if hits := self._variable_hits(address, context):
             return hits[0].name
         if any((top.top - address - 1) & 0xFFFF < STACK_AREA for top in self.stacks.tops):
             return "stack"

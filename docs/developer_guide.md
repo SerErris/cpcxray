@@ -154,15 +154,18 @@ first PC, hits; conflicts), `m1map.py` (`.m1map` files, decoding from a map, fil
 blocks, RAM-target capture), `observers.py` (instruction starts, RST operands, far addresses),
 `database.py` (`TargetDatabase`: kind + source per byte, observations, owner overrides),
 `classifier.py` (rebuilds the kinds from the facts; `TargetView`), `cpc_profile.py` (the CPC RST
-profile), `operands.py` (is an immediate an address?), `source_gen.py` (the sjasmplus source),
-`verify.py` (round trip). See section 7.
+profile), `operands.py` (is an immediate an address?), `source_gen.py` (the sjasmplus source;
+`source_format.py`: its line formatting), `verify.py` (round trip). See section 7.
 
 ### debugger/ - debugging services
 
 `breakpoints.py` (all kinds, location qualifiers, the observer), `bus_trace.py` (ring buffer),
 `trace.py` (instruction trace, sinks), `step_accesses.py`, `memory_writes.py` (Follow CPU),
 `stack.py` (stack tops from SP loads, D-36), `ports.py` (meaning of I/O accesses),
-`symbols.py` (`SymbolTable`: owner and firmware layers, types, own variables, annotation file),
+`symbols.py` (`SymbolTable`: owner and firmware layers, types, own variables, groups and code
+contexts, D-43/D-44; its data classes in `symbol_types.py`, the annotation file's lines in
+`annotation_file.py`), `names.py` (the name of an address by the context of the code that uses
+it: `context_group`, `ranked_names`, `best_name` - every listing, trace and the source use it),
 `variables.py` (`VariableMap`: OS / AMSDOS / own variables resolved on the running machine),
 `firmware_symbols.py` and `variable_tables.py` (generated, section 8).
 
@@ -197,7 +200,7 @@ is the only way to act on them (D-27). It is assembled from mixins, one per tool
 | `trace_view.py` | `TraceViewMixin` | `trace_records`, step accesses, gap records |
 | `memory_follow.py` | `MemoryFollowMixin` | `memory_follow`, `memory_changes_get` |
 | `bus_view.py` | `BusViewMixin` | `bus_trace_view`, `bus_trace_clear` |
-| `symbols_view.py` | `SymbolsMixin` | symbols, own variables, `symbol_search`, annotation file |
+| `symbols_view.py` | `SymbolsMixin` | symbols, own variables, groups, code contexts, `symbol_search`, annotation file |
 | `disks.py` | `DiskMixin` | drives and images |
 | `project.py` | `ProjectMixin` | configuration documents, `rom_header`, files to load |
 | `analysis.py` | `AnalysisMixin` | scrambled ROMs, targets, relocations, database, source, verify |
@@ -394,7 +397,7 @@ GPL-3.0-or-later; third-party material in `THIRD_PARTY.md`. Build locally with
 | change what the analysis records | `analysis/provenance.py`, `analysis/observers.py` |
 | change code / data classification | `analysis/classifier.py`, `analysis/database.py` |
 | change the generated source | `analysis/source_gen.py`, `analysis/operands.py` |
-| change names in listings | `debugger/symbols.py`, `debugger/variables.py`, `DebuggerMixin._instruction_labels` |
+| change names in listings | `debugger/names.py`, `debugger/symbols.py`, `debugger/variables.py`, `Session._operand_name`, `DebuggerMixin._instruction_labels` |
 | change breakpoints / traces | `debugger/breakpoints.py`, `debugger/bus_trace.py`, `debugger/trace.py`, `session/debugger.py` |
 | change a tool's behaviour | the session mixin (section 5) |
 | change the configuration format | `machine/config.py` |

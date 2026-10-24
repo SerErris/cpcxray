@@ -32,6 +32,7 @@ from typing import Any
 
 from cpcxray.analysis.provenance import RamTag
 from cpcxray.cpu.disasm import Flow, Instruction, disassemble
+from cpcxray.debugger.names import Name, best_name, context_group
 from cpcxray.debugger.symbols import SymbolError, SymbolTable, block_lines, parse_address
 from cpcxray.debugger.trace import CAPTURE_BYTES, Capture, Trace, TraceRecord
 from cpcxray.debugger.variables import Variable, VariableHit, VariableMap
@@ -149,9 +150,12 @@ class Session(  # pylint: disable=too-many-public-methods,too-many-instance-attr
                 return variable.address
             raise SessionError(f"{value!r} is neither a hex address nor a known label") from None
 
-    def _label(self, address: int) -> str | None:
-        """Return the label for `address` in the scope that applies to it now."""
-        return self.symbols.label_at(address, self.machine.symbol_scope(address))
+    def _label(self, address: int, prefer: str | None = None) -> str | None:
+        """Return the label for `address` in the scope that applies to it now.
+
+        `prefer`: the group of the code's context (D-43) where several RAM labels exist.
+        """
+        return self.symbols.label_at(address, self.machine.symbol_scope(address), prefer)
 
     def _variable_map(self, machine: Machine) -> VariableMap | None:
         """The known OS/AMSDOS and the owner's variables of a CPC (FR-DBG-11); None if flat."""
@@ -162,11 +166,46 @@ class Session(  # pylint: disable=too-many-public-methods,too-many-instance-attr
         variables.own_variables = self.symbols.own_variables
         return variables
 
-    def _variable_hits(self, address: int) -> list[VariableHit]:
-        """The known variables containing `address` now, the smallest first."""
+    def _variable_hits(self, address: int, prefer: str | None = None) -> list[VariableHit]:
+        """The known variables containing `address` now, ranked (D-43).
+
+        The group `prefer` (the code's context) first, then built-in and ungrouped, then the
+        other groups; the smallest first within a rank. Without groups: the smallest first.
+        """
         if self.variables is None:
             return []
-        return self.variables.lookup(address, self.machine.peek)
+        hits = self.variables.lookup(address, self.machine.peek)
+        return sorted(hits, key=lambda hit: (self.symbols.rank(hit.variable.group, prefer),
+                                             hit.variable.size))  # fmt: skip
+
+    def _known_variable_list(self) -> list[Variable]:
+        """The variables that exist now (firmware, AMSDOS when installed, the owner's)."""
+        return self.variables.variables(self.machine.peek) if self.variables is not None else []
+
+    def _operand_name(self, address: int, prefer: str | None = None) -> Name | None:
+        """The name of an address as an operand (debugger/names.py `best_name`).
+
+        The firmware name, the ROM scope's label, then labels and variables ranked by the
+        context group `prefer`.
+        """
+        return best_name(self.symbols, self._known_variable_list(), address,
+                         self.machine.symbol_scope(address), prefer)  # fmt: skip
+
+    def _code_context(
+        self, address: int, scope: str | None = None, origin: RamTag | None = None
+    ) -> str | None:
+        """The group of the context of code at `address` (D-43), or None.
+
+        Args:
+            address: The code's address.
+            scope: Where it runs (default: what is paged in at the address now).
+            origin: For RAM code, the ROM it was copied from (default: the provenance's tag,
+                while the analysis records one).
+        """
+        where = self.machine.symbol_scope(address) if scope is None else scope
+        if not where and origin is None and self._analysis_observer is not None:
+            origin = self._analysis_observer.ram_origin[address]
+        return context_group(self.symbols, where, address, origin)
 
     def _variable_named(self, label: str) -> Variable | None:
         """The known variable with this label, if it exists now (AMSDOS only when installed)."""
@@ -174,13 +213,10 @@ class Session(  # pylint: disable=too-many-public-methods,too-many-instance-attr
             return None
         return self.variables.find(label.strip(), self.machine.peek)
 
-    def _operand_label(self, address: int) -> str | None:
-        """Name an operand: a symbol label, else a known variable (`NAME` or `NAME+n`)."""
-        label = self._label(address)
-        if label is not None:
-            return label
-        hits = self._variable_hits(address)
-        return hits[0].name if hits else None
+    def _operand_label(self, address: int, prefer: str | None = None) -> str | None:
+        """Name an operand: a label, else a known variable (`NAME`, `NAME+n`; `_operand_name`)."""
+        name = self._operand_name(address, prefer)
+        return name.text if name is not None else None
 
     def _disassemble(self, address: int) -> Instruction:
         """Decode the instruction at `address` from the CPU's view of memory."""
@@ -819,16 +855,17 @@ class Session(  # pylint: disable=too-many-public-methods,too-many-instance-attr
         lines, quarters, rows = [], [], []
         for _ in range(count):
             instruction = self._disassemble(current)
-            label = self._label(current)
-            owner = self.symbols.owner_at(current, self.machine.symbol_scope(current))
+            context = self._code_context(current)  # D-43: names as this code sees them
+            label = self._label(current, context)
+            owner = self.symbols.owner_at(current, self.machine.symbol_scope(current), context)
             lines += [f"; {text}".rstrip() for text in block_lines(owner, "before")]
             if label:
                 lines.append(f"{label}:")
             lines += self._format_instruction(instruction)
             lines += [f"; {text}".rstrip() for text in block_lines(owner, "after")]
-            rows += self._note_rows(current, "before")
-            rows += self._disassembly_rows(instruction, label)
-            rows += self._note_rows(current, "after")
+            rows += self._note_rows(current, "before", context)
+            rows += self._disassembly_rows(instruction, label, context)
+            rows += self._note_rows(current, "after", context)
             if current >> 14 not in quarters:
                 quarters.append(current >> 14)
             current = instruction.next_address
@@ -838,10 +875,12 @@ class Session(  # pylint: disable=too-many-public-methods,too-many-instance-attr
 
     def _format_instruction(self, instruction: Instruction) -> list[str]:
         """Format an instruction (and its extra lines) for `disassemble`."""
-        scope = self.machine.symbol_scope(instruction.address)
-        user_comment = self.symbols.comment_at(instruction.address, scope)
+        context = self._code_context(instruction.address)  # D-43
+        user_comment = self.symbols.comment_at(
+            instruction.address, self.machine.symbol_scope(instruction.address), context
+        )
         lines = []
-        labels = self._instruction_labels(instruction)
+        labels = self._instruction_labels(instruction, context=context)
         for number, (text, comment) in enumerate(instruction.lines(labels)):
             if number == 0:
                 raw = " ".join(f"{byte:02X}" for byte in instruction.raw)

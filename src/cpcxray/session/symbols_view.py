@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from cpcxray.debugger.firmware_symbols import FIRMWARE_BY_MODEL
+from cpcxray.debugger.names import ranked_names
 from cpcxray.debugger.symbols import (
     GLOBAL,
     OWNER_TYPES,
@@ -51,7 +52,7 @@ def hex4(value: int) -> str:
     return f"{value:04X}"
 
 
-class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session implements the stubs
+class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method,too-many-public-methods  # Session implements the stubs; one method per MCP tool
     """Symbols, variables and the annotation file of `Session` (see the module docstring)."""
 
     variables: VariableMap | None
@@ -69,6 +70,7 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         *,
         before: str | None = None,
         after: str | None = None,
+        group: str | None = None,
     ) -> dict[str, Any]:
         """Add or change a label, comment or comment block at `address`.
 
@@ -85,18 +87,28 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
             before: Comment block before the line, e.g. a routine header; several lines
                 separated by line breaks; "" removes it.
             after: Comment block after the line, e.g. a longer explanation; "" removes it.
+            group: Global (RAM) labels only (D-44): your group of the label - one RAM address
+                can carry one label per group; "" for the ungrouped one. Without it the one
+                symbol at the address is meant (an error that names them if there are
+                several). Not allowed in ROM scopes, nor a label at a firmware name's address.
         """
         try:
             symbol = self.symbols.add(self._address(address), label, comment, scope, type,
-                                      before=before, after=after)  # fmt: skip
+                                      before=before, after=after, group=group)  # fmt: skip
         except SymbolError as error:
             raise SessionError(str(error)) from None
         return {"address": hex4(symbol.address), "label": symbol.label,
                 "comment": symbol.comment, "scope": symbol.scope, "type": symbol.type,
-                "before": symbol.before, "after": symbol.after}  # fmt: skip
+                "before": symbol.before, "after": symbol.after,
+                "group": symbol.group}  # fmt: skip
 
     def comment_add(
-        self, address: int | str, comment: str, scope: str = GLOBAL, position: str = "line"
+        self,
+        address: int | str,
+        comment: str,
+        scope: str = GLOBAL,
+        position: str = "line",
+        group: str | None = None,
     ) -> dict[str, Any]:
         """Set a comment at `address` (keeps an existing label and the other comments).
 
@@ -107,20 +119,27 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
             scope: "" for global, "lower" or "rom0".."rom15".
             position: "line" (at the end of the line), "before" (a block before the line, e.g.
                 a routine header) or "after" (a block after the line).
+            group: Which RAM label's comment, where several are at the address (D-44).
         """
         if position == "line":
-            return self.symbol_add(address, comment=comment, scope=scope)
+            return self.symbol_add(address, comment=comment, scope=scope, group=group)
         if position not in ("before", "after"):
             raise SessionError("position must be line, before or after")
-        return self.symbol_add(address, scope=scope, **{position: comment})
+        return self.symbol_add(address, scope=scope, group=group, **{position: comment})
 
-    def symbol_remove(self, address: int | str, scope: str = GLOBAL) -> dict[str, Any]:
-        """Remove the owner's symbol at `address` in `scope` (a firmware name stays)."""
+    def symbol_remove(
+        self, address: int | str, scope: str = GLOBAL, group: str | None = None
+    ) -> dict[str, Any]:
+        """Remove the owner's symbol at `address` in `scope` (a firmware name stays).
+
+        `group`: which RAM label, where several are at the address (D-44; "" the ungrouped).
+        """
         try:
-            removed = self.symbols.remove(self._address(address), scope)
+            removed = self.symbols.remove(self._address(address), scope, group)
         except SymbolError as error:
             raise SessionError(str(error)) from None
-        return {"removed": removed.label or hex4(removed.address), "scope": removed.scope}
+        return {"removed": removed.label or hex4(removed.address), "scope": removed.scope,
+                "group": removed.group}  # fmt: skip
 
     def operand_set(
         self,
@@ -163,6 +182,8 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         base: int | str,
         comment: str | None = None,
         replaces: str | None = None,
+        *,
+        group: str | None = None,
     ) -> dict[str, Any]:
         """Add or change one of your variables (type "var"): a named byte range in RAM.
 
@@ -177,14 +198,19 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
                 firmware assigns at boot (KL_ROM_IY_TABLE).
             comment: What it holds.
             replaces: The label of the variable it replaces (to change or rename one).
+            group: Your group (D-43; `group_add`); "" takes it out of its group; None keeps
+                the group of the variable it replaces (else ungrouped).
 
         Returns:
             The variable with "now" - where it is at the moment ("A612-A621"), or None while
             its ROM has no data area.
         """
+        if group is None and replaces is not None:
+            old = self.symbols.variable(replaces)
+            group = old.group if old is not None else None
         try:
             rom, address = (None, base) if isinstance(base, int) else parse_variable_base(base)
-            variable = OwnVariable(label, size, address, rom, comment or None)
+            variable = OwnVariable(label, size, address, rom, comment or None, group or None)
             self.symbols.add_variable(variable, replaces)
         except SymbolError as error:
             raise SessionError(str(error)) from None
@@ -226,12 +252,133 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         where = self._where_now(variable)
         now = f"{where['first']}-{where['last']}" if where["first"] is not None else None
         return {"label": variable.label, "size": variable.size, "base": variable.base_text,
-                "comment": variable.comment, "now": now}  # fmt: skip
+                "comment": variable.comment, "now": now, "group": variable.group}  # fmt: skip
+
+    # -- groups and contexts (task 10, D-43) -----------------------------------------------
+
+    def group_add(
+        self, name: str, description: str | None = None, position: int | None = None
+    ) -> dict[str, Any]:
+        """Create one of your groups, or change its description or position (D-43).
+
+        Your variables and RAM labels go into groups (`variable_add` / `symbol_add` with
+        `group`); a context (`context_set`) tells which group code works with, so a RAM
+        address shows the name of that group there. The source lists the names by group.
+
+        Args:
+            name: An identifier (not "firmware" / "amsdos": the built-in groups).
+            description: What it holds (the heading of its section in the source); None keeps
+                the earlier one.
+            position: Its index in the list (the order of the ranking and of the sections);
+                None keeps its place, a new group goes last.
+        """
+        try:
+            self.symbols.add_group(name, description, position)
+        except SymbolError as error:
+            raise SessionError(str(error)) from None
+        return self.group_list()
+
+    def group_remove(self, name: str, force: bool = False) -> dict[str, Any]:
+        """Remove one of your groups; refused while it is used, unless `force`.
+
+        With `force` its variables and labels become ungrouped and its contexts are deleted.
+        """
+        try:
+            self.symbols.remove_group(name, force)
+        except SymbolError as error:
+            raise SessionError(str(error)) from None
+        return self.group_list()
+
+    def group_rename(self, old: str, new: str) -> dict[str, Any]:
+        """Rename one of your groups everywhere (its variables, labels and contexts)."""
+        try:
+            self.symbols.rename_group(old, new)
+        except SymbolError as error:
+            raise SessionError(str(error)) from None
+        return self.group_list()
+
+    def group_list(self) -> dict[str, Any]:
+        """The groups in their order: the built-in ones, then yours with what uses them.
+
+        Returns:
+            "groups": each "name", "description", "built_in", and for yours "variables",
+            "labels", "contexts" (counts).
+        """
+        groups: list[dict[str, Any]] = [
+            {"name": "firmware", "description": "firmware names and variables", "built_in": True},
+            {"name": "amsdos", "description": "AMSDOS variables", "built_in": True},
+        ]
+        for group in self.symbols.groups():
+            usage = self.symbols.group_usage(group.name)
+            groups.append({"name": group.name, "description": group.description,
+                           "built_in": False, **{k: len(v) for k, v in usage.items()}})  # fmt: skip
+        return {"groups": groups}
+
+    def context_set(
+        self,
+        group: str,
+        scope: str | None = None,
+        first: int | str | None = None,
+        last: int | str | None = None,
+    ) -> dict[str, Any]:
+        """Tell which group code works with (D-43): a range of a scope, or the whole scope.
+
+        Where that code names a RAM address - an operand, a variable it reads or writes - the
+        name of this group wins; the narrowest range wins over a wider one and over the whole
+        scope. RAM code copied from a ROM takes its ROM origin's context.
+
+        Args:
+            group: One of your groups.
+            scope: "lower", "rom0".."rom15" or "" (RAM code); default: what is paged in at
+                `first`.
+            first: First address of the range; without first and last: the whole scope.
+            last: Last address (inclusive).
+        """
+        start = self._address(first) if first is not None else None
+        end = self._address(last) if last is not None else None
+        if scope is None:
+            if start is None:
+                raise SessionError("give a scope for a context of the whole scope")
+            scope = self.machine.symbol_scope(start)
+        try:
+            context = self.symbols.set_context(group, scope, start, end)
+        except SymbolError as error:
+            raise SessionError(str(error)) from None
+        return {"context": context.text, "group": context.group}
+
+    def context_remove(
+        self, scope: str, first: int | str | None = None, last: int | str | None = None
+    ) -> dict[str, Any]:
+        """Remove the context of exactly this place (a range, or the whole scope)."""
+        start = self._address(first) if first is not None else None
+        end = self._address(last) if last is not None else None
+        try:
+            removed = self.symbols.remove_context(scope, start, end)
+        except SymbolError as error:
+            raise SessionError(str(error)) from None
+        return {"removed": removed.text, "group": removed.group}
+
+    def context_list(self, scope: str | None = None) -> dict[str, Any]:
+        """The contexts of one scope, or all.
+
+        Returns:
+            "contexts": each "context" (as in the annotation file), "scope", "first", "last"
+            (None for a whole scope), "group".
+        """
+        return {"contexts": [{"context": c.text, "scope": c.scope,
+                              "first": hex4(c.first) if c.first is not None else None,
+                              "last": hex4(c.last) if c.last is not None else None,
+                              "group": c.group} for c in self.symbols.contexts(scope)]}  # fmt: skip
 
     # -- lookups ----------------------------------------------------------------------------
 
-    def symbol_list(
-        self, text: str = "", scope: str | None = None, source: str | None = None, limit: int = 100
+    def symbol_list(  # pylint: disable=too-many-arguments  # the filters
+        self,
+        text: str = "",
+        scope: str | None = None,
+        source: str | None = None,
+        limit: int = 100,
+        group: str | None = None,
     ) -> dict[str, Any]:
         """List symbols whose label, comment or block contains `text` (see `symbol_search`).
 
@@ -240,14 +387,15 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
             scope: Only this scope ("", "lower", "romN"), or all.
             source: "firmware" (preloaded jumpblock names) or "user", or both.
             limit: Maximum number of entries (max 1000).
+            group: Only this group (D-43; "" ungrouped, "firmware" the firmware names), or all.
         """
         if not 1 <= limit <= 1000:
             raise SessionError("limit must be 1-1000")
-        found = self.symbols.symbols(text, scope, source)
+        found = self.symbols.symbols(text, scope, source, group)
         entries = [
             {"address": hex4(s.address), "label": s.label, "comment": s.comment,
              "scope": s.scope, "source": s.source, "type": s.type, "before": s.before,
-             "after": s.after}
+             "after": s.after, "group": s.group}
             for s in found[:limit]
         ]  # fmt: skip
         return {"symbols": entries, "total": len(found)}
@@ -259,6 +407,8 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         scope: str | None = None,
         only_yours: bool = False,
         limit: int = 2000,
+        *,
+        group: str | None = None,
     ) -> dict[str, Any]:
         """Every name for the Symbols tab: symbols, variables and the analysis's names.
 
@@ -270,11 +420,13 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
             scope: Only this scope ("" global, "lower", "romN"); None for all.
             only_yours: Only entries of the owner's (labels, comments, variables).
             limit: Maximum number of entries (max 5000).
+            group: Only this group (D-43): one of yours, "firmware", "amsdos", or "" for
+                ungrouped; None for all.
 
         Returns:
-            "entries" by address (each "type", "address", "label", "comment", "scope", "mark":
-            "yours" / "analysis" / None, for variables "size"), "counts" per type (before the
-            type filter) and "total" (after it).
+            "entries" by address (each "type", "address", "label", "comment", "scope", "group",
+            "mark": "yours" / "analysis" / None, for variables "size"), "counts" per type
+            (before the type filter) and "total" (after it).
         """
         if not 1 <= limit <= MAX_SEARCH:
             raise SessionError(f"limit must be 1-{MAX_SEARCH}")
@@ -285,6 +437,7 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         matching = [entry for entry in self._all_names()
                     if (scope is None or entry["scope"] == scope)
                     and (not only_yours or entry["mark"] == "yours")
+                    and (group is None or (entry.get("group") or "") == group)
                     and (not needle or any(needle in (entry.get(key) or "").lower()
                                            for key in ("label", "comment", "before", "after")))
                     ]  # fmt: skip
@@ -302,7 +455,7 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         entries = [
             {"type": s.type, "address": hex4(s.address), "label": s.label, "comment": s.comment,
              "scope": s.scope, "mark": "yours" if s.source == "user" else None,
-             "before": s.before, "after": s.after}
+             "before": s.before, "after": s.after, "group": s.group}
             for s in self.symbols.symbols()
         ]  # fmt: skip
         if self.variables is not None:
@@ -311,7 +464,7 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
                 entries.append({"type": "var" if own else "VAR", "address": hex4(variable.address),
                                 "label": variable.label, "comment": variable.description,
                                 "scope": GLOBAL, "mark": "yours" if own else None,
-                                "size": variable.size})  # fmt: skip
+                                "size": variable.size, "group": variable.group})  # fmt: skip
         seen: set[tuple[int, str]] = set()
         for names in self.analysis_names.values():
             for address, scope, label, name_type in names:
@@ -320,23 +473,31 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
                     continue  # the owner renamed it: it is the owner's now
                 seen.add((address, scope))
                 entries.append({"type": name_type, "address": hex4(address), "label": label,
-                                "comment": None, "scope": scope, "mark": "analysis"})  # fmt: skip
+                                "comment": None, "scope": scope, "mark": "analysis",
+                                "group": None})  # fmt: skip
         return entries
 
     def symbol_detail(
-        self, address: int | str, scope: str = GLOBAL, label: str | None = None
+        self,
+        address: int | str,
+        scope: str = GLOBAL,
+        label: str | None = None,
+        *,
+        group: str | None = None,
     ) -> dict[str, Any]:
         """Everything about one name of `symbol_search` (the Symbols tab's detail panel).
 
         Args:
             address: Its address.
             scope: Its scope.
-            label: Its label, to find a variable (variables can share an address).
+            label: Its label, to find a variable (variables can share an address) or one of
+                several RAM labels at the address.
+            group: Which RAM label, where several are at the address (D-44; "" ungrouped).
 
         Returns:
             "address", "scope"; "firmware" (address, label, section, name, note), "machines" it
-            exists on; "yours" (the owner's label, comment, type and comment blocks "before",
-            "after" in this scope); "variable"
+            exists on; "yours" (the owner's label, comment, type, comment blocks "before",
+            "after" and "group" in this scope); "variable"
             (a known or owner's variable of that label: size, description, owner, and for the
             owner's "base" and "now"); "analysis" (the source generator's name and type); "code"
             (the instruction at the address, names as in the disassembly).
@@ -345,6 +506,12 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         model = getattr(self.symbols, "firmware_model", None) or "464"
         firmware = next((e for e in FIRMWARE_BY_MODEL.get(model, ()) if e.address == value), None)
         owner = self.symbols.owner_at(value, scope)
+        if scope == GLOBAL:  # several RAM labels at the address (D-44): the one meant
+            candidates = self.symbols.owners_at(value)
+            if group is not None:
+                owner = next((s for s in candidates if (s.group or "") == group), None)
+            elif label and any(s.label == label for s in candidates):
+                owner = next(s for s in candidates if s.label == label)
         variable = self._variable_named(label) if label else None
         machines: list[str] = []
         if firmware is not None:
@@ -356,7 +523,7 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
             "address": hex4(value), "scope": scope, "machines": machines,
             "firmware": firmware._asdict() if firmware is not None else None,
             "yours": ({"label": owner.label, "comment": owner.comment, "type": owner.type,
-                       "before": owner.before, "after": owner.after}
+                       "before": owner.before, "after": owner.after, "group": owner.group}
                       if owner is not None and owner.scope == scope else None),
             "variable": self._variable_detail(variable) if variable is not None else None,
             "analysis": self._analysis_name(value, scope),
@@ -387,23 +554,43 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         return [m for m in MODELS
                 if any(e.label == variable.label for e in OS_VARIABLES_BY_MODEL[m])]  # fmt: skip
 
-    def address_explain(self, address: int | str) -> dict[str, Any]:
-        """Tell what an address is: its symbol and the known OS/AMSDOS variables containing it.
+    def address_explain(
+        self, address: int | str, code_address: int | str | None = None
+    ) -> dict[str, Any]:
+        """Tell what an address is: its symbol, and every name it has, the winner first.
 
         Variables (FR-DBG-11) are the firmware's of this machine (464/664/6128), AMSDOS's
-        when it is installed (its workspace where AMSDOS put it) and the owner's; the smallest
-        one comes first, named `LABEL` or `LABEL+offset`.
+        when it is installed (its workspace where AMSDOS put it) and the owner's. With groups
+        (D-43) one RAM address can have several labels and variables; `names` lists them all
+        with their group, ranked as code sees them: the firmware name first, then the group
+        of the context of `code_address` (if given), built-in and ungrouped, other groups.
+
+        Args:
+            address: The address.
+            code_address: Code that uses the address (its context decides; default: none).
+
+        Returns:
+            "address", "label" (the winner's label), "context" (the code's group or None),
+            "names" (text, type, group each, the winner first), "variables" (the variables
+            containing it, ranked, with their group).
         """
         value = self._address(address)
-        result: dict[str, Any] = {"address": hex4(value), "label": self._label(value),
-                                  "variables": []}  # fmt: skip
+        context = (self._code_context(self._address(code_address))
+                   if code_address is not None else None)  # fmt: skip
+        result: dict[str, Any] = {"address": hex4(value), "label": self._label(value, context),
+                                  "context": context, "variables": []}  # fmt: skip
+        names = ranked_names(self.symbols, self._known_variable_list(), value,
+                             self.machine.symbol_scope(value), context)  # fmt: skip
+        result["names"] = [{"name": n.text, "type": n.type, "group": n.group} for n in names]
         if self.variables is not None:
             result["model"] = self.variables.model
             result["variables"] = [{"name": hit.name, **hit.variable.describe()}
-                                   for hit in self._variable_hits(value)]  # fmt: skip
+                                   for hit in self._variable_hits(value, context)]  # fmt: skip
         return result
 
-    def variable_list(self, text: str = "", limit: int = 100) -> dict[str, Any]:
+    def variable_list(
+        self, text: str = "", limit: int = 100, group: str | None = None
+    ) -> dict[str, Any]:
         """List the known variables (FR-DBG-11) whose label or description has `text`.
 
         The firmware's and AMSDOS's (when installed), and the owner's (owner "owner").
@@ -411,6 +598,8 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         Args:
             text: Search text (case-insensitive); empty lists all.
             limit: Maximum number of entries (max 1000).
+            group: Only this group (D-43): "firmware", "amsdos", one of yours, or "" for your
+                ungrouped ones; None for all.
         """
         if not 1 <= limit <= 1000:
             raise SessionError("limit must be 1-1000")
@@ -418,7 +607,8 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
             return {"variables": [], "total": 0}
         wanted = text.lower()
         found = [v for v in self.variables.variables(self.machine.peek)
-                 if wanted in v.label.lower() or wanted in v.description.lower()]  # fmt: skip
+                 if (wanted in v.label.lower() or wanted in v.description.lower())
+                 and (group is None or (v.group or "") == group)]  # fmt: skip
         return {"model": self.variables.model, "variables": [v.describe() for v in found[:limit]],
                 "total": len(found)}  # fmt: skip
 
@@ -445,15 +635,23 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         """The annotation file: its path, whether it exists, your entries, unsaved changes.
 
         Returns:
-            "path", "exists", "symbols", "variables" and "operands" (your entries now: labels
-            and comments, variables, operand overrides), "operand_overrides" (address, scope,
-            role, comment each), "modified" (changed since the last load or save).
+            "path", "exists", "symbols", "variables", "operands", "groups" and "contexts" (your
+            entries now: labels and comments, variables, operand overrides, groups, contexts),
+            "operand_overrides" (address, scope, role, comment each), "group_names" (your
+            groups in their order), "context_list" (as in the file), "warnings" (from loading:
+            undefined groups, labels left out at firmware names' addresses), "modified"
+            (changed since the last load or save).
         """
         file = self._path(path)
         operands = self.symbols.operand_overrides()
+        contexts = self.symbols.contexts()
         return {"path": str(file), "exists": file.is_file(),
                 "symbols": len(self.symbols.owner_symbols()),
                 "variables": len(self.symbols.own_variables()), "operands": len(operands),
+                "groups": len(self.symbols.groups()), "contexts": len(contexts),
                 "operand_overrides": [{"address": hex4(o.address), "scope": o.scope,
                                        "role": o.role, "comment": o.comment} for o in operands],
+                "group_names": [g.name for g in self.symbols.groups()],
+                "context_list": [f"{c.text} {c.group}" for c in contexts],
+                "warnings": list(self.symbols.warnings),
                 "modified": self.symbols.modified, "types": list(OWNER_TYPES)}  # fmt: skip

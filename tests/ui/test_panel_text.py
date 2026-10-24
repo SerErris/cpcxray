@@ -39,6 +39,7 @@ from cpcxray.ui.panels.text import (
     register_pairs,
     register_words,
     rom_select_lines,
+    routine_range,
     split_label,
     stop_texts,
     trace_detail,
@@ -395,3 +396,12 @@ def test_memory_texts() -> None:
         "since the last stop: 1 bytes written in view (3 in all)"]  # fmt: skip
     assert follow_target(changes) == 0xB727  # writes before reads
     assert follow_target({"last_step": None, "last_written": {"address": "C000"}}) == 0xC000
+
+
+def test_routine_range() -> None:
+    """The "this routine" range: from the last sub label at or before the line to the next."""
+    starts = [0x9000, 0x9020, 0x9100]
+    assert routine_range(0x9020, starts, 0xFFFF) == (0x9020, 0x90FF)
+    assert routine_range(0x9050, starts, 0xFFFF) == (0x9020, 0x90FF)
+    assert routine_range(0x9200, starts, 0x3FFF) == (0x9100, 0x3FFF)
+    assert routine_range(0x8000, starts, 0xFFFF) == (0x8000, 0x8FFF)  # before any label

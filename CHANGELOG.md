@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- New: groups for your variables and RAM labels, and code contexts - for programs that use the
+  same RAM differently (VDOS and CP/M, for example). Put variables and global labels in groups
+  (Symbols tab: Groups panel, or `group_add` / `variable_add(group=)` / `symbol_add(group=)`),
+  give code a context (CPU tab: right-click a line's address - from/to, this routine, whole
+  scope; or `context_set`), and every listing, the trace and the generated source name an
+  address by the context of the code that uses it. One RAM address can have a label per group.
+  The generated source defines the names in one section per group (still byte-identical). Kept
+  in `project/annotations.txt` (`group`, `context`, `group=`); older files load unchanged.
+- Changed: the firmware's jumpblock and restart names are fixed - a label of yours on such an
+  address is refused (a comment is fine); an older annotation file with one loads without it
+  and the Symbols tab's status says so.
+
 - New: comment blocks before and after a line - a routine header above it, a longer explanation
   below it, several lines each - besides the comment at the end of the line. Edit them in the
   Symbols tab or with `symbol_add` / `comment_add` over MCP; the CPU tab shows them, the Trace

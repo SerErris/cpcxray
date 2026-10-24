@@ -65,6 +65,19 @@ observers).
 
 ## Done
 
+- Task 10, groups for variables and RAM labels, contexts for code (2026-10-24, design.md
+  D-43, D-44): owner groups (ordered; built-in `firmware`, `amsdos`) for variables and global
+  labels, one RAM label per group at an address; code contexts (a range or a whole scope, ROM
+  or RAM; the narrowest wins; RAM copies use their ROM origin's context); one resolution helper
+  (debugger/names.py) for disassembly, trace, bus trace, `address_explain` and the source
+  generator (firmware name, ROM-scope label, then context group, built-in + ungrouped, other
+  groups). Owner labels on firmware addresses are refused; older files load unchanged, such a
+  label with a warning. Annotation file `group`, `context`, `group=` (`:BE8F` read); source EQU
+  sections per group (byte-identical); MCP group_add/remove/rename/list, context_set/remove/
+  list, `group` on symbol_add, variable_add, the searches, `address_explain(code_address=)`;
+  GUI Groups panel and group choices in the Symbols tab, "code context" menu on the CPU tab's
+  address column (checked with real XTest clicks). Tests: symbol table and file, names, source
+  generator with sjasmplus, session tools, trace, GUI text helpers.
 - Task 9, multi-line comments (2026-10-23, design.md D-41): comment blocks before a line
   (e.g. a routine header) and after it (a longer explanation), several lines each, besides the
   end-of-line comment. `Symbol.before` / `.after` (debugger/symbols.py); annotation file lines

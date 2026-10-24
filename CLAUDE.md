@@ -9,7 +9,7 @@ Software-compatible, not cycle-exact.
 
 ## Design documents
 
-- **`docs/design.md` is authoritative**: requirements (FR-*/NFR-*), decisions **D-01..D-42**,
+- **`docs/design.md` is authoritative**: requirements (FR-*/NFR-*), decisions **D-01..D-44**,
   architecture (§6), test strategy (§8), implementation plan (§9). Read the relevant sections
   before working on a component.
 - `docs/vortex_decrypt.md` (scrambling rule) and `docs/cpc_rst.md` (RST conventions) are
@@ -128,7 +128,8 @@ memory views, `.sna`, GUI panels); µPD765 FDC with DSK/EDSK/raw images (AMSDOS 
 the 3" disk in A:; Vortex 80-track format in B:); CPC 6128 with RAM banking and CPC 664 (both
 boot to BASIC 1.1); firmware names per machine. Task 5 done (2026-10-23): all GUI tabs to the
 agreed mock-ups (CPU, Memory, Devices, Breakpoints, Trace, Bus trace, Symbols, Disks, Project),
-design.md D-35..D-39. Task 6 done: the PC keyboard reaches the CPC by character (D-40). Tests
+design.md D-35..D-39. Task 6 done: the PC keyboard reaches the CPC by character (D-40). Task 9: comment
+blocks (D-41); operand overrides (D-42); task 10: groups and code contexts (D-43, D-44). Tests
 run on the plain machine ROMs only:
 config/test_cpc464.toml / test_cpc664.toml / test_cpc6128.toml (OS, BASIC, AMSDOS) via
 tests/machines.py. Open work: docs/todo.md - only with the owner's go-ahead.
@@ -218,6 +219,18 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   deleting widgets (path fields register selectors and inputs in the context).
 - Panels are frozen while running except `live_seconds` tabs (Devices 1 s, Project 0.3 s);
   coverage in the analysis phases is classified at most every 2 s while running (D-39).
+- Groups and code contexts (task 10, D-43, D-44): owner groups (ordered, built-in "firmware" /
+  "amsdos") for variables and global (RAM) labels; global symbols are keyed (scope "", address,
+  group), so one RAM address can have one label per group; ROM-scope labels have no group.
+  Contexts give code (a range of a scope, or the whole scope, RAM "" too) a group; the narrowest
+  range wins; RAM code copied from a ROM takes its origin's context (`_analysis_observer.
+  ram_origin`). debugger/names.py `ranked_names`: firmware name > ROM-scope label > owner labels
+  and variables by rank (context group, built-in + ungrouped, other groups in order; label
+  before variable, smallest variable). An owner label on a firmware address is refused (old
+  files: dropped with a warning in `symbols_status`). symbol_types.py (data classes),
+  annotation_file.py (`group`, `context`, `group=` lines; `:BE8F` read). Source: EQU sections per
+  group (`; ---- name: description ----`, then "other"); the CPU tab's address column has the
+  "code context" menu, the Symbols tab a Groups panel.
 - Symbols (D-35): session/symbols_view.py `SymbolsMixin` (`symbol_search`, `symbol_detail`,
   `variable_add`, `symbols_status`); own variables resolve in debugger/variables.py
   (`VariableMap.own_variables`, KL_ROM_IY_TABLE); `_label_type` gives the real type.

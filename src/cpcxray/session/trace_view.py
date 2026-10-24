@@ -127,7 +127,9 @@ class TraceViewMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Sessi
     def _trace_record(self, capture: Capture) -> dict[str, Any]:
         """One trace record as fields (see `trace_records`)."""
         instruction = self._capture_instruction(capture)
-        row = self._disassembly_rows(instruction, None)[0]
+        scope = capture.where if capture.where != "RAM" else ""  # where it ran
+        context = self._code_context(capture.pc, scope, capture.origin)  # D-43
+        row = self._disassembly_rows(instruction, None, context)[0]
         flow = ("call" if instruction.flow in CALL_FLOWS
                 else "return" if instruction.flow in RETURN_FLOWS else "")  # fmt: skip
         where = capture.where
@@ -144,27 +146,30 @@ class TraceViewMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Sessi
             "where": where, "where_text": where_text, "flow": flow,
             "next": f"{instruction.next_address:04X}",
         }  # fmt: skip
-        scope = where if where == "lower" or where.startswith("rom") else ""  # where it ran
-        owner = self.symbols.owner_at(capture.pc, scope)
+        owner = self.symbols.owner_at(capture.pc, scope, context)
         for position in ("before", "after"):  # the owner's comment blocks (task 9)
             if owner is not None and getattr(owner, position):
                 record[f"comment_{position}"] = getattr(owner, position)
         accesses = self.step_accesses.by_sequence.get(capture.sequence)
         if accesses is not None:
-            record["accesses"] = self._accesses(accesses, capture.pc, instruction.length)
+            record["accesses"] = self._accesses(accesses, capture.pc, instruction.length,
+                                                context)  # fmt: skip
         return record
 
     def _accesses(
-        self, accesses: list[tuple[str, int, int]], pc: int, length: int
+        self, accesses: list[tuple[str, int, int]], pc: int, length: int, context: str | None
     ) -> list[dict[str, Any]]:
-        """The reads and writes of an instruction, without reading its own operand bytes."""
+        """The reads and writes of an instruction, without reading its own operand bytes.
+
+        The variable of an access is named as the instruction's context sees it (D-43).
+        """
         result = []
         for access, address, value in accesses:
             if access == "read" and (address - pc) & 0xFFFF < length:
                 continue  # the instruction's own bytes (operands)
             entry: dict[str, Any] = {"access": access, "address": f"{address:04X}",
                                      "value": f"{value:02X}"}  # fmt: skip
-            if hits := self._variable_hits(address):
+            if hits := self._variable_hits(address, context):
                 entry["variable"] = hits[0].name
             result.append(entry)
         return result

@@ -9,6 +9,8 @@ import pytest
 from cpcxray.debugger.firmware_symbols import FIRMWARE_464, FIRMWARE_664, FIRMWARE_6128
 from cpcxray.debugger.symbols import (
     BlockLine,
+    Context,
+    Group,
     OperandOverride,
     OwnVariable,
     Symbol,
@@ -72,13 +74,20 @@ def test_firmware_names_per_machine() -> None:
 
 
 def test_set_firmware_keeps_the_owners_symbols() -> None:
-    """Switching the machine replaces the firmware names; the owner's symbols stay and win."""
-    table = SymbolTable(model="464")
+    """Switching the machine replaces the firmware names; the owner's symbols stay.
+
+    At a firmware name's address the firmware label wins (D-43): an owner label made on
+    another machine is kept but not shown there.
+    """
+    table = SymbolTable(model="6128")
     table.add(0x8000, "my_routine")
-    table.add(0xBD3D, "my_maths_hook")  # on the 464 a firmware address
+    table.add(0xBDC1, "my_maths_hook")  # on the 6128 no firmware address
+    table.set_firmware("464")  # … on the 464 it is INTEGER_UNSIGNED_DIVISION
+    assert table.label_at(0xBDC1) == "INTEGER_UNSIGNED_DIVISION"
+    assert table.owner_at(0xBDC1).label == "my_maths_hook"  # type: ignore[union-attr]
     table.set_firmware("6128")
     assert table.firmware_model == "6128"
-    assert table.label_at(0x8000) == "my_routine" and table.label_at(0xBD3D) == "my_maths_hook"
+    assert table.label_at(0x8000) == "my_routine" and table.label_at(0xBDC1) == "my_maths_hook"
     assert table.label_at(0xBD5B) == "KL_BANK_SWITCH" and table.label_at(0xBD3A) == "KM_SET_LOCKS"
     table.set_firmware("464")
     assert (
@@ -109,7 +118,7 @@ def test_add_keeps_existing_parts() -> None:
 
 
 def test_owner_layer_over_firmware(tmp_path: Path) -> None:
-    """The owner's comment or label lies over a firmware name and never replaces it."""
+    """The owner's comment lies over a firmware name; a label there is refused (D-43)."""
     table = SymbolTable()
     table.add(0xBB5A, comment="hooked by my program")
     symbol = table.at(0xBB5A)
@@ -121,13 +130,13 @@ def test_owner_layer_over_firmware(tmp_path: Path) -> None:
     )
     owner = table.owner_at(0xBB5A)
     assert owner is not None and (owner.label, owner.comment) == (None, "hooked by my program")
-    table.add(0xBB5A, "my_output")
-    assert table.label_at(0xBB5A) == "my_output"
-    assert table.find("TXT_OUTPUT") == table.at(0xBB5A)  # the firmware label still finds it
+    with pytest.raises(SymbolError, match="firmware name TXT_OUTPUT"):
+        table.add(0xBB5A, "my_output")
+    assert table.find("TXT_OUTPUT") == table.at(0xBB5A)
     path = tmp_path / "annotations.txt"
     table.save(path)
-    assert "BB5A        my_output            ; hooked by my program" in path.read_text()
-    assert table.remove(0xBB5A).label == "my_output"
+    assert "BB5A        -                    ; hooked by my program" in path.read_text()
+    assert table.remove(0xBB5A).comment == "hooked by my program"
     assert (table.label_at(0xBB5A), table.comment_at(0xBB5A)) == ("TXT_OUTPUT", "TXT OUTPUT")
     with pytest.raises(SymbolError, match="cannot be removed"):
         table.remove(0xBB5A)
@@ -232,7 +241,8 @@ def test_symbol_types() -> None:
     assert table.add(0x8010, comment="the main loop").type == "jump"  # kept
     assert table.add(0x9000, comment="a buffer").type is None
     assert table.add(0xBB5A, comment="hooked").type == "FW"  # a comment over a firmware name
-    assert table.add(0xBB5A, "my_output", type="data").type == "data"
+    with pytest.raises(SymbolError, match="firmware name"):  # its label is fixed (D-43)
+        table.add(0xBB5A, "my_output", type="data")
     with pytest.raises(SymbolError, match="invalid type"):
         table.add(0x8020, "x", type="var")
 
@@ -381,3 +391,127 @@ def test_operand_overrides(tmp_path: Path) -> None:
     assert merge([table]).operand_at(0xC123, "rom5") == "value"
     table.set_operand(0x9000, "auto")
     assert table.operand_at(0x9000) is None
+
+
+def grouped_table() -> SymbolTable:
+    """A table with the groups vdos and cpm (task 10)."""
+    table = SymbolTable()
+    table.add_group("vdos", "VDOS fixed RAM")
+    table.add_group("cpm", "CP/M 2.2 BIOS variables")
+    return table
+
+
+def test_groups_add_rename_remove() -> None:
+    """Groups (D-43): order and description; rename everywhere; remove refused unless forced."""
+    table = grouped_table()
+    assert [g.name for g in table.groups()] == ["vdos", "cpm"]
+    table.add_group("basic", "BASIC 1.0", position=0)
+    table.add_group("vdos", position=2)  # moved, description kept
+    assert table.groups() == [Group("basic", "BASIC 1.0"), Group("cpm", "CP/M 2.2 BIOS variables"),
+                              Group("vdos", "VDOS fixed RAM")]  # fmt: skip
+    for bad in ("firmware", "amsdos", "9x"):
+        with pytest.raises(SymbolError, match="invalid group name"):
+            table.add_group(bad)
+    table.add_variable(OwnVariable("drives_swapped", 1, 0xBE7F, group="vdos"))
+    table.add(0xBE8F, "dos_seldsk", type="jump", group="vdos")
+    table.set_context("vdos", "rom5")
+    with pytest.raises(SymbolError, match="in use"):
+        table.remove_group("vdos")
+    table.rename_group("vdos", "vdos2")
+    assert table.variable("drives_swapped").group == "vdos2"  # type: ignore[union-attr]
+    assert table.owner_at(0xBE8F).group == "vdos2"  # type: ignore[union-attr]
+    assert table.context_at("rom5", 0xC000).group == "vdos2"  # type: ignore[union-attr]
+    table.remove_group("vdos2", force=True)
+    assert table.variable("drives_swapped").group is None  # type: ignore[union-attr]
+    assert table.owner_at(0xBE8F).group is None and table.contexts() == []  # type: ignore[union-attr]
+    with pytest.raises(SymbolError, match="built in"):
+        table.add_variable(OwnVariable("x", 1, 0x9000, group="firmware"))
+
+
+def test_ram_labels_per_group() -> None:
+    """One RAM address, one label per group plus one ungrouped (D-44); ROM labels no group."""
+    table = grouped_table()
+    table.add(0xBE8F, "dos_seldsk", type="jump", group="vdos")
+    table.add(0xBE8F, "cpm_seldsk", type="jump", group="cpm")
+    assert [s.label for s in table.owners_at(0xBE8F)] == ["dos_seldsk", "cpm_seldsk"]  # order
+    assert table.label_at(0xBE8F, prefer="cpm") == "cpm_seldsk"
+    assert table.label_at(0xBE8F) == "dos_seldsk"  # no context: groups in their order
+    table.add(0xBE8F, "be8f_plain", group="")  # the ungrouped one
+    assert table.label_at(0xBE8F) == "be8f_plain" and table.label_at(0xBE8F, prefer="cpm") == (
+        "cpm_seldsk"
+    )
+    with pytest.raises(SymbolError, match="several symbols at BE8F"):
+        table.add(0xBE8F, comment="which one?")
+    table.add(0xBE8F, comment="CP/M select disk", group="cpm")
+    assert table.owner_at(0xBE8F, prefer="cpm").comment == "CP/M select disk"  # type: ignore[union-attr]
+    with pytest.raises(SymbolError, match="already used"):
+        table.add(0xBE90, "cpm_seldsk", group="vdos")  # names stay unique
+    with pytest.raises(SymbolError, match="cannot have a group"):
+        table.add(0xC000, "rom_start", scope="rom5", group="vdos")
+    with pytest.raises(SymbolError, match="needs a label"):
+        table.add(0xBE91, comment="no label", group="vdos")
+    with pytest.raises(SymbolError, match="no group"):
+        table.add(0xBE92, "x", group="nonsense")
+    assert table.remove(0xBE8F, group="cpm").label == "cpm_seldsk"
+
+
+def test_contexts() -> None:
+    """A context per range or whole scope; the narrowest range wins; RAM code too (D-43)."""
+    table = grouped_table()
+    table.set_context("vdos", "rom5")
+    table.set_context("cpm", "rom5", 0xC3F6, 0xC4FF)
+    table.set_context("vdos", "rom5", 0xC400, 0xC40F)  # narrower, inside
+    table.set_context("cpm", "", 0x9000, 0x93FF)  # RAM code
+    assert table.context_at("rom5", 0xC000).group == "vdos"  # type: ignore[union-attr]
+    assert table.context_at("rom5", 0xC3F6).group == "cpm"  # type: ignore[union-attr]
+    assert table.context_at("rom5", 0xC405).group == "vdos"  # type: ignore[union-attr]
+    assert table.context_at("", 0x9100).group == "cpm"  # type: ignore[union-attr]
+    assert table.context_at("rom7", 0xC000) is None and table.context_at("", 0x8000) is None
+    assert [c.text for c in table.contexts("rom5")] == ["rom5", "rom5:C3F6-C4FF",
+                                                        "rom5:C400-C40F"]  # fmt: skip
+    with pytest.raises(SymbolError, match="first and last"):
+        table.set_context("cpm", "rom5", 0xC000)
+    assert table.remove_context("rom5", 0xC400, 0xC40F).group == "vdos"
+    with pytest.raises(SymbolError, match="no context"):
+        table.remove_context("rom7")
+
+
+def test_groups_and_contexts_in_the_annotation_file(tmp_path: Path) -> None:
+    """Round trip: group lines, group= tokens, contexts, grouped blocks; ":BE8F" accepted."""
+    table = grouped_table()
+    table.add_variable(OwnVariable("drives_swapped", 1, 0xBE7F, comment="swapped?", group="vdos"))
+    table.add(0xBE8F, "dos_seldsk", "SELDSK", type="jump", group="vdos", before="DOS entry")
+    table.add(0xBE8F, "cpm_seldsk", type="jump", group="cpm")
+    table.set_context("vdos", "rom5")
+    table.set_context("cpm", "rom5", 0xC3F6, 0xC4FF)
+    table.set_context("cpm", "", 0x9000, 0x93FF)
+    path = tmp_path / "annotations.txt"
+    table.save(path)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert lines[7:9] == ["group vdos ; VDOS fixed RAM", "group cpm ; CP/M 2.2 BIOS variables"]
+    assert "context rom5:C3F6-C4FF   cpm" in lines and "context 9000-93FF        cpm" in lines
+    assert "before BE8F        group=vdos ; DOS entry" in lines
+    assert "jump BE8F        dos_seldsk           group=vdos ; SELDSK" in lines
+    assert "var  BE7F        drives_swapped       1 group=vdos ; swapped?" in lines
+    loaded = SymbolTable()
+    loaded.load(path)
+    assert loaded.groups() == table.groups() and loaded.contexts() == table.contexts()
+    assert loaded.owner_symbols() == table.owner_symbols()
+    assert loaded.own_variables() == table.own_variables()
+    assert parse_annotation_line("jump :BE8F x group=vdos") == Symbol(
+        0xBE8F, "x", None, "", type="jump", group="vdos"
+    )
+    assert parse_annotation_line("context rom5 vdos") == Context("rom5", None, None, "vdos")
+
+
+def test_older_files_and_warnings(tmp_path: Path) -> None:
+    """An unknown group= creates it (warning); an owner label on a firmware name is left out."""
+    path = tmp_path / "annotations.txt"
+    path.write_text("BB5A my_output ; hooked\njump BE8F dos_seldsk group=vdos\n")
+    table = SymbolTable()
+    table.load(path)
+    assert table.label_at(0xBB5A) == "TXT_OUTPUT"
+    assert table.comment_at(0xBB5A) == "TXT OUTPUT · hooked"  # the comment is kept
+    assert table.group("vdos") == Group("vdos", None)
+    assert any("my_output" in w and "TXT_OUTPUT" in w for w in table.warnings)
+    assert any("group vdos was not defined" in w for w in table.warnings)

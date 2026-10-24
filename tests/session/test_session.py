@@ -142,6 +142,7 @@ def test_immediates_named_only_when_used_as_addresses(session: Session) -> None:
         "210800 7E"  # ld hl,#0008 / ld a,(hl): an address
         "110800 C9"  # ld de,#0008 / ret: unknown use
         "115ABB C9"  # ld de,#BB5A / ret: unknown use, jumpblock name kept
+        "110400 C9"  # ld de,#0004 / ret: unknown use, the owner's label kept
     )
     session.memory_write("9000", program.hex())
     lines = [" ".join(line.split()[-2:]) for line in session.disassemble("9000", 8)["lines"]]
@@ -149,8 +150,10 @@ def test_immediates_named_only_when_used_as_addresses(session: Session) -> None:
     assert lines[2] == "ld hl,LOW_JUMP"
     assert lines[4] == "ld de,#0008"
     assert lines[6] == "ld de,TXT_OUTPUT"
-    session.symbol_add("0008", "my_vector", scope="")
-    assert session.disassemble("9009", 1)["lines"][0].endswith("ld de,my_vector")
+    with pytest.raises(SessionError, match="firmware name LOW_JUMP"):  # fixed names (D-43)
+        session.symbol_add("0008", "my_vector", scope="")
+    session.symbol_add("0004", "my_vector", scope="")
+    assert session.disassemble("9011", 1)["lines"][0].endswith("ld de,my_vector")
 
 
 def test_trace(session: Session, tmp_path: Path) -> None:

@@ -25,6 +25,7 @@ import dearpygui.dearpygui as dpg
 from cpcxray.session.errors import SessionError
 from cpcxray.ui.panels import colours
 from cpcxray.ui.panels.base import TAB_WIDTH, Tab
+from cpcxray.ui.panels.symbol_text import context_text
 from cpcxray.ui.panels.text import (
     CodeRow,
     cpu_state_lines,
@@ -33,6 +34,7 @@ from cpcxray.ui.panels.text import (
     parse_assignments,
     register_pairs,
     register_words,
+    routine_range,
 )
 from cpcxray.ui.panels.widgets import BOX_GAP, badge, section, set_badge
 
@@ -55,6 +57,7 @@ class CpuTab(Tab):  # pylint: disable=too-many-instance-attributes  # view state
         super().__init__(*args, **kwargs)
         self._view_start: int | None = None  # first address of the following view
         self._row_addresses = [""] * CODE_ROWS  # the instruction address of each row ("": none)
+        self._menu_address = 0  # the line the code context menu is open for
         self._view_addresses: list[int] = []  # instruction addresses shown
         self._highlighted: set[int] = set()  # table rows with a coloured bar
 
@@ -120,6 +123,7 @@ class CpuTab(Tab):  # pylint: disable=too-many-instance-attributes  # view state
                 self.items["show_bytes"] = dpg.add_checkbox(
                     label="bytes", default_value=True, callback=self._bytes_switched
                 )
+                self.text("code_context", color=colours.TEXT_DIM)  # of the PC (or the typed view)
             with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit,
                            pad_outerX=False) as table:  # fmt: skip
                 self.items["code_table"] = table
@@ -134,6 +138,7 @@ class CpuTab(Tab):  # pylint: disable=too-many-instance-attributes  # view state
                     with dpg.table_row():
                         self.text(f"code_gutter_{row}")
                         self.text(f"code_address_{row}", color=colours.TEXT_DIM)
+                        self._context_opener(self.items[f"code_address_{row}"], row)
                         self.text(f"code_bytes_{row}", color=colours.TEXT_OFF)
                         self.text(f"code_mnemonic_{row}")
                         with dpg.group(horizontal=True, horizontal_spacing=0) as operands:
@@ -142,6 +147,7 @@ class CpuTab(Tab):  # pylint: disable=too-many-instance-attributes  # view state
                         self._operand_menu(operands, row)
             dpg.add_text("blue firmware · green variable · amber yours",
                          color=colours.TEXT_DIM)  # fmt: skip
+        self._build_context_menu()
 
     def _operand_menu(self, operands: int | str, row: int) -> None:
         """Right-click menu of a row's operands: the owner's operand override (`operand_set`)."""
@@ -159,6 +165,76 @@ class CpuTab(Tab):  # pylint: disable=too-many-instance-attributes  # view state
                 callback=lambda _s, _a, item: _open_at_mouse(item),
             )  # fmt: skip
         dpg.bind_item_handler_registry(operands, handlers)
+
+    def _build_context_menu(self) -> None:
+        """The "code context" menu of the address column (task 10, D-43): one for all rows."""
+        with dpg.window(popup=True, show=False, autosize=True, no_title_bar=True) as menu:
+            self.items["context_menu"] = menu
+            dpg.add_text("code context", color=colours.HEADING)
+            with dpg.group(horizontal=True):
+                dpg.add_text("group", color=colours.TEXT_DIM)
+                self.items["context_group"] = dpg.add_combo([], width=100)
+            with dpg.group(horizontal=True):
+                self.text("context_from", color=colours.TEXT_DIM)
+                dpg.add_text("to", color=colours.TEXT_DIM)
+                self.input("context_to", "last address", 80)
+            for label, mode in (("from - to", "range"), ("this routine", "routine"),
+                                ("whole scope", "scope"), ("none", "none")):  # fmt: skip
+                dpg.add_button(
+                    label=label, width=150, user_data=mode,
+                    callback=lambda _s, _a, choice: self._set_context(choice),
+                )  # fmt: skip
+
+    def _context_opener(self, address_cell: int | str, row: int) -> None:
+        """A right click on a row's address opens the code context menu for that line."""
+        self.context.popup_owners.append(address_cell)
+        with dpg.item_handler_registry() as handlers:
+            dpg.add_item_clicked_handler(
+                button=dpg.mvMouseButton_Right, user_data=row,
+                callback=lambda _s, _a, index: self._open_context_menu(index),
+            )  # fmt: skip
+        dpg.bind_item_handler_registry(address_cell, handlers)
+
+    def _open_context_menu(self, row: int) -> None:
+        """Fill the menu for the row's line (its address, the groups) and show it at the mouse."""
+        address = self._row_addresses[row] if row < len(self._row_addresses) else ""
+        if not address:
+            return
+        self._menu_address = int(address, 16)
+        names = [g["name"] for g in self.session.group_list()["groups"] if not g["built_in"]]
+        dpg.configure_item(self.items["context_group"], items=names)
+        if names and self.value("context_group") not in names:
+            dpg.set_value(self.items["context_group"], names[0])
+        dpg.set_value(self.items["context_from"], f"from {address}")
+        _open_at_mouse(self.items["context_menu"])
+
+    def _set_context(self, mode: str) -> None:
+        """Apply the menu's choice to the line's code: a range, its routine, the scope, none."""
+        dpg.configure_item(self.items["context_menu"], show=False)
+        address = self._menu_address
+        self.call(lambda: self._apply_context(mode, address))
+
+    def _apply_context(self, mode: str, address: int) -> Any:
+        """The session call for one code context choice (see `_set_context`)."""
+        session = self.session
+        scope = session.machine.symbol_scope(address)
+        if mode == "none":  # the context that applies to the line: the narrowest one
+            current = session.symbols.context_at(scope, address)
+            if current is None:
+                raise ValueError("this code has no context")
+            return session.context_remove(scope, current.first, current.last)
+        group = self.value("context_group")
+        if not group:
+            raise ValueError("create a group first (Symbols tab)")
+        if mode == "scope":
+            return session.context_set(group, scope)
+        if mode == "routine":
+            subs = session.symbol_search(types=["sub"], scope=scope, limit=5000)["entries"]
+            starts = [int(entry["address"], 16) for entry in subs]
+            first, last = routine_range(address, starts, 0x3FFF if scope == "lower" else 0xFFFF)
+        else:
+            first, last = address, session._address(self.value("context_to"))  # pylint: disable=protected-access  # the address parser
+        return session.context_set(group, scope, first, last)
 
     def _set_operand(self, row: int, role: str, menu: int | str) -> None:
         """Store the operand decision of the instruction in `row` and close the menu."""
@@ -254,6 +330,14 @@ class CpuTab(Tab):  # pylint: disable=too-many-instance-attributes  # view state
         rows = disassembly_view(listing, pc, set(self.session.breakpoints.addresses))
         self._view_addresses = [int(r.address, 16) for r in rows if r.kind == "instruction"]
         self._show_rows(rows[:CODE_ROWS])
+        self._show_context(pc if not typed or not self._view_addresses else self._view_addresses[0])
+
+    def _show_context(self, address: int) -> None:
+        """The line under the listing: the code context of the PC line (or the first line)."""
+        scope = self.session.machine.symbol_scope(address)
+        found = self.session.symbols.context_at(scope, address)
+        context = {"group": found.group, "context": found.text} if found is not None else None
+        dpg.set_value(self.items["code_context"], context_text(context))
 
     def _follow(self, pc: int) -> int:
         """The view's start: kept while the PC is inside it (not too close to its end)."""

@@ -122,8 +122,13 @@ tiles show what the CPU sees in each 16 KB quarter (lower ROM, upper ROM n with 
 block). The disassembly (▶ PC, ● breakpoint, bytes switchable) follows the PC; type an address
 to look elsewhere. Right-click an instruction's operand to say what it is: **a number** (always
 hex: `call #0010` instead of `call SIDE_CALL`), **an address** (named), or **judged by cpcxray**
-again - your decision holds in the disassembly, the trace and the generated source. Beside it
-the stack from SP up to its top, with the instruction that set the stack.
+again - your decision holds in the disassembly, the trace and the generated source.
+Right-click a line's address to give its code a **code context** - the group of names it works
+with (see Symbols): from this line **to** an address you type, **this routine** (from its sub
+label, or the last one before it, to just before the next), the **whole scope** (all of the ROM,
+or all RAM code), or **none** (removes the context that applies there). The line above the
+listing shows the context of the PC's code (of the first line when you typed an address).
+Beside it the stack from SP up to its top, with the instruction that set the stack.
 
 ### Memory
 16 lines of 16 bytes through a view: `cpu` (what the CPU reads now), `ram` (RAM, also under a
@@ -168,6 +173,22 @@ lines each, e.g. a routine header above it or a longer explanation below it; the
 CPU tab's disassembly and as `;` lines in the generated source. "Your symbols" adds labels (sub / jump / data) and variables
 (name, size, base: an absolute address or the data area of ROM n, so it follows that ROM).
 Save them to the annotation file (`project/annotations.txt`, loaded at the start).
+
+**Groups** sort your variables and RAM (global) labels by the program that uses them, when one
+RAM address means different things in code that never runs at the same time - VDOS and CP/M, for
+example. The Groups panel adds a group with a description, renames it, moves it up or down (the
+order counts, see below) and removes it (refused while it is used, unless **force**: its items
+become ungrouped). The editor and "Your symbols" have a group choice for variables and global
+labels; the list shows an owner's group as `[vdos]`, and the group filter shows one group,
+the ungrouped names or the built-in `firmware` / `amsdos` groups.
+
+Which name an address gets depends on the code that uses it: give code a context (CPU tab).
+The firmware's jumpblock and restart names always win - they are fixed by the machine, so your
+label on such an address is refused (a comment is fine). Then a ROM's own label, then your
+global labels and all variables in three ranks: those of the code's context group, then the
+built-in and ungrouped ones, then the other groups in their order - labels before variables, the
+smallest variable first. Code without a context names as before groups existed. RAM code copied
+from a ROM takes the context of the ROM code it came from (when the analysis saw the copy).
 
 ### Disks
 Drive chips for A (3", 40 tracks) and B (5.25", 80 tracks, double-sided); per drive the disk,
@@ -354,7 +375,9 @@ address = 0x8000
 **Annotation file** (`project/annotations.txt`): one entry per line, `#` starts a comment.
 
 ```text
-sub  BB5A        my_output       ; a label of type sub (sub, jump or data), a comment
+group vdos       ; VDOS fixed RAM and workspace (groups first, in their order)
+group cpm        ; CP/M 2.2 BIOS variables
+sub  9000        my_output       ; a label of type sub (sub, jump or data), a comment
 data rom5:C015   messages        ; scoped to upper ROM 5 (or "lower")
 8000             -               ; a comment only
 var  A000        frame_count  2  ; a variable: address, label, size
@@ -364,10 +387,21 @@ before rom5:C4D8 ;   in:  D = track, E = sector
 after  rom5:C4D8 ; a comment block after the line
 value  rom5:C123 ; the operand of the instruction is a number, not an address
 address rom5:C200 ; ... or an address, where cpcxray judged it a number
+var  BE7F  drives_swapped  1 group=vdos ; a variable in a group
+jump BE8F  dos_seldsk        group=vdos ; two RAM labels at one address, one per group
+jump BE8F  cpm_seldsk        group=cpm
+before BE8F group=vdos ; a comment block of the vdos label at &BE8F
+context rom5            vdos   ; all code of ROM 5 works with the vdos names
+context rom5:C3F6-C4FF  cpm    ; except this range (the narrowest range wins)
+context 9000-93FF       cpm    ; RAM code (no scope)
 ```
 
 A comment block is one `before` or `after` line per text line, in order; the text after `; ` is
-kept as it is (indentation too), `;` alone is an empty line. Older files load unchanged.
+kept as it is (indentation too), `;` alone is an empty line. `group=NAME` comes after the
+size (variables) or the label, before the `;`; a group not declared by a `group` line is created
+without a description. Global addresses have no scope (`BE8F`; `:BE8F` is read too). Older files
+load unchanged - except a label of yours on a firmware jumpblock or restart address: it is left
+out (its comment kept) and the Symbols tab's status reports it.
 
 **Outputs** in `project/`: `<rom>.analysis.json` (analysis database), `<rom>.m1map` (access map,
 16 KB, one byte per ROM byte), `<rom>.asm` (the source), `<rom>_clear.rom`, `<rom>_rom_map.html`

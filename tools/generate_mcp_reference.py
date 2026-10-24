@@ -38,6 +38,8 @@ GROUPS: dict[str, tuple[str, ...]] = {
                               "variable_remove", "variable_locate", "variable_list",
                               "address_explain", "symbols_load", "symbols_save",
                               "symbols_status"),
+    "Groups and contexts": ("group_add", "group_rename", "group_remove", "group_list",
+                            "context_set", "context_remove", "context_list"),
     "Analysis": ("analysis_target_add", "analysis_target_remove", "analysis_target_list",
                  "analysis_enable", "analysis_status", "analysis_capture", "analysis_save",
                  "analysis_load", "classify", "reloc_list", "reloc_add", "reloc_remove",

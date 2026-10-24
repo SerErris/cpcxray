@@ -9,6 +9,8 @@ from __future__ import annotations
 from typing import Any
 
 MARKS = {"yours": "✎", "analysis": "◇"}  # ✎ the owner's, ◇ from the analysis
+UNGROUPED = "-"  # the group choice "no group" (task 10)
+BUILT_IN = ("firmware", "amsdos")
 SCOPES = ("all", "global", "lower", *(f"rom{n}" for n in range(16)))
 BASES = ("absolute", *(f"rom{n}" for n in range(16)))
 
@@ -19,9 +21,54 @@ def entry_key(entry: dict[str, Any]) -> tuple[str, str, str, str]:
 
 
 def symbol_row(entry: dict[str, Any]) -> str:
-    """One list row: type, address, the ✎ / ◇ mark and the label (or "-")."""
+    """One list row: type, address, the ✎ / ◇ mark, the label (or "-"), the owner's group."""
     mark = MARKS.get(entry.get("mark") or "", " ")
-    return f"{entry['type'] or '':<4} {entry['address']} {mark} {entry['label'] or '-'}"
+    group = entry.get("group")
+    tag = f" [{group}]" if group and group not in BUILT_IN else ""
+    return f"{entry['type'] or '':<4} {entry['address']} {mark} {entry['label'] or '-'}{tag}"
+
+
+def group_filter_choices(groups: list[str]) -> list[str]:
+    """The group filter's choices: all, ungrouped, the built-in groups, the owner's."""
+    return ["all", "ungrouped", *BUILT_IN, *groups]
+
+
+def group_filter_value(choice: str) -> str | None:
+    """The group filter's choice as `symbol_search` takes it (None: all, "": ungrouped)."""
+    if choice == "all":
+        return None
+    return "" if choice == "ungrouped" else choice
+
+
+def group_choices(groups: list[str]) -> list[str]:
+    """The editor's group choices: "-" (no group), then the owner's groups."""
+    return [UNGROUPED, *groups]
+
+
+def groupable(entry: dict[str, Any] | None) -> bool:
+    """True if the entry can have a group: the owner's variable or global label (D-43, D-44)."""
+    if entry is None or entry.get("mark") != "yours":
+        return False
+    return entry["type"] == "var" or (
+        entry["scope"] == "" and entry["type"] in ("sub", "jump", "data")
+    )
+
+
+def group_line(group: dict[str, Any]) -> str:
+    """One group of `group_list` for the Groups panel: name, description, what uses it."""
+    if group.get("built_in"):
+        return f"{group['name']} (built in): {group['description']}"
+    usage = (f"{group['variables']} variables · {group['labels']} labels · "
+             f"{group['contexts']} contexts")  # fmt: skip
+    description = f": {group['description']}" if group.get("description") else ""
+    return f"{group['name']}{description}  ({usage})"
+
+
+def context_text(context: dict[str, Any] | None) -> str:
+    """The CPU tab's line under the listing: the code context of the line it describes."""
+    if context is None:
+        return "code context: none"
+    return f"code context: {context['group']} ({context['context']})"
 
 
 def scope_text(scope: str) -> str:

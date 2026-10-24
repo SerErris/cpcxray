@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from cpcxray.cpu.disasm import Instruction, SymbolLookup
+    from cpcxray.debugger.names import Name
     from cpcxray.debugger.symbols import SymbolTable
     from cpcxray.debugger.variables import Variable, VariableHit
     from cpcxray.machine.cpc464 import CPC464
@@ -98,6 +99,13 @@ def _code_row(text: str, comments: list[str | None]) -> dict[str, Any]:
     return row
 
 
+class _Auto:  # pylint: disable=too-few-public-methods  # a marker
+    """Marks the default of the context parameters: look the code's context up."""
+
+
+AUTO = _Auto()
+
+
 class DebuggerMixin:
     """Breakpoints, bus trace, memory views and snapshots of `Session` (module docstring)."""
 
@@ -120,12 +128,22 @@ class DebuggerMixin:
         """Parse an address or label (implemented by Session)."""
         raise NotImplementedError
 
-    def _label(self, address: int) -> str | None:
+    def _label(self, address: int, prefer: str | None = None) -> str | None:
         """Label of an address (implemented by Session)."""
         raise NotImplementedError
 
-    def _operand_label(self, address: int) -> str | None:
+    def _operand_label(self, address: int, prefer: str | None = None) -> str | None:
         """Label or variable name of an operand (implemented by Session)."""
+        raise NotImplementedError
+
+    def _operand_name(self, address: int, prefer: str | None = None) -> Name | None:
+        """The ranked name of an address (implemented by Session)."""
+        raise NotImplementedError
+
+    def _code_context(
+        self, address: int, scope: str | None = None, origin: Any = None
+    ) -> str | None:
+        """The group of the context of code at an address (implemented by Session)."""
         raise NotImplementedError
 
     def _disassemble(self, address: int) -> Instruction:
@@ -136,12 +154,16 @@ class DebuggerMixin:
         """An instruction as `disassemble` lines (implemented by Session)."""
         raise NotImplementedError
 
-    def _variable_hits(self, address: int) -> list[VariableHit]:
+    def _variable_hits(self, address: int, prefer: str | None = None) -> list[VariableHit]:
         """Known variables containing an address (implemented by Session)."""
         raise NotImplementedError
 
     def _variable_named(self, label: str) -> Variable | None:
         """The known variable with a label (implemented by Session)."""
+        raise NotImplementedError
+
+    def _known_variable_list(self) -> list[Variable]:
+        """The variables that exist now (implemented by Session)."""
         raise NotImplementedError
 
     def _cpc(self) -> CPC464:
@@ -157,7 +179,10 @@ class DebuggerMixin:
         raise NotImplementedError
 
     def _instruction_labels(
-        self, instruction: Instruction, following: Callable[[int], Instruction] | None = None
+        self,
+        instruction: Instruction,
+        following: Callable[[int], Instruction] | None = None,
+        context: str | _Auto | None = AUTO,
     ) -> SymbolLookup:
         """The operand lookup for one instruction: `_operand_label`, judged for `ld rr,nn`.
 
@@ -167,11 +192,16 @@ class DebuggerMixin:
         value used as a number gets no name; one of unknown use keeps the owner's labels and
         variables but not a firmware name below the jumpblocks (the restarts at &0000-&003F).
 
+        Names of RAM addresses follow the context of the instruction (D-43).
+
         Args:
             instruction: The instruction.
             following: Decodes the code after it (default: memory, `_disassemble`; a file's
                 bytes for code read from a disk).
+            context: The group of the instruction's context (default: looked up for its
+                address as paged in now; a trace passes the one of where it ran).
         """
+        prefer = self._code_context(instruction.address) if isinstance(context, _Auto) else context
         decided = self.symbols.operand_at(  # the owner's decision wins
             instruction.address, self.machine.symbol_scope(instruction.address)
         )
@@ -179,17 +209,17 @@ class DebuggerMixin:
             return lambda _word: None
         role = immediate_role(instruction, following or self._disassemble)  # UNKNOWN: no ld rr,nn
         if decided == "address" or loaded_pair(instruction) is None or role == Role.ADDRESS:
-            return self._operand_label
+            return lambda word: self._operand_label(word, prefer)
         if role == Role.NUMBER:
             return lambda _word: None
 
         def unknown_use(word: int) -> str | None:
             """Name the value unless the name would only be a low firmware address."""
             if word >= FIRMWARE_JUMPBLOCKS or self.symbols.owner_at(
-                word, self.machine.symbol_scope(word)
+                word, self.machine.symbol_scope(word), prefer
             ):
-                return self._operand_label(word)
-            return next((hit.name for hit in self._variable_hits(word)), None)
+                return self._operand_label(word, prefer)
+            return next((hit.name for hit in self._variable_hits(word, prefer)), None)
 
         return unknown_use
 
@@ -226,60 +256,63 @@ class DebuggerMixin:
         return code
 
     def _disassembly_rows(
-        self, instruction: Instruction, label: str | None
+        self, instruction: Instruction, label: str | None, context: str | _Auto | None = AUTO
     ) -> list[dict[str, Any]]:
         """`disassemble`'s rows of one instruction, for colouring (task 5b).
 
         A label row ("kind" "label"); the instruction ("instruction": address, bytes,
         mnemonic, operands); its extra lines, e.g. a RST's inline `defw` ("data"). Each with
         "comment" if any and, where an operand is named, "name" and its symbol type
-        "name_type" (FW, VAR, var, sub, jump, data).
+        "name_type" (FW, VAR, var, sub, jump, data). `context`: the group of the
+        instruction's context (D-43; default: looked up as paged in now).
         """
         address = instruction.address
+        prefer = self._code_context(address) if isinstance(context, _Auto) else context
         rows: list[dict[str, Any]] = []
         if label:
-            rows.append({"kind": "label", "text": label, "name_type": self._label_type(address)})
-        names = self._instruction_labels(instruction)
-        owner_comment = self.symbols.comment_at(address, self.machine.symbol_scope(address))
+            rows.append({"kind": "label", "text": label,
+                         "name_type": self._label_type(address, prefer)})  # fmt: skip
+        names = self._instruction_labels(instruction, context=prefer)
+        owner_comment = self.symbols.comment_at(address, self.machine.symbol_scope(address),
+                                                prefer)  # fmt: skip
         words = [instruction.word_operand, *(line.word for line in instruction.extra_lines)]
         for number, (text, comment) in enumerate(instruction.lines(names)):
-            first = number == 0
-            row = _code_row(text, [comment, owner_comment if first else None])
-            if first:
+            row = _code_row(text, [comment, owner_comment if number == 0 else None])
+            if number == 0:
                 row |= {"kind": "instruction", "address": f"{address:04X}",
                         "bytes": instruction.raw.hex(" ").upper()}  # fmt: skip
-            word = words[number]
-            name = names(word) if word is not None else None
-            if word is not None and name and name in row["operands"]:
-                row |= {"name": name, "name_type": self._label_type(word)}
-            rows.append(row)
+            rows.append(row | self._operand_name_fields(row, words[number], names, prefer))
         return rows
 
-    def _note_rows(self, address: int, position: str) -> list[dict[str, Any]]:
+    def _operand_name_fields(
+        self, row: dict[str, Any], word: int | None, names: SymbolLookup, prefer: str | None
+    ) -> dict[str, Any]:
+        """The fields "name" and "name_type" of a row whose operand is named, else none."""
+        name = names(word) if word is not None else None
+        if word is None or not name or name not in row["operands"]:
+            return {}
+        return {"name": name, "name_type": self._label_type(word, prefer)}
+
+    def _note_rows(
+        self, address: int, position: str, prefer: str | None = None
+    ) -> list[dict[str, Any]]:
         """The owner's comment block before / after `address` as disassembly rows (task 9).
 
         Rows "kind" "note" with "text" and "position" ("before": above the label, "after":
-        below the instruction's lines).
+        below the instruction's lines). `prefer`: the code's context group (D-43).
         """
-        owner = self.symbols.owner_at(address, self.machine.symbol_scope(address))
+        owner = self.symbols.owner_at(address, self.machine.symbol_scope(address), prefer)
         return [{"kind": "note", "text": text, "position": position}
                 for text in block_lines(owner, position)]  # fmt: skip
 
-    def _label_type(self, address: int) -> str:
+    def _label_type(self, address: int, prefer: str | None = None) -> str:
         """The symbol type of the name `_operand_label` gives an address (task 5g colours).
 
-        The owner's label's type ("sub", "jump", "data"), "FW" for a firmware name (the
-        owner's comment over it changes nothing), else the variable's: "var" for one of the
-        owner's, "VAR" for a known OS/AMSDOS one.
+        "FW" for a firmware name, the owner's label's type ("sub", "jump", "data"), else the
+        variable's: "var" for one of the owner's, "VAR" for a known OS/AMSDOS one.
         """
-        scope = self.machine.symbol_scope(address)
-        owner = self.symbols.owner_at(address, scope)
-        if owner is not None and owner.label:
-            return owner.type or "sub"
-        if self.symbols.firmware_at(address) is not None:
-            return "FW"
-        hits = self._variable_hits(address)
-        return "var" if hits and hits[0].variable.owner == "owner" else "VAR"
+        name = self._operand_name(address, prefer)
+        return name.type if name is not None else "VAR"
 
     def _instruction_text(self, instruction: Instruction) -> str:
         """The instruction's first line with operand names (`_instruction_labels`)."""
@@ -428,7 +461,8 @@ class DebuggerMixin:
         if hit is None:
             return None
         detail = hit.describe()
-        if hit.access in ("read", "write") and (hits := self._variable_hits(hit.address)):
+        context = self._code_context(hit.pc)  # D-43: as the accessing code sees it
+        if hit.access in ("read", "write") and (hits := self._variable_hits(hit.address, context)):
             detail["variable"] = hits[0].name  # FR-DBG-11: "write to NAME+n"
         return detail
 
@@ -585,16 +619,17 @@ class DebuggerMixin:
         """
         if not 1 <= last <= MAX_BUS_TRACE_READ:
             raise SessionError(f"last must be 1-{MAX_BUS_TRACE_READ}")
-        names: dict[int, str] = {}  # address → variable name, looked up once per address
+        names: dict[tuple[int, str | None], str] = {}  # (address, context) → variable name
 
         def variable(record: Any) -> str:
-            """The variable a RAM read or write touched, or ""."""
+            """The variable a RAM read or write touched, or "" (D-43: the code's context)."""
             if record.access not in ("read", "write") or not record.location.startswith("ram"):
                 return ""
-            if record.address not in names:
-                hits = self._variable_hits(record.address)
-                names[record.address] = hits[0].name if hits else ""
-            return names[record.address]
+            key = (record.address, self._code_context(record.pc))
+            if key not in names:
+                hits = self._variable_hits(*key)
+                names[key] = hits[0].name if hits else ""
+            return names[key]
 
         records = self.bus_trace.last(last)
         lines = [record if isinstance(record, str) else record.line(variable(record))

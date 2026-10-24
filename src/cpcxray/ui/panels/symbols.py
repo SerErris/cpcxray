@@ -14,6 +14,11 @@ bottom:
   scope and comment; var takes name, size, base (absolute, or the data area of ROM n) plus
   offset and comment, and shows where it is now.
 * The annotation file: path, your entries, saved or not, Load, Save.
+
+Groups (task 10, D-43, D-44): a group filter in the search; the list shows the owner's group of
+an entry ("[vdos]"); the detail editor and the form have a group choice for the owner's
+variables and global labels; a Groups panel adds, describes, renames, moves and removes the
+owner's groups.
 """
 
 from __future__ import annotations
@@ -31,9 +36,15 @@ from cpcxray.ui.panels.symbol_text import (
     BASES,
     MARKS,
     SCOPES,
+    UNGROUPED,
     counts_label,
     detail_rows,
     entry_key,
+    group_choices,
+    group_filter_choices,
+    group_filter_value,
+    group_line,
+    groupable,
     now_text,
     scope_value,
     symbol_row,
@@ -42,8 +53,8 @@ from cpcxray.ui.panels.symbol_text import (
 from cpcxray.ui.panels.widgets import BOX_GAP, Chips, badge, section, set_badge
 
 LIST_WIDTH = 252  # type, address, the mark and a label of 20 characters
-LIST_ROWS = 21
-LOWER_HEIGHT = 400  # the list and the detail beside it end on the same line
+LIST_ROWS = 17
+LOWER_HEIGHT = 340  # the list and the detail beside it end on the same line
 DETAIL_ROWS = 5
 MAX_ENTRIES = 5000
 FORM_TYPES = ("var", *OWNER_TYPES)
@@ -68,6 +79,7 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
         self._shown: Any = None  # the search result the list shows
         self._selected_key: tuple[str, str, str, str] | None = None
         self._detail_shown: Any = None
+        self._group_names: list[str] = []  # the owner's groups the choices show
 
     # -- building --------------------------------------------------------------------------------
 
@@ -83,6 +95,7 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
                          height=LOWER_HEIGHT, style="here"):  # fmt: skip
                 self._build_detail()
         self._build_form()
+        self._build_groups()
         self._build_file()
         self.text("symbol_message", color=colours.TEXT_DIM)
 
@@ -90,11 +103,15 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
         """Search text, scope, only yours; the type chips with counts; the legend."""
         with section(self.styles, width=TAB_WIDTH):
             with dpg.group(horizontal=True):
-                self.input("symbol_search", "search label, comment or description", 300,
+                self.input("symbol_search", "search names and comments", 210,
                            callback=self.refresh)  # fmt: skip
                 dpg.add_text("scope", color=colours.TEXT_DIM)
                 self.items["symbol_scope"] = dpg.add_combo(
                     SCOPES, default_value="all", width=80, callback=self.refresh
+                )
+                dpg.add_text("group", color=colours.TEXT_DIM)
+                self.items["symbol_group_filter"] = dpg.add_combo(
+                    group_filter_choices([]), default_value="all", width=90, callback=self.refresh
                 )
                 self.items["symbol_yours"] = dpg.add_checkbox(
                     label="only yours", callback=self.refresh
@@ -127,6 +144,8 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
             self.input("symbol_edit_label", "label", 170)
             self.items["symbol_edit_type"] = dpg.add_combo(OWNER_TYPES, default_value="sub",
                                                            width=60)  # fmt: skip
+            self.items["symbol_edit_group"] = dpg.add_combo(group_choices([]), width=70,
+                                                            default_value=UNGROUPED)  # fmt: skip
         with dpg.group(horizontal=True):
             dpg.add_text("your comment", color=colours.TEXT_DIM)
             self.input("symbol_edit_comment", "comment", 236)
@@ -169,8 +188,27 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
                 self.input("form_offset", "offset", 60, callback=self._update_now)
                 self.text("form_now", color=colours.TEXT_DIM)
             with dpg.group(horizontal=True):
-                self.input("form_comment", "comment", 470)
+                self.input("form_comment", "comment", 380)
+                dpg.add_text("group", color=colours.TEXT_DIM)
+                self.items["form_group"] = dpg.add_combo(group_choices([]), width=80,
+                                                         default_value=UNGROUPED)  # fmt: skip
                 self.button("Add", self.add_from_form, width=60)
+
+    def _build_groups(self) -> None:
+        """Your groups (D-43): pick one, its name and description, add / rename / move / remove."""
+        with section(self.styles, "Groups", width=TAB_WIDTH):
+            with dpg.group(horizontal=True):
+                self.items["groups_pick"] = dpg.add_combo([], width=90, callback=self._group_picked)
+                self.input("group_name", "name", 90)
+                self.input("group_description", "description", 300)
+                self.button("Add / save", self.save_group)
+            with dpg.group(horizontal=True):
+                self.button("Rename", self.rename_group)
+                self.button("Up", lambda: self.move_group(-1))
+                self.button("Down", lambda: self.move_group(1))
+                self.button("Remove", self.remove_group)
+                self.items["group_force"] = dpg.add_checkbox(label="force")
+            self.text("groups_lines", color=colours.TEXT_DIM, wrap=TAB_WIDTH - 20)
 
     def _build_file(self) -> None:
         """The annotation file: path, entries, saved or not, Load and Save."""
@@ -209,14 +247,21 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
         comment = self.value("symbol_edit_comment").strip() or None
         if entry["type"] == "var" and entry["mark"] == "yours":
             own = self._detail_shown[1]["variable"]
-            return self.session.variable_add(label or entry["label"], own["size"], own["base"],
-                                             comment, replaces=entry["label"])  # fmt: skip
+            return self.session.variable_add(
+                label or entry["label"], own["size"], own["base"], comment,
+                replaces=entry["label"], group=self._chosen_group("symbol_edit_group"),
+            )  # fmt: skip
         before, after = self.value("symbol_edit_before"), self.value("symbol_edit_after")
         if label is None and comment is None and not before.strip() and not after.strip():
             raise ValueError("give a label, a comment or a comment block")
         symbol_type = self.value("symbol_edit_type") if label else None
+        group = self._chosen_group("symbol_edit_group") if entry["scope"] == "" else None
+        old_group = (entry.get("group") or "") if groupable(entry) else group
+        if group is not None and old_group != group:  # moved to another group (D-44)
+            self.session.symbol_remove(entry["address"], "", group=old_group)
         result = self.session.symbol_add(entry["address"], label, comment, entry["scope"],
-                                         symbol_type, before=before, after=after)  # fmt: skip
+                                         symbol_type, before=before, after=after,
+                                         group=group)  # fmt: skip
         if label:
             self._selected_key = (result["type"], entry["address"], entry["scope"], label)
         return result
@@ -226,7 +271,8 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
         entry = self._selected_entry()
         if entry["type"] == "var" and entry["mark"] == "yours":
             return self.session.variable_remove(entry["label"])
-        return self.session.symbol_remove(entry["address"], entry["scope"])
+        group = (entry.get("group") or "") if entry["scope"] == "" else None
+        return self.session.symbol_remove(entry["address"], entry["scope"], group)
 
     def show_selected(self, tab: str) -> None:
         """Show the selected entry's address in the CPU or the Memory tab."""
@@ -254,11 +300,74 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
                 raise ValueError("the size is a number of bytes")
             base = variable_base(self.value("form_base"), self.value("form_offset"))
             return self.session.variable_add(self.value("form_var_name").strip(), int(size_text),
-                                             base, comment)  # fmt: skip
+                                             base, comment,
+                                             group=self._chosen_group("form_group"))  # fmt: skip
         scope = scope_value(self.value("form_scope")) or ""
+        group = self._chosen_group("form_group") if not scope else None
         return self.session.symbol_add(self.value("form_address").strip(),
                                        self.value("form_name").strip() or None, comment, scope,
-                                       form_type)  # fmt: skip
+                                       form_type, group=group)  # fmt: skip
+
+    def _chosen_group(self, name: str) -> str:
+        """A group choice as the session takes it: "" for no group, else the name."""
+        choice = self.value(name)
+        return "" if choice in (UNGROUPED, "") else choice
+
+    # -- groups (D-43) ---------------------------------------------------------------------------
+
+    def _group_picked(self) -> None:
+        """A group was picked: its name and description into the fields."""
+        name = self.value("groups_pick")
+        groups = self.session.group_list()["groups"]
+        group = next((g for g in groups if g["name"] == name), None)
+        dpg.set_value(self.items["group_name"], name)
+        dpg.set_value(self.items["group_description"], (group or {}).get("description") or "")
+
+    def save_group(self) -> Any:
+        """Add the group of the name field, or change its description."""
+        name = self.value("group_name").strip()
+        if not name:
+            raise ValueError("give the group a name")
+        return self.session.group_add(name, self.value("group_description").strip() or None)
+
+    def rename_group(self) -> Any:
+        """Rename the picked group to the name field."""
+        old, new = self.value("groups_pick"), self.value("group_name").strip()
+        if not old or not new or old == new:
+            raise ValueError("pick a group and type its new name")
+        result = self.session.group_rename(old, new)
+        dpg.set_value(self.items["groups_pick"], new)
+        return result
+
+    def move_group(self, step: int) -> Any:
+        """Move the picked group up (-1) or down (+1) in the order."""
+        name = self.value("groups_pick")
+        if name not in self._group_names:
+            raise ValueError("pick a group")
+        position = self._group_names.index(name) + step
+        if not 0 <= position < len(self._group_names):
+            raise ValueError("the group is at the end already")
+        return self.session.group_add(name, None, position)
+
+    def remove_group(self) -> Any:
+        """Remove the picked group (with "force": its items become ungrouped)."""
+        name = self.value("groups_pick")
+        if not name:
+            raise ValueError("pick a group")
+        return self.session.group_remove(name, bool(self.value("group_force")))
+
+    def _refresh_groups(self) -> None:
+        """The group choices everywhere and the Groups panel's lines (when the groups changed)."""
+        groups = self.session.group_list()["groups"]
+        names = [g["name"] for g in groups if not g["built_in"]]
+        dpg.set_value(self.items["groups_lines"], "\n".join(group_line(g) for g in groups))
+        if names == self._group_names:
+            return
+        self._group_names = names
+        dpg.configure_item(self.items["groups_pick"], items=names)
+        dpg.configure_item(self.items["symbol_group_filter"], items=group_filter_choices(names))
+        for name in ("symbol_edit_group", "form_group"):
+            dpg.configure_item(self.items[name], items=group_choices(names))
 
     def _form_type(self) -> None:
         """The form's type changed: a variable's fields or a label's."""
@@ -290,6 +399,7 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
             self.value("symbol_search"), types=list(self.type_chips.selected),
             scope=scope_value(self.value("symbol_scope")),
             only_yours=bool(self.value("symbol_yours")), limit=MAX_ENTRIES,
+            group=group_filter_value(self.value("symbol_group_filter")),
         )  # fmt: skip
         for symbol_type in colours.SYMBOL_TYPES:
             self.type_chips.set_label(symbol_type, counts_label(symbol_type, result["counts"]))
@@ -306,6 +416,7 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
         selected = self.list.selected
         self._show_detail(self.entries[selected] if selected is not None else None)
         self._refresh_file()
+        self._refresh_groups()
         if self.form_chips is not None and self.form_chips.selected[0] == "var":
             self._update_now()
 
@@ -322,7 +433,11 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
             dpg.configure_item(items["symbol_title"], color=colours.TEXT_DIM)
             dpg.configure_item(items["symbol_badge"], show=False)
         else:
-            detail = self.session.symbol_detail(entry["address"], entry["scope"], entry["label"])
+            group = (
+                (entry.get("group") or "") if groupable(entry) and entry["scope"] == "" else None
+            )
+            detail = self.session.symbol_detail(entry["address"], entry["scope"], entry["label"],
+                                                group=group)  # fmt: skip
             rows = detail_rows(detail, entry)
             dpg.set_value(items["symbol_title"], entry["label"] or f"comment at {entry['address']}")
             dpg.configure_item(items["symbol_title"], color=colours.name_colour(entry["type"]))
@@ -353,6 +468,9 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
         dpg.set_value(self.items["symbol_edit_type"], symbol_type)
         dpg.set_value(self.items["symbol_edit_before"], before)
         dpg.set_value(self.items["symbol_edit_after"], after)
+        dpg.set_value(self.items["symbol_edit_group"],
+                      (entry or {}).get("group") or UNGROUPED)  # fmt: skip
+        dpg.configure_item(self.items["symbol_edit_group"], show=groupable(entry))
         is_variable = entry is not None and entry["type"] in ("VAR", "var")
         dpg.configure_item(self.items["symbol_edit_type"], show=not is_variable)
         for position in ("before", "after"):  # a variable has no line to comment around

@@ -10,15 +10,14 @@ A lookup for an address in a scope first checks that scope, then the global symb
 scope applies to an address at run time (ROM paged in or not) is decided by the caller; the
 memory map provides it from phase 4.
 
-The firmware jumpblock names of the machine are preloaded (source "firmware") as upper-case
-labels (TXT_OUTPUT, JP_HL): the 464, 664 and 6128 have different sets
+The firmware jumpblock and restart names of the machine are preloaded (source "firmware") as
+upper-case labels (TXT_OUTPUT, JP_HL): the 464, 664 and 6128 have different sets
 (debugger/firmware_symbols.py); `set_firmware` switches them when the machine changes.
 Everything the owner or the tools add has source "user" and is what the annotation file
-stores. The two are layers: the owner's label or comment at a firmware address lies over the
-firmware name and does not replace it. A lookup shows the owner's label if there is one (else
-the firmware label) and both comments ("TXT OUTPUT · hooked by my program"); removing the
-owner's entry brings the plain firmware name back. Label lookups by name fall back to a
-case-insensitive match and find firmware labels under an owner's label too.
+stores. The firmware names are fixed by the machine (D-43): an owner label at a firmware
+name's address is refused, the owner's comment there is joined to the firmware's
+("TXT OUTPUT · hooked by my program"). Label lookups by name fall back to a case-insensitive
+match.
 
 Symbol types (task 5g, owner 2026-10-22): firmware names are "FW"; the owner's labels are
 "sub" (a subroutine), "jump" (a jump target inside code) or "data" (a table, a string); a
@@ -32,197 +31,111 @@ address can have a block of comment lines *before* it (a routine header) and one
 longer explanation between two instructions). Blocks are the owner's only (`before`, `after`:
 text with line breaks); the source generator writes them as `;` lines around the instruction.
 
-Operand overrides (owner 2026-10-24): the owner decides for the word operand of the instruction
-at an address whether it is a number ("value": always hex, `ld hl,#0010` and not
-`ld hl,SIDE_CALL`) or an address ("address": named, even where the judgement of `ld rr,nn` says
-number). They win over that judgement in the disassembly, the trace and the generated source.
+Operand overrides (D-42): the owner decides for the word operand of the instruction at an
+address whether it is a number ("value": always hex, `ld hl,#0010` and not `ld hl,SIDE_CALL`)
+or an address ("address": named, even where the judgement of `ld rr,nn` says number).
 
-Annotation file format (plain text, one entry per line, `#` starts a comment line):
+Groups and contexts (task 10, D-43, D-44): the owner creates groups (name, description, order)
+and puts their variables and global (RAM) labels in at most one; the built-in groups
+"firmware" (the firmware names and RAM variables) and "amsdos" hold what cpcxray knows. A RAM
+address may carry one owner label per group plus one ungrouped: the key of a global symbol is
+(scope, address, group), that of a ROM symbol (scope, address). A context gives a code range
+(or a whole scope, ROM or RAM) a group: where a RAM address is named, the item of the group of
+the code's context is preferred (debugger/names.py `NameResolver`). Without groups everything
+works as before.
 
-    # [sub|jump|data] [scope:]address  label  [; comment]
-    # var address|romN+offset  label  size  [; comment]
-    # before|after [scope:]address  ; one line of a comment block
-    # value|address [scope:]address  [; comment]   the operand of the instruction there
-    BB5A        my_output       ; print char in A (no type: "sub")
-    before rom5:C4D8 ; read_sector: reads one sector into the buffer
-    before rom5:C4D8 ;   in:  D = track, E = sector
-    sub rom5:C4D8   read_sector     ; reads one sector
-    after rom5:C4D8  ; the FDC is busy until the result phase
-    data C015       disk_messages
-    8000        -               ; a comment only, no label
-    var rom5+0012   vd_drive_table  16 ; one entry per drive
-    value rom5:C123  ; the 16 is a sector count, not RST 2
-
-Addresses are hex (optionally with a leading & or #); `-` stands for "no label". A block line
-keeps the text after "; " as it is (indentation too; `;` alone is an empty line); the lines of
-one block are read in file order. Files of earlier versions (no type words, no variables, no
-blocks) load unchanged.
+The annotation file (project/annotations.txt) is read and written line by line in
+debugger/annotation_file.py; `load` / `save` here apply and order its entries. Files of
+earlier versions load unchanged (everything ungrouped, no contexts); an owner label they hold
+at a firmware name's address is left out with a warning (`warnings`), its comment kept. The
+data types are in debugger/symbol_types.py; this module re-exports them.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
 
+from cpcxray.debugger.annotation_file import (
+    FILE_HEADER,
+    format_annotation_line,
+    format_context_line,
+    format_group_line,
+    format_operand_line,
+    format_symbol_lines,
+    format_variable_line,
+    parse_annotation_line,
+    parse_variable_base,
+)
 from cpcxray.debugger.firmware_symbols import FIRMWARE_BY_MODEL
+from cpcxray.debugger.symbol_types import (
+    BLOCK_POSITIONS,
+    BUILTIN_GROUPS,
+    FIRMWARE_GROUP,
+    GLOBAL,
+    LABEL_PATTERN,
+    OPERAND_ROLES,
+    OWNER_TYPES,
+    SCOPE_PATTERN,
+    AnnotationEntry,
+    BlockLine,
+    Context,
+    Group,
+    OperandOverride,
+    OwnVariable,
+    Symbol,
+    SymbolError,
+    SymbolKey,
+    block_lines,
+    normalize_block,
+    parse_address,
+    validate_scope,
+)
 
-GLOBAL = ""
-LABEL_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
-SCOPE_PATTERN = re.compile(r"^(lower|rom([0-9]|1[0-5]))$")
-FILE_HEADER = ("# cpcxray annotations\n# [sub|jump|data] [scope:]address  label  [; comment]\n"
-               "# var address|romN+offset  label  size  [; comment]\n"
-               "# before|after [scope:]address  ; one line of a comment block\n"
-               "# value|address [scope:]address  [; comment]  (the operand of the instruction)\n"
-               )  # fmt: skip
-OWNER_TYPES = ("sub", "jump", "data")  # the owner's labels; "var": OwnVariable
-BLOCK_POSITIONS = ("before", "after")  # comment blocks around a line (task 9)
-OPERAND_ROLES = ("value", "address")  # the owner's operand overrides ("auto": none)
-VARIABLE_PATTERN = re.compile(r"^(?:rom(\d{1,2})\+)?([&#]?[0-9A-Fa-f]{1,4})$")
-
-
-class SymbolError(ValueError):
-    """Invalid symbol (bad label, scope or address, or a duplicate label)."""
-
-
-@dataclass(frozen=True)
-class Symbol:  # pylint: disable=too-many-instance-attributes  # the parts of one entry
-    """A label and/or comments at an address.
-
-    Attributes:
-        address: 16-bit address.
-        label: Label, or None for a comment-only entry.
-        comment: Comment at the end of the line, or None.
-        scope: "" (global), "lower" or "romN".
-        source: "firmware" (preloaded) or "user" (saved in the annotation file).
-        type: "FW" (firmware), "sub", "jump" or "data" (the owner's labels), or None (a
-            comment only).
-        before: Comment block before the line (one line per text line), or None.
-        after: Comment block after the line, or None.
-    """
-
-    address: int
-    label: str | None = None
-    comment: str | None = None
-    scope: str = GLOBAL
-    source: str = "user"
-    type: str | None = None
-    before: str | None = None
-    after: str | None = None
-
-    @property
-    def key(self) -> tuple[str, int]:
-        """(scope, address): at most one symbol per key."""
-        return self.scope, self.address
-
-
-@dataclass(frozen=True)
-class OwnVariable:
-    """A variable of the owner's (type "var"): a named byte range in RAM.
-
-    Attributes:
-        label: Label, unique among all labels.
-        size: Size in bytes (1-65536).
-        address: The absolute address, or with `rom` the offset in that ROM's data area.
-        rom: None for an absolute address; else the background ROM whose data area (IY, from
-            KL_ROM_IY_TABLE) the offset counts from - it moves with the ROMs installed.
-        comment: What it holds, or None.
-    """
-
-    label: str
-    size: int
-    address: int
-    rom: int | None = None
-    comment: str | None = None
-
-    @property
-    def base_text(self) -> str:
-        """Where it is, as in the annotation file: "A612" or "rom5+0012"."""
-        location = f"{self.address:04X}"
-        return location if self.rom is None else f"rom{self.rom}+{location}"
+__all__ = [  # the names other modules import from here (the types live in symbol_types)
+    "BLOCK_POSITIONS",
+    "BUILTIN_GROUPS",
+    "FILE_HEADER",
+    "FIRMWARE_GROUP",
+    "GLOBAL",
+    "LABEL_PATTERN",
+    "OPERAND_ROLES",
+    "OWNER_TYPES",
+    "SCOPE_PATTERN",
+    "AnnotationEntry",
+    "BlockLine",
+    "Context",
+    "Group",
+    "OperandOverride",
+    "OwnVariable",
+    "Symbol",
+    "SymbolError",
+    "SymbolKey",
+    "SymbolTable",
+    "block_lines",
+    "format_annotation_line",
+    "format_context_line",
+    "format_group_line",
+    "format_operand_line",
+    "format_symbol_lines",
+    "format_variable_line",
+    "merge",
+    "normalize_block",
+    "parse_address",
+    "parse_annotation_line",
+    "parse_variable_base",
+    "validate_scope",
+]
 
 
-@dataclass(frozen=True)
-class BlockLine:
-    """One line of a comment block in the annotation file (`before|after [scope:]address ; …`).
-
-    Attributes:
-        address: 16-bit address.
-        scope: "" (global), "lower" or "romN".
-        position: "before" or "after" the line at the address.
-        text: The line's text ("" for an empty line).
-    """
-
-    address: int
-    scope: str
-    position: str
-    text: str
+def _where(scope: str, address: int) -> str:
+    """An address with its scope as in messages: "rom5:C123" or "BE8F"."""
+    return f"{scope + ':' if scope else ''}{address:04X}"
 
 
-@dataclass(frozen=True)
-class OperandOverride:
-    """The owner's decision about the word operand of the instruction at an address.
-
-    Attributes:
-        address: 16-bit address of the instruction.
-        scope: "" (global), "lower" or "romN".
-        role: "value" (a number: always hex) or "address" (named).
-        comment: Why, or None.
-    """
-
-    address: int
-    scope: str
-    role: str
-    comment: str | None = None
-
-
-def _block_text(text: str | None) -> str | None:
-    """A comment block as stored: lines without trailing blanks, no empty lines at the end.
-
-    None stays None (nothing given); a block without any text becomes None (removed).
-    """
-    if text is None:
-        return None
-    lines = [line.rstrip() for line in text.replace("\r\n", "\n").split("\n")]
-    while lines and not lines[-1]:
-        lines.pop()
-    return "\n".join(lines) or None
-
-
-def block_lines(symbol: Symbol | None, position: str) -> list[str]:
-    """The lines of a symbol's comment block "before" / "after" its line (task 9), or []."""
-    block = getattr(symbol, position) if symbol is not None else None
-    return block.split("\n") if block else []
-
-
-def validate_scope(scope: str) -> str:
-    """Return `scope` if valid ("", "lower", "rom0".."rom15"), else raise SymbolError."""
-    if scope != GLOBAL and not SCOPE_PATTERN.match(scope):
-        raise SymbolError(f"invalid scope {scope!r} (use '', 'lower' or 'rom0'..'rom15')")
-    return scope
-
-
-def parse_address(text: str) -> int:
-    """Parse a hex address such as BB5A, &BB5A or #BB5A.
-
-    Raises:
-        SymbolError: If it is not a 16-bit hex number.
-    """
-    digits = text.strip().lstrip("&#")
-    if digits.lower().startswith("0x"):
-        digits = digits[2:]
-    try:
-        address = int(digits, 16)
-    except ValueError:
-        raise SymbolError(f"invalid address {text!r}") from None
-    if not 0 <= address <= 0xFFFF:
-        raise SymbolError(f"address {text!r} out of range")
-    return address
-
-
-class SymbolTable:
-    """All symbols, with lookups by address and by label."""
+class SymbolTable:  # pylint: disable=too-many-instance-attributes,too-many-public-methods  # all owner knowledge
+    """All symbols, variables, groups and contexts, with lookups by address and by label."""
 
     def __init__(self, preload_firmware: bool = True, model: str = "464") -> None:
         """Create the table, optionally with the firmware jumpblock names of a machine.
@@ -231,19 +144,22 @@ class SymbolTable:
             preload_firmware: Preload the firmware names.
             model: The machine whose firmware names are preloaded: "464", "664" or "6128".
         """
-        self._symbols: dict[tuple[str, int], Symbol] = {}  # the owner's layer
+        self._symbols: dict[SymbolKey, Symbol] = {}  # the owner's layer
         self._firmware: dict[int, Symbol] = {}  # the firmware layer, all global
         self._variables: dict[str, OwnVariable] = {}  # the owner's variables by label
         self._operands: dict[tuple[str, int], OperandOverride] = {}  # by (scope, address)
+        self._groups: list[Group] = []  # the owner's groups, in their order
+        self._contexts: dict[tuple[str, int | None, int | None], Context] = {}  # by place
         self.firmware_model: str | None = None
-        self.modified = False  # the owner's symbols or variables changed since load / save
+        self.modified = False  # the owner's knowledge changed since load / save
+        self.warnings: list[str] = []  # from loading annotation files
         if preload_firmware:
             self.set_firmware(model)
 
     def set_firmware(self, model: str) -> None:
         """Replace the preloaded firmware names by those of another machine (D-26).
 
-        The owner's symbols stay; where one sits at a firmware address it lies over the name.
+        The owner's symbols stay; at a firmware address only their comments count (D-43).
 
         Raises:
             SymbolError: For an unknown model.
@@ -254,11 +170,11 @@ class SymbolTable:
         for entry in FIRMWARE_BY_MODEL[model]:
             comment = entry.name + (f" ({entry.note})" if entry.note else "")
             self._firmware[entry.address] = Symbol(
-                entry.address, entry.label, comment, GLOBAL, "firmware", "FW"
+                entry.address, entry.label, comment, GLOBAL, "firmware", "FW", group=FIRMWARE_GROUP
             )
         self.firmware_model = model
 
-    # -- changes -----------------------------------------------------------------------------
+    # -- the owner's labels and comments -----------------------------------------------------
 
     def add(  # pylint: disable=too-many-arguments  # the parts of a symbol
         self,
@@ -270,15 +186,16 @@ class SymbolTable:
         *,
         before: str | None = None,
         after: str | None = None,
+        group: str | None = None,
     ) -> Symbol:
-        """Add or change the owner's symbol at (scope, address).
+        """Add or change the owner's symbol at (scope, address[, group]).
 
         A label must be a valid identifier and unique among the global symbols, those of the
         same scope and the owner's variables. A part not given (None) keeps the owner's
         earlier one; an empty comment block ("") removes that block. A label's type is "sub",
-        "jump" or "data" (default: the earlier one, else "sub"). At a firmware address only
-        the owner's layer changes; a label or comment equal to the firmware's is not stored
-        again (annotation files from before the layering may repeat it).
+        "jump" or "data" (default: the earlier one, else "sub"). At a firmware name's address
+        the owner may add comments but no other label (D-43); a label or comment equal to the
+        firmware's is not stored again (older annotation files may repeat it).
 
         Args:
             address: The address.
@@ -288,14 +205,17 @@ class SymbolTable:
             type: "sub", "jump" or "data" for a label.
             before: The comment block before the line (several lines); "" removes it.
             after: The comment block after the line; "" removes it.
+            group: Global labels only (D-44): the owner's group of the label, "" for the
+                ungrouped one, None for the one symbol at the address (an error if there are
+                several).
 
         Returns:
             The symbol as lookups now see it (both layers, see `at`); an empty one when
             removing a block left nothing at the address.
 
         Raises:
-            SymbolError: On an invalid label, scope, type or address, a duplicate label, or if
-                no part at all is given.
+            SymbolError: On an invalid label, scope, type, group or address, a duplicate label,
+                a label at a firmware name's address, or if no part at all is given.
         """
         validate_scope(scope)
         if type is not None and type not in OWNER_TYPES:
@@ -304,65 +224,92 @@ class SymbolTable:
             raise SymbolError(f"address {address} out of range")
         if label is None and comment is None and before is None and after is None:
             raise SymbolError("a symbol needs a label, a comment or a comment block")
-        existing = self._symbols.get((scope, address))
+        key = self._key(address, scope, group)
+        if key[2] is not None:
+            self._check_owner_group(key[2])
+        existing = self._symbols.get(key)
         if existing is not None:
             label = existing.label if label is None else label
             comment = existing.comment if comment is None else comment
             type = existing.type if type is None else type
             before = existing.before if before is None else before
             after = existing.after if after is None else after
-        before, after = _block_text(before), _block_text(after)
-        if label is not None:
-            self._check_label(label, address, scope)
+        before, after = normalize_block(before), normalize_block(after)
         firmware = self._firmware.get(address)
         if firmware is not None:
             label = None if label == firmware.label else label
             comment = None if comment == firmware.comment else comment
+            if label is not None:
+                raise SymbolError(f"{address:04X} is the firmware name {firmware.label}: it "
+                                  "cannot get another label (a comment can)")  # fmt: skip
+        if label is not None:
+            self._check_label(label, key)
+        elif key[2] is not None and (comment or before or after):
+            raise SymbolError(f"a grouped entry needs a label (group {key[2]})")
         if label is None and comment is None and before is None and after is None:
-            self._symbols.pop((scope, address), None)  # nothing of the owner's left
+            self._symbols.pop(key, None)  # nothing of the owner's left
         else:
             type = (type or "sub") if label is not None else None
-            self._symbols[(scope, address)] = Symbol(
-                address, label, comment, scope, "user", type, before, after
+            self._symbols[key] = Symbol(
+                address, label, comment, scope, "user", type, before, after, key[2]
             )
         self.modified = True
-        found = self.at(address, scope)
+        found = self.at(address, scope, prefer=key[2])
         return found if found is not None else Symbol(address, scope=scope)  # nothing left
 
-    def remove(self, address: int, scope: str = GLOBAL) -> Symbol:
-        """Remove the owner's symbol at (scope, address) and return it.
+    def remove(self, address: int, scope: str = GLOBAL, group: str | None = None) -> Symbol:
+        """Remove the owner's symbol at (scope, address[, group]) and return it.
 
-        A firmware name underneath stays; firmware names themselves cannot be removed.
+        A firmware name stays; firmware names themselves cannot be removed. `group` as in
+        `add`.
 
         Raises:
-            SymbolError: If the owner has no symbol there.
+            SymbolError: If the owner has no symbol there, or several and no group is given.
         """
+        key = self._key(address, validate_scope(scope), group)
         try:
-            removed = self._symbols.pop((validate_scope(scope), address))
+            removed = self._symbols.pop(key)
         except KeyError:
-            where = f"{scope + ':' if scope else ''}{address:04X}"
+            where = _where(scope, address)
             if address in self._firmware:
                 message = f"only the firmware name at {where}; it cannot be removed"
             else:
-                message = f"no symbol at {where}"
+                message = f"no symbol at {where}" + (f" in group {key[2]}" if key[2] else "")
             raise SymbolError(message) from None
         self.modified = True
         return removed
 
-    def _check_label(self, label: str, address: int | None, scope: str = GLOBAL) -> None:
+    def _key(self, address: int, scope: str, group: str | None) -> SymbolKey:
+        """The key of the owner's symbol addressed by (scope, address, group) - see `add`."""
+        if scope != GLOBAL:
+            if group:
+                raise SymbolError(f"labels in scope {scope} cannot have a group (D-44)")
+            return scope, address, None
+        if group is not None:
+            return GLOBAL, address, group or None
+        keys = [key for key in self._symbols if key[0] == GLOBAL and key[1] == address]
+        if len(keys) > 1:
+            names = ", ".join(f"{self._symbols[k].label or '-'} ({k[2] or 'ungrouped'})"
+                              for k in sorted(keys, key=lambda k: k[2] or ""))  # fmt: skip
+            raise SymbolError(f"several symbols at {address:04X}: {names} - give the group")
+        return keys[0] if keys else (GLOBAL, address, None)
+
+    def _check_label(self, label: str, key: SymbolKey | None) -> None:
         """Raise SymbolError unless `label` is valid and free (a symbol elsewhere, a variable).
 
         Args:
             label: The label.
-            address: The symbol's address (its own label there is free); None for a variable.
-            scope: The symbol's scope.
+            key: The symbol's key (its own label there is free); None for a variable.
         """
         if not LABEL_PATTERN.match(label):
             raise SymbolError(f"invalid label {label!r}")
-        other = self.find(label, scope)
-        if other is not None and other.address != address:
-            raise SymbolError(f"label {label!r} already used at {other.address:04X}")
-        if address is not None and label.lower() in self._variables:
+        scope = key[0] if key is not None else GLOBAL
+        for other in [*self._symbols.values(), *self._firmware.values()]:
+            same = (other.label or "").lower() == label.lower()  # case-insensitive, as before
+            if same and other.scope in (scope, GLOBAL) and other.key != key:
+                group = f" in group {other.group}" if other.group else ""
+                raise SymbolError(f"label {label!r} already used at {other.address:04X}{group}")
+        if key is not None and label.lower() in self._variables:
             raise SymbolError(f"label {label!r} already used by a variable")
 
     # -- the owner's variables ---------------------------------------------------------------
@@ -371,11 +318,12 @@ class SymbolTable:
         """Add or change one of the owner's variables (type "var").
 
         Args:
-            variable: The variable; its label must be free (but for the one it replaces).
+            variable: The variable; its label must be free (but for the one it replaces), its
+                group one of the owner's.
             replaces: Label of the variable it replaces (a rename or change), or None.
 
         Raises:
-            SymbolError: On an invalid label, size, address or ROM, or a label in use.
+            SymbolError: On an invalid label, size, address, ROM or group, or a label in use.
         """
         if not 1 <= variable.size <= 0x10000:
             raise SymbolError(f"invalid size {variable.size} (1-65536)")
@@ -383,6 +331,8 @@ class SymbolTable:
             raise SymbolError(f"address {variable.address} out of range")
         if variable.rom is not None and not 0 <= variable.rom <= 15:
             raise SymbolError(f"invalid ROM {variable.rom} (0-15)")
+        if variable.group is not None:
+            self._check_owner_group(variable.group)
         self._check_label(variable.label, None)
         key = variable.label.lower()
         if key in self._variables and key != (replaces or "").lower():
@@ -413,6 +363,179 @@ class SymbolTable:
     def own_variables(self) -> list[OwnVariable]:
         """The owner's variables, sorted by label."""
         return sorted(self._variables.values(), key=lambda variable: variable.label.lower())
+
+    # -- groups (D-43) -------------------------------------------------------------------------
+
+    def groups(self) -> list[Group]:
+        """The owner's groups in their order (the built-in ones are not listed)."""
+        return list(self._groups)
+
+    def group(self, name: str) -> Group | None:
+        """The owner's group of this name, or None."""
+        return next((group for group in self._groups if group.name == name), None)
+
+    def group_rank(self, name: str | None) -> int:
+        """A group's position for the ranking (D-43): its index; unknown and None last."""
+        names = [group.name for group in self._groups]
+        return names.index(name) if name in names else len(names)
+
+    def add_group(
+        self, name: str, description: str | None = None, position: int | None = None
+    ) -> Group:
+        """Create a group, or change its description / position.
+
+        Args:
+            name: An identifier, not a built-in group's name.
+            description: What it holds (None keeps the earlier one).
+            position: Index in the list (None: keep its place, a new one goes last).
+
+        Raises:
+            SymbolError: On an invalid or built-in name, or a position out of range.
+        """
+        if not LABEL_PATTERN.match(name) or name in BUILTIN_GROUPS:
+            raise SymbolError(f"invalid group name {name!r} (an identifier, not "
+                              f"{' / '.join(BUILTIN_GROUPS)})")  # fmt: skip
+        old = self.group(name)
+        index = self._groups.index(old) if old is not None else len(self._groups)
+        group = Group(name, description if description is not None else
+                      (old.description if old is not None else None))  # fmt: skip
+        if old is not None:
+            self._groups.remove(old)
+        target = index if position is None else position
+        if not 0 <= target <= len(self._groups):
+            raise SymbolError(f"position {position} out of range (0-{len(self._groups)})")
+        self._groups.insert(target, group)
+        self.modified = True
+        return group
+
+    def group_usage(self, name: str) -> dict[str, list[str]]:
+        """What uses a group: "variables", "labels" (their names), "contexts" (their places)."""
+        return {
+            "variables": [v.label for v in self.own_variables() if v.group == name],
+            "labels": [s.label or f"{s.address:04X}" for s in self.owner_symbols()
+                       if s.group == name],
+            "contexts": [c.text for c in self.contexts() if c.group == name],
+        }  # fmt: skip
+
+    def remove_group(self, name: str, force: bool = False) -> Group:
+        """Remove a group; refused while items or contexts use it, unless `force`.
+
+        With `force` its items become ungrouped and its contexts are deleted.
+
+        Raises:
+            SymbolError: On an unknown or built-in group, a group in use without `force`, or
+                a label that cannot become ungrouped (an ungrouped label is at its address).
+        """
+        group = self._owner_group(name)
+        usage = self.group_usage(name)
+        if any(usage.values()) and not force:
+            used = "; ".join(
+                f"{kind}: {', '.join(names)}" for kind, names in usage.items() if names
+            )
+            raise SymbolError(f"group {name} is in use ({used}) - remove with force")
+        for key in [k for k in self._symbols if k[2] == name]:
+            if (GLOBAL, key[1], None) in self._symbols:
+                raise SymbolError(f"{key[1]:04X} has an ungrouped label already: rename or "
+                                  "remove one of them first")  # fmt: skip
+        self._regroup(name, None)
+        for place in [p for p, c in self._contexts.items() if c.group == name]:
+            del self._contexts[place]
+        self._groups.remove(group)
+        self.modified = True
+        return group
+
+    def rename_group(self, old: str, new: str) -> Group:
+        """Rename a group everywhere (its labels, variables and contexts).
+
+        Raises:
+            SymbolError: On an unknown, built-in or taken name.
+        """
+        group = self._owner_group(old)
+        if self.group(new) is not None:
+            raise SymbolError(f"group {new} exists already")
+        renamed = self.add_group(new, group.description, self._groups.index(group))
+        self._groups.remove(group)
+        self._regroup(old, new)
+        for place, context in list(self._contexts.items()):
+            if context.group == old:
+                self._contexts[place] = replace(context, group=new)
+        self.modified = True
+        return renamed
+
+    def _regroup(self, old: str, new: str | None) -> None:
+        """Move the labels and variables of group `old` to group `new` (None: ungrouped)."""
+        for key in [k for k in self._symbols if k[2] == old]:
+            symbol = self._symbols.pop(key)
+            self._symbols[(key[0], key[1], new)] = replace(symbol, group=new)
+        for label, variable in list(self._variables.items()):
+            if variable.group == old:
+                self._variables[label] = replace(variable, group=new)
+
+    def _owner_group(self, name: str) -> Group:
+        """The owner's group of this name (SymbolError if unknown or built-in)."""
+        group = self.group(name)
+        if group is None:
+            built_in = name in BUILTIN_GROUPS
+            raise SymbolError(f"group {name} is built in" if built_in else f"no group {name}")
+        return group
+
+    def _check_owner_group(self, name: str) -> None:
+        """Raise SymbolError unless `name` is one of the owner's groups (items go there)."""
+        if name in BUILTIN_GROUPS:
+            raise SymbolError(f"group {name} is built in: it holds what cpcxray knows")
+        if self.group(name) is None:
+            raise SymbolError(f"no group {name} (create it with group_add)")
+
+    # -- contexts (D-43) -----------------------------------------------------------------------
+
+    def set_context(
+        self, group: str, scope: str, first: int | None = None, last: int | None = None
+    ) -> Context:
+        """Give code a group: a range of a scope, or the whole scope (first and last None).
+
+        Raises:
+            SymbolError: On an invalid scope, range or group.
+        """
+        validate_scope(scope)
+        self._check_owner_group(group)
+        if (first is None) != (last is None):
+            raise SymbolError("give first and last, or neither (the whole scope)")
+        if first is not None and last is not None and not 0 <= first <= last <= 0xFFFF:
+            raise SymbolError(f"invalid range {first:04X}-{last:04X}")
+        context = Context(scope, first, last, group)
+        self._contexts[context.place] = context
+        self.modified = True
+        return context
+
+    def remove_context(
+        self, scope: str, first: int | None = None, last: int | None = None
+    ) -> Context:
+        """Remove the context of exactly this place.
+
+        Raises:
+            SymbolError: If there is none.
+        """
+        try:
+            removed = self._contexts.pop((validate_scope(scope), first, last))
+        except KeyError:
+            place = Context(scope, first, last, "").text
+            raise SymbolError(f"no context at {place}") from None
+        self.modified = True
+        return removed
+
+    def contexts(self, scope: str | None = None) -> list[Context]:
+        """The contexts (of one scope, or all), by scope, whole scope first, then by range."""
+        found = [c for c in self._contexts.values() if scope is None or c.scope == scope]
+        return sorted(found, key=lambda c: (c.scope, -1 if c.first is None else c.first,
+                                            -1 if c.last is None else c.last))  # fmt: skip
+
+    def context_at(self, scope: str, address: int) -> Context | None:
+        """The context of code at (scope, address): the narrowest range, else the whole scope."""
+        ranges = [c for c in self._contexts.values()
+                  if c.first is not None and c.contains(scope, address)]  # fmt: skip
+        if ranges:
+            return min(ranges, key=lambda c: (c.last or 0) - (c.first or 0))
+        return self._contexts.get((scope, None, None))
 
     # -- the owner's operand overrides --------------------------------------------------------
 
@@ -458,40 +581,75 @@ class SymbolTable:
 
     # -- lookups -----------------------------------------------------------------------------
 
-    def at(self, address: int, scope: str = GLOBAL) -> Symbol | None:
+    def at(self, address: int, scope: str = GLOBAL, prefer: str | None = None) -> Symbol | None:
         """Return the symbol for `address` in `scope`, falling back to the global one.
 
-        The owner's symbol (in `scope`, else global) lies over the firmware name: its label
-        wins, the comments are joined firmware first ("TXT OUTPUT · my comment"), and the
-        result has source "user". Without an owner's symbol the firmware one is returned.
+        At a firmware name's address the firmware label wins (D-43); the owner's comment and
+        blocks lie over it (comments joined firmware first, "TXT OUTPUT · my comment"; the
+        result has source "user"). Several global owner's labels at the address: see
+        `owner_at` (`prefer`: the group of the code's context).
         """
-        owner = self.owner_at(address, scope)
+        owner = self.owner_at(address, scope, prefer)
         firmware = self._firmware.get(address)
         if owner is None or firmware is None:
             return owner or firmware
         comments = [c for c in (firmware.comment, owner.comment) if c]
         return Symbol(
-            address, owner.label or firmware.label, " · ".join(comments) or None, owner.scope,
-            type=owner.type if owner.label else firmware.type, before=owner.before,
-            after=owner.after,
+            address, firmware.label, " · ".join(comments) or None, owner.scope,
+            type=firmware.type, before=owner.before, after=owner.after, group=FIRMWARE_GROUP,
         )  # fmt: skip
 
-    def owner_at(self, address: int, scope: str = GLOBAL) -> Symbol | None:
-        """Return only the owner's symbol for `address` (in `scope`, else global), or None."""
-        return self._symbols.get((scope, address)) or self._symbols.get((GLOBAL, address))
+    def owner_at(
+        self, address: int, scope: str = GLOBAL, prefer: str | None = None
+    ) -> Symbol | None:
+        """Return only the owner's symbol for `address` (in `scope`, else global), or None.
+
+        With several global labels at the address (D-44) the ranking of D-43 picks one: the
+        group `prefer` (the code's context), then the ungrouped one, then the groups in their
+        order.
+        """
+        if scope != GLOBAL:
+            symbol = self._symbols.get((scope, address, None))
+            if symbol is not None:
+                return symbol
+        candidates = self.owners_at(address, prefer)
+        return candidates[0] if candidates else None
+
+    def scope_symbol(self, address: int, scope: str) -> Symbol | None:
+        """Only the owner's symbol of exactly this ROM scope (no global fallback), or None."""
+        return self._symbols.get((scope, address, None)) if scope != GLOBAL else None
+
+    def owners_at(self, address: int, prefer: str | None = None) -> list[Symbol]:
+        """All the owner's global symbols at `address`, ranked (see `owner_at`)."""
+        found = [s for key, s in self._symbols.items() if key[0] == GLOBAL and key[1] == address]
+        return sorted(found, key=lambda s: self.rank(s.group, prefer))
+
+    def rank(self, group: str | None, prefer: str | None) -> tuple[int, int]:
+        """The ranking of D-43 for an item's group (smaller is better).
+
+        (a) `prefer` (the group of the code's context), (b) built-in and ungrouped, (c) the
+        other groups in their order.
+        """
+        if prefer is not None and group == prefer:
+            return 0, 0
+        if group is None or group in BUILTIN_GROUPS:
+            return 1, 0
+        return 2, self.group_rank(group)
 
     def firmware_at(self, address: int) -> Symbol | None:
         """Return only the firmware symbol at `address`, or None."""
         return self._firmware.get(address)
 
-    def label_at(self, address: int, scope: str = GLOBAL) -> str | None:
+    def label_at(self, address: int, scope: str = GLOBAL, prefer: str | None = None) -> str | None:
         """Return the label for `address` (see `at`), or None."""
-        symbol = self.at(address, scope)
+        symbol = self.at(address, scope, prefer)
         return symbol.label if symbol is not None else None
 
-    def comment_at(self, address: int, scope: str = GLOBAL) -> str | None:
+    def comment_at(
+        self, address: int, scope: str = GLOBAL, prefer: str | None = None
+    ) -> str | None:
         """Return the comment for `address` (see `at`), or None."""
-        symbol = self.at(address, scope)
+        symbol = self.at(address, scope, prefer)
         return symbol.comment if symbol is not None else None
 
     def find(self, label: str, scope: str = GLOBAL) -> Symbol | None:
@@ -507,32 +665,41 @@ class SymbolTable:
         ]
         for symbol in candidates:
             if symbol.label == label:
-                return self.at(symbol.address, symbol.scope)
+                return self.at(symbol.address, symbol.scope, symbol.group)
         folded = [s for s in candidates if (s.label or "").lower() == label.lower()]
-        return self.at(folded[0].address, folded[0].scope) if len(folded) == 1 else None
+        if len(folded) == 1:
+            return self.at(folded[0].address, folded[0].scope, folded[0].group)
+        return None
 
     def symbols(
-        self, text: str = "", scope: str | None = None, source: str | None = None
+        self,
+        text: str = "",
+        scope: str | None = None,
+        source: str | None = None,
+        group: str | None = None,
     ) -> list[Symbol]:
-        """List symbols sorted by scope and address, as lookups see them (see `at`).
+        """List symbols sorted by scope, address and group, as lookups see them (see `at`).
 
-        A firmware name with the owner's symbol over it is listed once, with source "user".
+        A firmware name with the owner's comment over it is listed once, with source "user".
 
         Args:
             text: Only symbols whose label, comment or a comment block contains this text
                 (case-insensitive).
             scope: Only this scope, or None for all.
             source: Only "firmware" or "user", or None for both.
+            group: Only this group ("" for ungrouped), or None for all.
         """
         needle = text.lower()
-        layered = [self.at(key[1], key[0]) for key in self._symbols]
-        layered += [s for a, s in self._firmware.items() if (GLOBAL, a) not in self._symbols]
+        layered = [self.at(key[1], key[0], key[2]) for key in self._symbols]
+        owned = {key[1] for key in self._symbols if key[0] == GLOBAL}
+        layered += [s for a, s in self._firmware.items() if a not in owned]
         result = [
             symbol
             for symbol in layered
             if symbol is not None
             and (scope is None or symbol.scope == scope)
             and (source is None or symbol.source == source)
+            and (group is None or (symbol.group or "") == group)
             and (
                 not needle
                 or any(
@@ -541,16 +708,20 @@ class SymbolTable:
                 )
             )
         ]
-        return sorted(result, key=lambda symbol: symbol.key)
+        return sorted(result, key=lambda symbol: symbol.sort_key)
 
     def owner_symbols(self) -> list[Symbol]:
-        """The owner's layer only, sorted by scope and address (what the annotation file holds)."""
-        return sorted(self._symbols.values(), key=lambda symbol: symbol.key)
+        """The owner's layer only, sorted by scope, address and group (the annotation file)."""
+        return sorted(self._symbols.values(), key=lambda symbol: symbol.sort_key)
 
     # -- annotation file ---------------------------------------------------------------------
 
     def load(self, path: str | Path) -> int:
-        """Merge the user symbols from an annotation file into the table.
+        """Merge the owner's knowledge from an annotation file into the table.
+
+        Groups first (unknown names in `group=` create a group, with a warning), then the
+        entries in file order; the blocks of one symbol are joined. Warnings (also for an
+        owner label left out at a firmware name's address) go to `warnings`.
 
         Returns:
             The number of entries read.
@@ -559,178 +730,104 @@ class SymbolTable:
             SymbolError: On a malformed line (the message gives file and line number).
         """
         was_modified = self.modified
-        count = 0
-        blocks: dict[tuple[str, int, str], list[str]] = {}  # the lines of each block, in order
+        self.warnings = []
+        parsed: list[tuple[int, AnnotationEntry]] = []
         for number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
             try:
                 entry = parse_annotation_line(line)
-                if isinstance(entry, BlockLine):
-                    key = (entry.scope, entry.address, entry.position)
-                    blocks.setdefault(key, []).append(entry.text)
-                elif isinstance(entry, OperandOverride):
-                    self.set_operand(entry.address, entry.role, entry.scope, entry.comment)
-                elif entry is not None:
-                    self._merge_entry(entry)
             except SymbolError as error:
                 raise SymbolError(f"{path}:{number}: {error}") from None
-            count += entry is not None
-        for (scope, address, position), lines in blocks.items():  # a block of the file replaces
-            self.add(address, scope=scope, **{position: "\n".join(lines)})
+            if entry is not None:
+                parsed.append((number, entry))
+        for _number, entry in parsed:  # the groups first: entries may name them
+            if isinstance(entry, Group):
+                self.add_group(entry.name, entry.description)
+        blocks: dict[tuple[str, int, str | None, str], list[str]] = {}  # lines per block
+        for number, entry in parsed:
+            try:
+                self._load_entry(entry, blocks)
+            except SymbolError as error:
+                raise SymbolError(f"{path}:{number}: {error}") from None
+        for (scope, address, group, position), lines in blocks.items():  # a file's block replaces
+            self.add(address, scope=scope, group=group or "", **{position: "\n".join(lines)})
         self.modified = was_modified  # what the file holds is not an unsaved change
-        return count
+        return len(parsed)
+
+    def _load_entry(
+        self, entry: AnnotationEntry, blocks: dict[tuple[str, int, str | None, str], list[str]]
+    ) -> None:
+        """Apply one entry of an annotation file (blocks are collected in `blocks`)."""
+        group = getattr(entry, "group", None)
+        if not isinstance(entry, (Group, OperandOverride)) and group and self.group(group) is None:
+            if group in BUILTIN_GROUPS:
+                raise SymbolError(f"group {group} is built in: it holds what cpcxray knows")
+            self.add_group(group)
+            self.warnings.append(f"group {group} was not defined: created without a description")
+        if isinstance(entry, BlockLine):
+            key = (entry.scope, entry.address, entry.group, entry.position)
+            blocks.setdefault(key, []).append(entry.text)
+        elif isinstance(entry, OperandOverride):
+            self.set_operand(entry.address, entry.role, entry.scope, entry.comment)
+        elif isinstance(entry, Context):
+            self.set_context(entry.group, entry.scope, entry.first, entry.last)
+        elif isinstance(entry, Symbol):
+            self._merge_entry(self._without_firmware_clash(entry))
+        elif isinstance(entry, OwnVariable):
+            self._merge_entry(entry)
+
+    def _without_firmware_clash(self, symbol: Symbol) -> Symbol:
+        """An older file's owner label at a firmware name's address is left out (D-43)."""
+        firmware = self._firmware.get(symbol.address)
+        if firmware is None or symbol.label is None or symbol.label == firmware.label:
+            return symbol
+        self.warnings.append(f"label {symbol.label} at {symbol.address:04X} left out: the "
+                             f"address is the firmware name {firmware.label}")  # fmt: skip
+        return replace(symbol, label=None, type=None, group=None)
 
     def _merge_entry(self, entry: Symbol | OwnVariable) -> None:
         """Add a symbol or variable read from a file or another table (it replaces its own)."""
         if isinstance(entry, OwnVariable):
             self.add_variable(entry, replaces=entry.label)
-        else:
+        elif entry.label or entry.comment or entry.before or entry.after:
             self.add(entry.address, entry.label, entry.comment, entry.scope, entry.type,
-                     before=entry.before, after=entry.after)  # fmt: skip
+                     before=entry.before, after=entry.after,
+                     group=(entry.group or "") if entry.scope == GLOBAL else None)  # fmt: skip
 
     def save(self, path: str | Path) -> int:
-        """Write the owner's symbols and variables to an annotation file.
+        """Write the owner's knowledge to an annotation file.
+
+        Order: groups, contexts, symbols (with their blocks), variables, operand overrides.
 
         Returns:
-            The number of entries written.
+            The number of entries written (groups and contexts included).
         """
         user = self.owner_symbols()
         variables = self.own_variables()
         operands = self.operand_overrides()
-        text = (FILE_HEADER + "".join(format_symbol_lines(s) for s in user)
+        contexts = self.contexts()
+        text = (FILE_HEADER + "".join(format_group_line(g) for g in self._groups)
+                + "".join(format_context_line(c) for c in contexts)
+                + "".join(format_symbol_lines(s) for s in user)
                 + "".join(format_variable_line(v) for v in variables)
                 + "".join(format_operand_line(o) for o in operands))  # fmt: skip
         Path(path).write_text(text, encoding="utf-8")
         self.modified = False
-        return len(user) + len(variables) + len(operands)
-
-
-def parse_annotation_line(  # pylint: disable=too-many-return-statements  # one per line type
-    line: str,
-) -> Symbol | OwnVariable | BlockLine | OperandOverride | None:
-    """Parse one annotation file line; None for blank and `#` comment lines.
-
-    A line without a type word is a "sub" label (or a comment only), as in older files.
-
-    Raises:
-        SymbolError: If the line is malformed.
-    """
-    text = line.strip()
-    if not text or text.startswith("#"):
-        return None
-    entry, _, comment = text.partition(";")
-    fields = entry.split()
-    comment_text = comment.strip() or None
-    if fields and fields[0] == "var":
-        return _parse_variable(fields[1:], comment_text, line)
-    if fields and fields[0] in BLOCK_POSITIONS:
-        if len(fields) != 2:
-            raise SymbolError(f"expected 'before|after [scope:]address ; text', got {line!r}")
-        scope, _, address_text = fields[1].rpartition(":")
-        block_text = comment.removeprefix(" ").rstrip()  # keeps the indentation of the text
-        return BlockLine(parse_address(address_text), validate_scope(scope), fields[0], block_text)
-    if fields and fields[0] in OPERAND_ROLES:
-        if len(fields) != 2:
-            raise SymbolError(f"expected 'value|address [scope:]address [; comment]', got {line!r}")
-        scope, _, address_text = fields[1].rpartition(":")
-        return OperandOverride(parse_address(address_text), validate_scope(scope), fields[0],
-                               comment_text)  # fmt: skip
-    symbol_type = fields.pop(0) if fields and fields[0] in OWNER_TYPES else None
-    if len(fields) not in (1, 2):
-        raise SymbolError(f"expected '[type] [scope:]address label [; comment]', got {line!r}")
-    scope, _, address_text = fields[0].rpartition(":")
-    label = fields[1] if len(fields) == 2 and fields[1] != "-" else None
-    if label is None and comment_text is None:
-        raise SymbolError(f"entry without label and comment: {line!r}")
-    if label is not None:
-        symbol_type = symbol_type or "sub"
-    return Symbol(parse_address(address_text), label, comment_text, validate_scope(scope),
-                  type=symbol_type)  # fmt: skip
-
-
-def _parse_variable(fields: list[str], comment: str | None, line: str) -> OwnVariable:
-    """The fields after "var": `address|romN+offset label size`."""
-    if len(fields) != 3:
-        raise SymbolError(f"expected 'var address|romN+offset label size [; comment]', "
-                          f"got {line!r}")  # fmt: skip
-    location, label, size_text = fields
-    rom, address = parse_variable_base(location)
-    if not LABEL_PATTERN.match(label):
-        raise SymbolError(f"invalid label {label!r}")
-    try:
-        size = int(size_text, 0)
-    except ValueError:
-        raise SymbolError(f"invalid size {size_text!r}") from None
-    return OwnVariable(label, size, address, rom, comment)
-
-
-def parse_variable_base(text: str) -> tuple[int | None, int]:
-    """Parse a variable's place: "A612" / "&A612" (absolute) or "rom5+0012" (ROM data area).
-
-    Returns:
-        (ROM number or None, address or offset).
-
-    Raises:
-        SymbolError: If it is neither.
-    """
-    match = VARIABLE_PATTERN.match(text.strip())
-    if match is None:
-        raise SymbolError(f"invalid variable address {text!r} (use A612 or rom5+0012)")
-    rom = int(match.group(1)) if match.group(1) is not None else None
-    if rom is not None and rom > 15:
-        raise SymbolError(f"invalid ROM {rom} (0-15)")
-    return rom, parse_address(match.group(2))
-
-
-def format_symbol_lines(symbol: Symbol) -> str:
-    """Format a symbol as annotation file lines: its block before, its line, its block after."""
-    location = f"{symbol.scope}:{symbol.address:04X}" if symbol.scope else f"{symbol.address:04X}"
-
-    def file_lines(position: str, block: str | None) -> str:
-        """One `before|after address ; text` line per line of the block."""
-        if not block:
-            return ""
-        return "".join(f"{position:<6} {location:<11} ; {text}".rstrip() + "\n"
-                       for text in block.split("\n"))  # fmt: skip
-
-    line = format_annotation_line(symbol) if symbol.label or symbol.comment else ""
-    return file_lines("before", symbol.before) + line + file_lines("after", symbol.after)
-
-
-def format_annotation_line(symbol: Symbol) -> str:
-    """Format a symbol's label and comment as an annotation file line (with trailing newline)."""
-    location = f"{symbol.scope}:{symbol.address:04X}" if symbol.scope else f"{symbol.address:04X}"
-    line = f"{symbol.type or '':<4} {location:<11} {symbol.label or '-':<20}"
-    if symbol.comment:
-        line += f" ; {symbol.comment}"
-    return line.strip() + "\n"
-
-
-def format_operand_line(override: OperandOverride) -> str:
-    """Format an operand override as an annotation file line (with trailing newline)."""
-    location = override.scope + ":" if override.scope else ""
-    line = f"{override.role:<7} {location}{override.address:04X}"
-    if override.comment:
-        line += f" ; {override.comment}"
-    return line + "\n"
-
-
-def format_variable_line(variable: OwnVariable) -> str:
-    """Format one of the owner's variables as an annotation file line (with trailing newline)."""
-    line = f"var  {variable.base_text:<11} {variable.label:<20} {variable.size}"
-    if variable.comment:
-        line += f" ; {variable.comment}"
-    return line + "\n"
+        return len(self._groups) + len(contexts) + len(user) + len(variables) + len(operands)
 
 
 def merge(tables: Iterable[SymbolTable]) -> SymbolTable:
-    """A new table with the owner's symbols, variables and operand overrides of all `tables`.
+    """A new table with the owner's knowledge of all `tables` (later ones win).
 
-    Later tables win.
+    Groups, contexts, symbols, variables and operand overrides.
     """
     tables = list(tables)
     model = next((table.firmware_model for table in tables if table.firmware_model), "464")
     merged = SymbolTable(preload_firmware=True, model=model)
     for table in tables:
+        for group in table.groups():
+            merged.add_group(group.name, group.description)
+        for context in table.contexts():
+            merged.set_context(context.group, context.scope, context.first, context.last)
         for entry in [*table.owner_symbols(), *table.own_variables()]:
             merged._merge_entry(entry)  # pylint: disable=protected-access  # same class
         for override in table.operand_overrides():

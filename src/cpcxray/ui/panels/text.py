@@ -154,6 +154,22 @@ def disassembly_view(listing: dict[str, Any], pc: int, breakpoints: set[int]) ->
     return rows + waiting
 
 
+def routine_range(address: int, starts: list[int], end: int) -> tuple[int, int]:
+    """The routine around `address` for the "this routine" code context (task 10).
+
+    From the last routine start at or before the address (the line's own label, or the last
+    sub label before it) to just before the next one, or to `end`.
+
+    Args:
+        address: The line's address.
+        starts: Addresses of the routine starts (sub labels) in the line's scope.
+        end: The last address of the scope.
+    """
+    first = max((start for start in starts if start <= address), default=address)
+    following = [start for start in starts if start > address]
+    return first, (min(following) - 1 if following else end)
+
+
 AREA = -1  # colour of a byte inside a pack's area but in no named variable
 BYTES_PER_ROW = 16
 

@@ -17,7 +17,7 @@ from cpcxray.analysis.targets import INSN_START
 from cpcxray.analysis.verify import compare, verify_source
 from cpcxray.cpu.disasm import disassemble
 from cpcxray.debugger.symbols import SymbolTable
-from cpcxray.debugger.variables import VariableMap
+from cpcxray.debugger.variables import Variable, VariableMap
 from tests.analysis.helpers import classified, plain_view, round_trip
 from tests.analysis.test_classifier import scrambled_view
 
@@ -411,11 +411,57 @@ def test_variables_name_outside_addresses(tmp_path: Path) -> None:
     assert "ld a,(KL_FOREGROUND_ROM)" in lines and "ld (KL_TIME+2),a" in lines
     assert "ld hl,KL_TIME" in lines and "ld hl,#B8B5" in lines
     assert "ld hl,(TXT_OUTPUT)" in lines
-    assert "; firmware and AMSDOS variables used by this code" in lines
+    assert "; ---- firmware: firmware variables ----" in lines  # its group's section (D-43)
     equ = "KL_TIME                 EQU #B8B4"
     assert any(line.startswith(equ) and "4 bytes: elapsed time" in line for line in lines)
     assert sum(line.startswith("KL_TIME ") for line in lines) == 1
     source = tmp_path / "vars.asm"
+    source.write_text(generated.text, encoding="utf-8")
+    result = verify_source(source, view.final_image(database, "static"), view.start,
+                           generated.line_of_offset)  # fmt: skip
+    assert result.identical, result.differences
+
+
+def test_names_by_context_and_group_sections(tmp_path: Path) -> None:
+    """Code in a CP/M context uses the cpm names, in a VDOS context the vdos ones (D-43).
+
+    Both names of one address get their EQU, in their group's section in group order; the
+    source still assembles to the same bytes.
+    """
+    image = bytes.fromhex(
+        "3A 10 A0"  # C000 ld a,(&A010)   context vdos (the whole ROM)
+        "32 10 A0"  # C003 ld (&A010),a   context cpm
+        "CD 8F BE"  # C006 call &BE8F     vdos
+        "CD 8F BE"  # C009 call &BE8F     cpm
+        "C9"
+    )
+    view = plain_view(image)
+    database = classified(view, starts=[0, 3, 6, 9, 12])
+    symbols = SymbolTable()
+    symbols.add_group("vdos", "VDOS RAM")
+    symbols.add_group("cpm", "CP/M RAM")
+    symbols.add(0xBE8F, "dos_seldsk", type="jump", group="vdos")
+    symbols.add(0xBE8F, "cpm_seldsk", type="jump", group="cpm")
+    symbols.set_context("vdos", "rom1")
+    symbols.set_context("cpm", "rom1", 0xC003, 0xC005)
+    symbols.set_context("cpm", "rom1", 0xC009, 0xC00B)
+    variables = (Variable("vdos_flag", 0xA010, 1, "VDOS flag", "owner", group="vdos"),
+                 Variable("cpm_flag", 0xA010, 1, "CP/M flag", "owner", group="cpm"))  # fmt: skip
+    generated = generate_source(
+        view.resolve(database, "static"), database, symbols, title="t", output_name="t.bin",
+        fill_policy="static", variables=variables,
+    )  # fmt: skip
+    lines = code_lines(generated.text)
+    code = [line.split(";")[0].strip() for line in lines]
+    assert "ld a,(vdos_flag)" in code and "ld (cpm_flag),a" in code
+    assert "call dos_seldsk" in code and "call cpm_seldsk" in code
+    vdos, cpm = lines.index("; ---- vdos: VDOS RAM ----"), lines.index("; ---- cpm: CP/M RAM ----")
+    assert vdos < cpm  # the groups in their order
+    assert lines[vdos + 1].startswith("vdos_flag               EQU #A010")
+    assert lines[vdos + 2] == "dos_seldsk              EQU #BE8F"
+    assert lines[cpm + 1].startswith("cpm_flag                EQU #A010")
+    assert lines[cpm + 2] == "cpm_seldsk              EQU #BE8F"
+    source = tmp_path / "groups.asm"
     source.write_text(generated.text, encoding="utf-8")
     result = verify_source(source, view.final_image(database, "static"), view.start,
                            generated.line_of_offset)  # fmt: skip

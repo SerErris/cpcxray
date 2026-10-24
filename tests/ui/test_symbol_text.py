@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 from cpcxray.ui.panels.symbol_text import (
+    UNGROUPED,
+    context_text,
     counts_label,
     detail_rows,
     entry_key,
+    group_choices,
+    group_filter_choices,
+    group_filter_value,
+    group_line,
+    groupable,
     now_text,
     scope_text,
     scope_value,
@@ -59,3 +66,26 @@ def test_detail_rows() -> None:
     known = own | {"owner": "amsdos", "label": "AMSDOS_RETRIES"}
     assert detail_rows(detail | {"variable": known}, entry | {"type": "VAR"})[1] == (
         "from", "AMSDOS variable: A712-A721, 16 bytes")  # fmt: skip
+
+
+def test_groups_and_contexts() -> None:
+    """Group filter and choices, which entries take a group, group lines, the context line."""
+    assert group_filter_choices(["vdos"]) == ["all", "ungrouped", "firmware", "amsdos", "vdos"]
+    assert [group_filter_value(c) for c in ("all", "ungrouped", "vdos")] == [None, "", "vdos"]
+    assert group_choices(["vdos", "cpm"]) == [UNGROUPED, "vdos", "cpm"]
+    own_variable = {"type": "var", "address": "BE8F", "label": "drive", "scope": "",
+                    "mark": "yours", "group": "vdos"}  # fmt: skip
+    assert symbol_row(own_variable) == "var  BE8F ✎ drive [vdos]"
+    rom_label = {**own_variable, "type": "sub", "scope": "rom7"}
+    assert groupable(own_variable) and not groupable(rom_label) and not groupable(None)
+    assert groupable({**rom_label, "scope": ""}) and not groupable(FW_ENTRY)
+    assert group_line({"name": "firmware", "built_in": True, "description": "OS"}) == (
+        "firmware (built in): OS"
+    )
+    usage = {"name": "cpm", "built_in": False, "description": None, "variables": 2,
+             "labels": 1, "contexts": 3}  # fmt: skip
+    assert group_line(usage) == "cpm  (2 variables · 1 labels · 3 contexts)"
+    assert context_text(None) == "code context: none"
+    assert context_text({"group": "cpm", "context": "rom7 9000-93FF"}) == (
+        "code context: cpm (rom7 9000-93FF)"
+    )

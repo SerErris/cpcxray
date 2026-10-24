@@ -59,6 +59,8 @@ class Variable:
         description: What it holds.
         owner: "firmware", "amsdos" or "owner" (the owner's variables, type "var").
         area: A pack's area (all its variables and the bytes between them), not a variable.
+        group: Its group (D-43): "firmware" / "amsdos" for the known ones, the owner's group
+            or None for the owner's.
     """
 
     label: str
@@ -67,6 +69,7 @@ class Variable:
     description: str
     owner: str
     area: bool = False
+    group: str | None = None
 
     @property
     def last(self) -> int:
@@ -77,7 +80,7 @@ class Variable:
         """The variable as a dict for the session (addresses as 4-digit hex)."""
         return {"label": self.label, "address": f"{self.address:04X}", "size": self.size,
                 "last": f"{self.last:04X}", "owner": self.owner, "area": self.area,
-                "description": self.description}  # fmt: skip
+                "description": self.description, "group": self.group}  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -101,7 +104,7 @@ class VariableHit:
 def _variables(entries: tuple[VariableEntry, ...], owner: str, shift: int = 0) -> list[Variable]:
     """Turn table entries into variables, moved by `shift` bytes."""
     return [Variable(entry.label, entry.address + shift, entry.size, entry.description, owner,
-                     entry.area) for entry in entries]  # fmt: skip
+                     entry.area, owner) for entry in entries]  # fmt: skip
 
 
 def _read_word(read_byte: ByteReader, address: int) -> int:
@@ -167,7 +170,8 @@ class VariableMap:
             address = self.own_address(own, read_byte)
             if address is not None:
                 size = min(own.size, 0x10000 - address)
-                found.append(Variable(own.label, address, size, own.comment or "", "owner"))
+                found.append(Variable(own.label, address, size, own.comment or "", "owner",
+                                      group=own.group))  # fmt: skip
         return found
 
     def lookup(self, address: int, read_byte: ByteReader) -> list[VariableHit]:

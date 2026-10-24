@@ -469,7 +469,7 @@ directory, e.g. "output/screen.png") it is also written to that file.
 
 ### Symbols and variables
 
-#### `symbol_add(address: int | str, label: str | None = None, comment: str | None = None, scope: str = "", type: str | None = None, before: str | None = None, after: str | None = None)`
+#### `symbol_add(address: int | str, label: str | None = None, comment: str | None = None, scope: str = "", type: str | None = None, before: str | None = None, after: str | None = None, group: str | None = None)`
 
 Add or change a label, comment or comment block at `address`.
 
@@ -485,8 +485,9 @@ lines before / after the instruction (task 9).
 - `type`: The label's type: "sub" (subroutine, the default), "jump" (a jump target inside code) or "data" (a table, a string).
 - `before`: Comment block before the line, e.g. a routine header; several lines separated by line breaks; "" removes it.
 - `after`: Comment block after the line, e.g. a longer explanation; "" removes it.
+- `group`: Global (RAM) labels only (D-44): your group of the label - one RAM address can carry one label per group; "" for the ungrouped one. Without it the one symbol at the address is meant (an error that names them if there are several). Not allowed in ROM scopes, nor a label at a firmware name's address.
 
-#### `comment_add(address: int | str, comment: str, scope: str = "", position: str = "line")`
+#### `comment_add(address: int | str, comment: str, scope: str = "", position: str = "line", group: str | None = None)`
 
 Set a comment at `address` (keeps an existing label and the other comments).
 
@@ -496,6 +497,7 @@ Set a comment at `address` (keeps an existing label and the other comments).
 - `comment`: The text; for a block several lines separated by line breaks; "" removes a block (`symbol_remove` removes everything at the address).
 - `scope`: "" for global, "lower" or "rom0".."rom15".
 - `position`: "line" (at the end of the line), "before" (a block before the line, e.g. a routine header) or "after" (a block after the line).
+- `group`: Which RAM label's comment, where several are at the address (D-44).
 
 #### `operand_set(address: int | str, role: str, scope: str | None = None, comment: str | None = None)`
 
@@ -513,11 +515,13 @@ the annotation file (`symbols_save`).
 - `scope`: "" (global, RAM), "lower" or "rom0".."rom15"; default: what is paged in at the address now.
 - `comment`: Why (kept in the annotation file).
 
-#### `symbol_remove(address: int | str, scope: str = "")`
+#### `symbol_remove(address: int | str, scope: str = "", group: str | None = None)`
 
 Remove the owner's symbol at `address` in `scope` (a firmware name stays).
 
-#### `symbol_list(text: str = "", scope: str | None = None, source: str | None = None, limit: int = 100)`
+`group`: which RAM label, where several are at the address (D-44; "" the ungrouped).
+
+#### `symbol_list(text: str = "", scope: str | None = None, source: str | None = None, limit: int = 100, group: str | None = None)`
 
 List symbols whose label, comment or block contains `text` (see `symbol_search`).
 
@@ -527,8 +531,9 @@ List symbols whose label, comment or block contains `text` (see `symbol_search`)
 - `scope`: Only this scope ("", "lower", "romN"), or all.
 - `source`: "firmware" (preloaded jumpblock names) or "user", or both.
 - `limit`: Maximum number of entries (max 1000).
+- `group`: Only this group (D-43; "" ungrouped, "firmware" the firmware names), or all.
 
-#### `symbol_search(text: str = "", types: list[str] | None = None, scope: str | None = None, only_yours: bool = False, limit: int = 2000)`
+#### `symbol_search(text: str = "", types: list[str] | None = None, scope: str | None = None, only_yours: bool = False, limit: int = 2000, group: str | None = None)`
 
 Every name for the Symbols tab: symbols, variables and the analysis's names.
 
@@ -539,12 +544,13 @@ Every name for the Symbols tab: symbols, variables and the analysis's names.
 - `scope`: Only this scope ("" global, "lower", "romN"); None for all.
 - `only_yours`: Only entries of the owner's (labels, comments, variables).
 - `limit`: Maximum number of entries (max 5000).
+- `group`: Only this group (D-43): one of yours, "firmware", "amsdos", or "" for ungrouped; None for all.
 
 **Returns**
 
-"entries" by address (each "type", "address", "label", "comment", "scope", "mark": "yours" / "analysis" / None, for variables "size"), "counts" per type (before the type filter) and "total" (after it).
+"entries" by address (each "type", "address", "label", "comment", "scope", "group", "mark": "yours" / "analysis" / None, for variables "size"), "counts" per type (before the type filter) and "total" (after it).
 
-#### `symbol_detail(address: int | str, scope: str = "", label: str | None = None)`
+#### `symbol_detail(address: int | str, scope: str = "", label: str | None = None, group: str | None = None)`
 
 Everything about one name of `symbol_search` (the Symbols tab's detail panel).
 
@@ -552,13 +558,14 @@ Everything about one name of `symbol_search` (the Symbols tab's detail panel).
 
 - `address`: Its address.
 - `scope`: Its scope.
-- `label`: Its label, to find a variable (variables can share an address).
+- `label`: Its label, to find a variable (variables can share an address) or one of several RAM labels at the address.
+- `group`: Which RAM label, where several are at the address (D-44; "" ungrouped).
 
 **Returns**
 
-"address", "scope"; "firmware" (address, label, section, name, note), "machines" it exists on; "yours" (the owner's label, comment, type and comment blocks "before", "after" in this scope); "variable" (a known or owner's variable of that label: size, description, owner, and for the owner's "base" and "now"); "analysis" (the source generator's name and type); "code" (the instruction at the address, names as in the disassembly).
+"address", "scope"; "firmware" (address, label, section, name, note), "machines" it exists on; "yours" (the owner's label, comment, type, comment blocks "before", "after" and "group" in this scope); "variable" (a known or owner's variable of that label: size, description, owner, and for the owner's "base" and "now"); "analysis" (the source generator's name and type); "code" (the instruction at the address, names as in the disassembly).
 
-#### `variable_add(label: str, size: int, base: int | str, comment: str | None = None, replaces: str | None = None)`
+#### `variable_add(label: str, size: int, base: int | str, comment: str | None = None, replaces: str | None = None, group: str | None = None)`
 
 Add or change one of your variables (type "var"): a named byte range in RAM.
 
@@ -572,6 +579,7 @@ the generated source, colours in the memory view, breakpoints on its name.
 - `base`: An absolute address ("A612") or an offset in the data area (IY) of a background ROM, "rom5+0012": it follows that ROM's data area, which the firmware assigns at boot (KL_ROM_IY_TABLE).
 - `comment`: What it holds.
 - `replaces`: The label of the variable it replaces (to change or rename one).
+- `group`: Your group (D-43; `group_add`); "" takes it out of its group; None keeps the group of the variable it replaces (else ungrouped).
 
 **Returns**
 
@@ -589,7 +597,7 @@ Where a variable at `base` ("A612" or "rom5+0012") of `size` bytes is now.
 
 "first" and "last" address, or None for both while the ROM has no data area.
 
-#### `variable_list(text: str = "", limit: int = 100)`
+#### `variable_list(text: str = "", limit: int = 100, group: str | None = None)`
 
 List the known variables (FR-DBG-11) whose label or description has `text`.
 
@@ -599,14 +607,26 @@ The firmware's and AMSDOS's (when installed), and the owner's (owner "owner").
 
 - `text`: Search text (case-insensitive); empty lists all.
 - `limit`: Maximum number of entries (max 1000).
+- `group`: Only this group (D-43): "firmware", "amsdos", one of yours, or "" for your ungrouped ones; None for all.
 
-#### `address_explain(address: int | str)`
+#### `address_explain(address: int | str, code_address: int | str | None = None)`
 
-Tell what an address is: its symbol and the known OS/AMSDOS variables containing it.
+Tell what an address is: its symbol, and every name it has, the winner first.
 
 Variables (FR-DBG-11) are the firmware's of this machine (464/664/6128), AMSDOS's
-when it is installed (its workspace where AMSDOS put it) and the owner's; the smallest
-one comes first, named `LABEL` or `LABEL+offset`.
+when it is installed (its workspace where AMSDOS put it) and the owner's. With groups
+(D-43) one RAM address can have several labels and variables; `names` lists them all
+with their group, ranked as code sees them: the firmware name first, then the group
+of the context of `code_address` (if given), built-in and ungrouped, other groups.
+
+**Args**
+
+- `address`: The address.
+- `code_address`: Code that uses the address (its context decides; default: none).
+
+**Returns**
+
+"address", "label" (the winner's label), "context" (the code's group or None), "names" (text, type, group each, the winner first), "variables" (the variables containing it, ranked, with their group).
 
 #### `symbols_load(path: str = "project/annotations.txt")`
 
@@ -622,7 +642,68 @@ The annotation file: its path, whether it exists, your entries, unsaved changes.
 
 **Returns**
 
-"path", "exists", "symbols", "variables" and "operands" (your entries now: labels and comments, variables, operand overrides), "operand_overrides" (address, scope, role, comment each), "modified" (changed since the last load or save).
+"path", "exists", "symbols", "variables", "operands", "groups" and "contexts" (your entries now: labels and comments, variables, operand overrides, groups, contexts), "operand_overrides" (address, scope, role, comment each), "group_names" (your groups in their order), "context_list" (as in the file), "warnings" (from loading: undefined groups, labels left out at firmware names' addresses), "modified" (changed since the last load or save).
+
+### Groups and contexts
+
+#### `group_add(name: str, description: str | None = None, position: int | None = None)`
+
+Create one of your groups, or change its description or position (D-43).
+
+Your variables and RAM labels go into groups (`variable_add` / `symbol_add` with
+`group`); a context (`context_set`) tells which group code works with, so a RAM
+address shows the name of that group there. The source lists the names by group.
+
+**Args**
+
+- `name`: An identifier (not "firmware" / "amsdos": the built-in groups).
+- `description`: What it holds (the heading of its section in the source); None keeps the earlier one.
+- `position`: Its index in the list (the order of the ranking and of the sections); None keeps its place, a new group goes last.
+
+#### `group_rename(old: str, new: str)`
+
+Rename one of your groups everywhere (its variables, labels and contexts).
+
+#### `group_remove(name: str, force: bool = False)`
+
+Remove one of your groups; refused while it is used, unless `force`.
+
+With `force` its variables and labels become ungrouped and its contexts are deleted.
+
+#### `group_list()`
+
+The groups in their order: the built-in ones, then yours with what uses them.
+
+**Returns**
+
+"groups": each "name", "description", "built_in", and for yours "variables", "labels", "contexts" (counts).
+
+#### `context_set(group: str, scope: str | None = None, first: int | str | None = None, last: int | str | None = None)`
+
+Tell which group code works with (D-43): a range of a scope, or the whole scope.
+
+Where that code names a RAM address - an operand, a variable it reads or writes - the
+name of this group wins; the narrowest range wins over a wider one and over the whole
+scope. RAM code copied from a ROM takes its ROM origin's context.
+
+**Args**
+
+- `group`: One of your groups.
+- `scope`: "lower", "rom0".."rom15" or "" (RAM code); default: what is paged in at `first`.
+- `first`: First address of the range; without first and last: the whole scope.
+- `last`: Last address (inclusive).
+
+#### `context_remove(scope: str, first: int | str | None = None, last: int | str | None = None)`
+
+Remove the context of exactly this place (a range, or the whole scope).
+
+#### `context_list(scope: str | None = None)`
+
+The contexts of one scope, or all.
+
+**Returns**
+
+"contexts": each "context" (as in the annotation file), "scope", "first", "last" (None for a whole scope), "group".
 
 ### Analysis
 

@@ -137,7 +137,7 @@ def check_combos_watched(app: Any) -> None:
     assert items["memory_view"] in combos and items["edit_new_slot"] in combos
     assert len(combos) >= 14
     # the operand menu of every disassembly row is watched as well (operand overrides)
-    assert len(app._popup_owners) == 24  # pylint: disable=protected-access  # CODE_ROWS
+    assert len(app._popup_owners) == 48  # pylint: disable=protected-access  # operand + address per row
 
 
 def check_toggles_and_freeze(app: Any, dpg: Any) -> None:

@@ -62,8 +62,6 @@ round-trip report (D-33).
 
 from __future__ import annotations
 
-import re
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from cpcxray.analysis.classifier import (
@@ -76,17 +74,25 @@ from cpcxray.analysis.cpc_profile import CpcProfile, rom_select_text
 from cpcxray.analysis.database import Kind, Source, TargetDatabase
 from cpcxray.analysis.operands import Role, immediate_role, loaded_pair
 from cpcxray.analysis.provenance import RelocatedBlock
+from cpcxray.analysis.source_format import (
+    COMMENT_COLUMN,
+    INDENT,
+    _equ,
+    _excluding,
+    _format_line,
+    _identifier,
+    _no_label,
+    name_type,
+    split_data,
+    string_operands,
+)
 from cpcxray.cpu.disasm import Flow, Instruction, hex_byte, hex_word
 from cpcxray.debugger.firmware_symbols import FIRMWARE_464
-from cpcxray.debugger.symbols import GLOBAL, Symbol, SymbolTable
+from cpcxray.debugger.names import best_name, context_group
+from cpcxray.debugger.symbols import BUILTIN_GROUPS, GLOBAL, Symbol, SymbolTable
 from cpcxray.debugger.variables import Variable
 from cpcxray.decoding.shadow_rom import ERROR, UNKNOWN
 
-INDENT = " " * 8
-COMMENT_COLUMN = 40
-BYTES_PER_LINE = 8
-STRING_LINE_LIMIT = 48
-MIN_STRING = 4
 ROM_TYPES = {0: "foreground ROM", 1: "background ROM", 2: "extension ROM"}
 HEADER_LABELS = ("rom_type", "rom_mark", "rom_version", "rom_modification")
 _CALL_FLOWS = frozenset({Flow.CALL, Flow.CONDITIONAL_CALL})
@@ -142,101 +148,6 @@ class GeneratedSource:
     names: list[tuple[int, str, str, str]] = field(default_factory=list)
 
 
-def name_type(label: str) -> str:
-    """The symbol type of a generated name (task 5g).
-
-    sub_, far_, ram_, rom_init and rsx_ names are "sub", l_ names "jump", d_ names and the
-    ROM header's fields "data".
-    """
-    if label.startswith(("sub_", "far_", "ram_", "rom_init", "rsx_")):
-        return "sub"
-    return "jump" if label.startswith("l_") else "data"
-
-
-def _printable(value: int) -> bool:
-    """True for characters that can go inside a sjasmplus "..." string unescaped."""
-    return 0x20 <= value <= 0x7E and value not in (0x22, 0x5C)
-
-
-def _terminator(value: int) -> bool:
-    """True for a CPC string terminator: a printable character with bit 7 set."""
-    return bool(value & 0x80) and _printable(value & 0x7F)
-
-
-def string_operands(data: bytes) -> str:
-    """Render bytes as defb operands: "TEXT" runs, "E"+#80 terminators, #xx otherwise."""
-    tokens, index = [], 0
-    while index < len(data):
-        if _printable(data[index]):
-            end = index
-            while end < len(data) and _printable(data[end]):
-                end += 1
-            tokens.append('"' + data[index:end].decode("ascii") + '"')
-            index = end
-            continue
-        value = data[index]
-        tokens.append(f'"{chr(value & 0x7F)}"+#80' if _terminator(value) else hex_byte(value))
-        index += 1
-    return ",".join(tokens)
-
-
-def split_data(data: bytes) -> list[tuple[int, int, bool]]:
-    """Split plain data into lines: (start, length, is_string).
-
-    Strings are runs of at least MIN_STRING printable characters, or at least two followed by
-    a CPC terminator (bit 7 set); everything else goes into defb lines of up to 8 bytes.
-    """
-    lines: list[tuple[int, int, bool]] = []
-    pending_start, index = None, 0
-    while index < len(data):
-        end = index
-        while end < len(data) and _printable(data[end]) and end - index < STRING_LINE_LIMIT:
-            end += 1
-        terminated = end < len(data) and end - index < STRING_LINE_LIMIT and _terminator(data[end])
-        printable_length = end - index
-        if printable_length >= MIN_STRING or (terminated and printable_length >= 2):
-            if pending_start is not None:
-                lines += _byte_lines(pending_start, index)
-                pending_start = None
-            length = printable_length + (1 if terminated else 0)
-            lines.append((index, length, True))
-            index += length
-            continue
-        if pending_start is None:
-            pending_start = index
-        index += 1
-    if pending_start is not None:
-        lines += _byte_lines(pending_start, len(data))
-    return lines
-
-
-def _byte_lines(start: int, end: int) -> list[tuple[int, int, bool]]:
-    """Cut start..end into defb lines of up to BYTES_PER_LINE bytes."""
-    return [
-        (offset, min(BYTES_PER_LINE, end - offset), False)
-        for offset in range(start, end, BYTES_PER_LINE)
-    ]
-
-
-def _format_line(text: str, comment: str = "", label: str | None = None) -> list[str]:
-    """Format one source line (label on its own line, comment at COMMENT_COLUMN).
-
-    A line longer than the column keeps one space before the comment.
-    """
-    lines = [f"{label}:"] if label else []
-    line = INDENT + text
-    if comment:
-        line = f"{line:<{COMMENT_COLUMN - 1}} ; {comment}"
-    lines.append(line.rstrip())
-    return lines
-
-
-def _identifier(text: str) -> str:
-    """Turn an RSX name into an identifier part (lower case, other characters as _)."""
-    cleaned = re.sub(r"[^a-z0-9]", "_", text.lower()).strip("_")
-    return cleaned
-
-
 # One entry point (generate); the state is shared by the passes.
 class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
     """Generates the source of one target (see the module docstring)."""
@@ -281,7 +192,12 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         self.labels: dict[int, str] = {}  # offset → label
         self.names: list[tuple[int, str, str, str]] = []  # the analysis's names (GeneratedSource)
         self._context: RelocatedBlock | None = None  # block of the line being emitted
-        self.externals: dict[int, str] = {}
+        self.externals: dict[tuple[int, str | None], str] = {}  # (address, context) → name
+        self._external_names: dict[int, str] = {}  # address → its first name (data words)
+        self.label_equs: dict[str, tuple[int, str | None, bool]] = {}  # → address, group, FW
+        self._code_scope = view.name if view.name == "lower" or view.name.startswith("rom") else ""
+        self._contexts: dict[int, str | None] = {}  # offset → group of its code's context
+        self._emit_group: str | None = None  # the context of the line being emitted
         self._boundaries: set[int] = set()
         self._far_starts: set[int] = set()
         self._copy_marks: dict[int, RelocatedBlock] = {}
@@ -462,9 +378,10 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
                 references.append((line.word, "far" if instruction.raw[0] == 0xDF else "jump"))
         return references
 
-    def _references(self) -> set[int]:
-        """All referenced addresses (for the EQUs of external symbols)."""
-        return {address for item in self.items for address, _ in self._item_references(item)}
+    def _references(self) -> set[tuple[int, str | None]]:
+        """All referenced addresses with the context of the code that refers to them."""
+        return {(address, self._context_of(item.offset))
+                for item in self.items for address, _ in self._item_references(item)}  # fmt: skip
 
     def _word(self, offset: int) -> int:
         """Return the little-endian word of the final image at an offset."""
@@ -513,8 +430,9 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         return uses
 
     def _owner_symbol(self, offset: int) -> Symbol | None:
-        """Return the owner's (user) symbol of a byte's address, if any."""
-        return self.symbols.owner_at(self.view.address(offset), self._scope(offset))
+        """Return the owner's (user) symbol of a byte's address, if any (by its context)."""
+        return self.symbols.owner_at(self.view.address(offset), self._scope(offset),
+                                     self._context_of(offset))  # fmt: skip
 
     def _owner_comment(self, offset: int) -> str:
         """Return the owner's comment at a byte's address, or ""."""
@@ -528,9 +446,21 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         return [f"; {text}".rstrip() for text in block.split("\n")] if block else []
 
     def _symbol_label(self, offset: int) -> str | None:
-        """Return the owner/firmware label of a byte's address, if any."""
-        symbol = self.symbols.at(self.view.address(offset), self._scope(offset))
+        """Return the owner/firmware label of a byte's address, if any (by its context)."""
+        symbol = self.symbols.at(self.view.address(offset), self._scope(offset),
+                                 self._context_of(offset))  # fmt: skip
         return symbol.label if symbol is not None and symbol.label else None
+
+    def _context_of(self, offset: int) -> str | None:
+        """The group of the context of the code at an offset (D-43).
+
+        Looked up at the byte's ROM address in the target's scope - so a RAM copy (DISP
+        block) has its ROM origin's context.
+        """
+        if offset not in self._contexts:
+            self._contexts[offset] = context_group(self.symbols, self._code_scope,
+                                                   self.view.start + offset)  # fmt: skip
+        return self._contexts[offset]
 
     def _generated_label(self, item: _Item, uses: dict[int, set[str]]) -> str | None:
         """Name a referenced line start by its use: ram_, far_, sub_, l_ or d_ + address."""
@@ -573,39 +503,52 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         return any(b.ram_start <= address < b.ram_start + b.length for b in view.blocks)
 
     def _assign_externals(self, used_names: set[str]) -> None:
-        """Global symbols for referenced addresses outside the source (EQU lines)."""
-        for address in sorted(self._references()):
+        """Names for referenced addresses outside the source (EQU lines).
+
+        Each reference is named as its code's context sees it (D-43, debugger/names.py): the
+        firmware name, else the owner's RAM label or variable of the context's group, built-in
+        and ungrouped ones, other groups. Every name used gets its EQU.
+        """
+        for address, group in sorted(self._references(), key=lambda ref: (ref[0], ref[1] or "")):
             if self._inside_source(address):
                 continue
-            symbol = self.symbols.at(address, GLOBAL)
-            if symbol is not None and symbol.label:
-                if symbol.label not in used_names:
-                    self.externals[address] = symbol.label
-                    used_names.add(symbol.label)
+            name = best_name(self.symbols, list(self.variables), address, GLOBAL, group)
+            if name is None:
                 continue
-            self._name_by_variable(address, used_names)
+            if name.variable is not None:
+                self._name_by_variable(address, group, name.variable, used_names)
+                continue
+            if name.text not in self.label_equs:
+                if name.text in used_names:
+                    continue  # the name is taken by a label of the source
+                used_names.add(name.text)
+                self.label_equs[name.text] = (address, name.group, name.type == "FW")
+            self._name_external(address, group, name.text)
         for entry in LOW_KERNEL:  # the reference block (module docstring)
             symbol = self.symbols.at(entry.address, GLOBAL)
             label = symbol.label if symbol is not None and symbol.label else entry.label
-            if self._inside_source(entry.address) or entry.address in self.externals:
+            if self._inside_source(entry.address) or entry.address in self._external_names:
                 continue
             if label not in used_names:
                 self.references[entry.address] = (label, entry.name)
                 used_names.add(label)
 
-    def _name_by_variable(self, address: int, used_names: set[str]) -> None:
-        """Name an outside address by the smallest variable containing it (`LABEL+n`)."""
-        containing = [v for v in self.variables if v.address <= address <= v.last]
-        if not containing:
-            return
-        variable = min(containing, key=lambda v: v.size)
+    def _name_by_variable(
+        self, address: int, group: str | None, variable: Variable, used_names: set[str]
+    ) -> None:
+        """Name an outside address by a variable containing it (`LABEL+n`), with its EQU."""
         if variable.label not in self.variable_equs:
             if variable.label in used_names:
                 return  # the name is taken by a label of the source
             used_names.add(variable.label)
             self.variable_equs[variable.label] = variable
         offset = address - variable.address
-        self.externals[address] = variable.label + (f"+{offset}" if offset else "")
+        self._name_external(address, group, variable.label + (f"+{offset}" if offset else ""))
+
+    def _name_external(self, address: int, group: str | None, name: str) -> None:
+        """Remember the name of an outside address for code of one context."""
+        self.externals[(address, group)] = name
+        self._external_names.setdefault(address, name)
 
     def _same_rom(self, address: int, select: int) -> bool:
         """True unless a far address selects another upper ROM for an upper-ROM address.
@@ -636,7 +579,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             return self.labels.get(offset)
         if self._inside_source(address):
             return None  # inside the target but not a line start, or an ambiguous overlay
-        return self.externals.get(address)
+        return self.externals.get((address, self._emit_group)) or self._external_names.get(address)
 
     # -- pass 3: text ----------------------------------------------------------------------------
 
@@ -668,6 +611,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         """Emit the item at `index` (a whole data run for data); return the next index."""
         item = self.items[index]
         self._context = self.view.block_at(item.offset)
+        self._emit_group = self._context_of(item.offset)  # D-43: names as this code sees them
         self._lines += self._before(item.offset)
         self._lines += self._open_never_read(index)
         self._lines += self._owner_block(item.offset, "before")
@@ -765,28 +709,59 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         if low_kernel:
             lines.append("; firmware restarts and low kernel entries (464/664/6128), for reference")
             for address, name in sorted(low_kernel.items()):
-                label = self.externals.get(address) or self.references.get(address, ("",))[0]
+                label = (self._external_names.get(address)
+                         or self.references.get(address, ("",))[0])  # fmt: skip
                 if label:
                     lines.append(f"{_equ(label, address):<{COMMENT_COLUMN}}; {name}")
             lines.append("")
-        named = set(self.variable_equs)  # externals named by variables get their own block
-        used = {a: label for a, label in self.externals.items()
-                if a not in low_kernel and label.partition("+")[0] not in named}  # fmt: skip
+        used = sorted((address, label) for label, (address, _group, firmware)
+                      in self.label_equs.items()
+                      if firmware and address not in low_kernel)  # fmt: skip
         if used:
             lines.append("; firmware entries used by this code")
-        for address, label in sorted(used.items()):
+        for address, label in used:
             lines.append(_equ(label, address))
         if used:
             lines.append("")
-        if self.variable_equs:
-            lines.append("; firmware and AMSDOS variables used by this code")
-            for variable in sorted(self.variable_equs.values(), key=lambda v: v.address):
-                equ = _equ(variable.label, variable.address)
-                size = f"{variable.size} byte" + ("s" if variable.size > 1 else "")
-                comment = f"{size}: {variable.description}"
-                lines.append(f"{equ:<{COMMENT_COLUMN}}; {comment}")
-            lines.append("")
+        lines += self._group_sections()
         lines += [f'{INDENT}OUTPUT "{self.output_name}"', f"{INDENT}ORG {hex_word(view.start)}", ""]
+        return lines
+
+    def _group_sections(self) -> list[str]:
+        """The EQUs of the variables and RAM labels used, one section per group (D-43).
+
+        In group order: built-in "firmware" and "amsdos", the owner's groups, then "other"
+        (the owner's ungrouped labels and variables); within a section by address.
+        """
+        headings = {"firmware": "firmware variables", "amsdos": "AMSDOS variables"}
+        order: list[str | None] = [*BUILTIN_GROUPS]
+        for group in self.symbols.groups():
+            order.append(group.name)
+            headings[group.name] = group.description or ""
+        order.append(None)
+        lines: list[str] = []
+        for group in order:
+            entries: list[tuple[int, str]] = []
+            for variable in self.variable_equs.values():
+                if variable.group == group or (group is None and variable.group not in order):
+                    size = f"{variable.size} byte" + ("s" if variable.size > 1 else "")
+                    equ = _equ(variable.label, variable.address)
+                    text = f"{equ:<{COMMENT_COLUMN}}; {size}: {variable.description}"
+                    entries.append((variable.address, text))
+            for label, (address, label_group, firmware) in self.label_equs.items():
+                if not firmware and label_group == group:
+                    entries.append((address, _equ(label, address)))
+            if not entries:
+                continue
+            if group is None:
+                lines.append("; ---- other ----")
+            else:
+                heading = headings.get(group, "")
+                lines.append(
+                    f"; ---- {group}: {heading} ----" if heading else f"; ---- {group} ----"
+                )
+            lines += [text for _address, text in sorted(entries, key=lambda entry: entry[0])]
+            lines.append("")
         return lines
 
     def _before(self, offset: int) -> list[str]:
@@ -946,25 +921,6 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
                 operands = string_operands(chunk) if is_string else ",".join(map(hex_byte, chunk))
                 pieces.append((first + start, length, f"defb {operands}"))
         return pieces
-
-
-def _excluding(lookup: Callable[[int], str | None], excluded: int) -> Callable[[int], str | None]:
-    """A symbol lookup that finds no label for one address (it belongs to another ROM)."""
-
-    def wrapped(address: int) -> str | None:
-        """Look up every address but the excluded one."""
-        return None if address == excluded else lookup(address)
-
-    return wrapped
-
-
-def _equ(label: str, address: int) -> str:
-    """An EQU line; the label is padded to 24 columns but always followed by a space."""
-    return f"{label:<23} EQU {hex_word(address)}"
-
-
-def _no_label(_address: int) -> None:
-    """Symbol lookup that never finds a label (numbers stay hex)."""
 
 
 def generate_source(  # pylint: disable=too-many-arguments  # forwards the generator inputs
