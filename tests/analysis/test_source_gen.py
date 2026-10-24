@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from cpcxray.analysis.classifier import classify_target
 from cpcxray.analysis.cpc_profile import CpcProfile
 from cpcxray.analysis.database import Kind, TargetDatabase
@@ -388,6 +390,41 @@ def test_far_call_into_another_rom_gets_no_own_label(tmp_path: Path) -> None:
     assert "call sub_c008" in lines and "sub_c008:" in lines  # own code: labelled
     assert "defw #C008                      ; far address: to #C008" in lines  # ROM 7: hex
     assert any(line.startswith("defw far_c00b") and "to #C008 [ROM 7]" in line for line in lines)
+
+
+@pytest.mark.parametrize(("select", "labelled"), [(0x07, False), (0x05, True), (0xFC, True)])
+def test_far_call_target_label_only_in_its_own_rom(
+    tmp_path: Path, select: int, labelled: bool
+) -> None:
+    """A FAR CALL alone labels its target only in the ROM the far address selects.
+
+    VDOS (ROM 5) calls &C1DC in ROM 7 (AMSDOS): its own byte at &C1DC gets no sub_c1dc. A
+    select of ROM 5 itself, or &FC-&FF (the current upper ROM stays), labels the target.
+    """
+    image = bytes.fromhex(
+        "DF 06 C0"  # rst #18 via the far object at &C006
+        "C9 00 C9"  # &C003: ret / &C005: ret (the far target)
+        f"05 C0 {select:02X}"  # &C006 far object: &C005 in ROM `select`
+    )
+    view = plain_view(image, name="rom5")
+    database = classified(view, starts=[0, 3, 5], observations={"C006": {"far_object": True}})
+    generated, result = round_trip(tmp_path, view, database)
+    assert result.identical, result.differences
+    lines = code_lines(generated.text)
+    assert ("sub_c005:" in lines) is labelled
+
+
+@pytest.mark.parametrize(("operand", "labelled"), [("05 40", False), ("05 00", True)])
+def test_side_call_target_label_only_in_slot_0(
+    tmp_path: Path, operand: str, labelled: bool
+) -> None:
+    """A SIDE CALL labels its target only for slot 0 (this ROM), not for the next ROM."""
+    image = bytes.fromhex(f"D7 {operand} C9 00 C9")  # rst #10 / defw: &C005 in slot 1 or 0
+    view = plain_view(image, name="rom5")
+    database = classified(view, starts=[0, 3, 5])
+    generated, result = round_trip(tmp_path, view, database)
+    assert result.identical, result.differences
+    assert ("sub_c005:" in code_lines(generated.text)) is labelled
 
 
 def test_variables_name_outside_addresses(tmp_path: Path) -> None:

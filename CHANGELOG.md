@@ -13,6 +13,9 @@
 - New: `symbol_add(..., group=, replaces=<old group>)` moves a RAM label to another group in one
   step, with its type, comment and comment blocks (as `variable_add(replaces=)` does for
   variables); the Symbols tab's editor uses it.
+- Fixed: the generated source no longer labels the target of a FAR CALL into another ROM in
+  the analysed ROM (VDOS: `rst #18` to &C1DC in ROM 7 made a `sub_c1dc` in ROM 5), nor that of
+  a SIDE CALL to another slot; the far address stays `defw #C1DC ; ROM 7`.
 - Changed: the firmware's jumpblock and restart names are fixed - a label of yours on such an
   address is refused (a comment is fine); an older annotation file with one loads without it
   and the Symbols tab's status says so.

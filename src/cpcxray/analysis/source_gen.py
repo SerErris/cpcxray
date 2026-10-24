@@ -49,7 +49,9 @@ instead of this judgement, for any instruction with a word operand.
 
 A far address (RST 3) that selects another upper ROM points into that ROM's code: it never
 gets a label of this target (`defw #C1DC ; ROM 7` for an AMSDOS routine called from another ROM,
-not that ROM's own `sub_c1dc`).
+not that ROM's own `sub_c1dc`), neither in the far address nor as the FAR CALL's target. The same
+holds for a SIDE CALL (RST 2) to a slot other than 0. Select bytes &FC-&FF keep the current
+upper ROM, so their target is this ROM's.
 
 The file starts with a reference block of all low-kernel firmware entries (the restarts
 RESET_ENTRY … EXT_INTERRUPT at &0000-&003B, the same on 464, 664 and 6128), whether the code
@@ -366,10 +368,13 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         instruction = item.instruction
         if instruction is None:
             return references
-        if instruction.target is not None and instruction.flow in _CALL_FLOWS:
-            references.append((instruction.target, "call"))
-        elif instruction.target is not None and instruction.flow in _JUMP_FLOWS:
-            references.append((instruction.target, "jump"))
+        target = instruction.target
+        if self._foreign_call_target(item) is not None:  # FAR / SIDE CALL into another ROM
+            target = None
+        if target is not None and instruction.flow in _CALL_FLOWS:
+            references.append((target, "call"))
+        elif target is not None and instruction.flow in _JUMP_FLOWS:
+            references.append((target, "jump"))
         word = instruction.word_operand
         if word is not None and word != instruction.target and self._wants_label(item, word):
             references.append((word, "data"))
@@ -561,10 +566,20 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         name = self.view.name
         return name.startswith("rom") and name[3:].isdigit() and int(name[3:]) == select
 
-    def _foreign_far_target(self, item: _Item) -> int | None:
-        """The target of a FAR CALL whose far object selects another ROM, else None."""
+    def _foreign_call_target(self, item: _Item) -> int | None:
+        """The target of a call into another ROM's code, else None.
+
+        A FAR CALL whose far object selects another upper ROM, or a SIDE CALL to a slot other
+        than 0 (the next ROMs of a multi-ROM program): the target address means a byte of that
+        ROM, never one of this target (as the classifier's `successors` sees it).
+        """
         instruction = item.instruction
-        if instruction is None or instruction.raw[0] != 0xDF:
+        if instruction is None:
+            return None
+        raw = instruction.raw
+        if raw[0] == 0xD7 and len(raw) == 3 and raw[2] >> 6 != 0:
+            return instruction.target
+        if raw[0] != 0xDF:
             return None
         far = far_object_offset(self.view, instruction)
         if far is None:
@@ -828,7 +843,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         word = item.instruction.word_operand if item.instruction else None
         if word is not None and not self._wants_label(item, word):
             lookup = _no_label
-        foreign = self._foreign_far_target(item)
+        foreign = self._foreign_call_target(item)
         if foreign is not None:  # RST 3 into another ROM: no label of this target for it
             lookup = _excluding(lookup, foreign)
         instruction = self.view.disassemble(item.offset, self.profile, lookup)
