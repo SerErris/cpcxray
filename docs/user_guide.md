@@ -180,7 +180,9 @@ example. The Groups panel adds a group with a description, renames it, moves it 
 order counts, see below) and removes it (refused while it is used, unless **force**: its items
 become ungrouped). The editor and "Your symbols" have a group choice for variables and global
 labels; the list shows an owner's group as `[vdos]`, and the group filter shows one group,
-the ungrouped names or the built-in `firmware` / `amsdos` groups.
+the ungrouped names or the built-in `firmware` / `amsdos` groups. Choosing another group in the
+editor moves the label or variable there with its comments (over MCP: `symbol_add(group=...,
+replaces=<old group>)`, `variable_add(..., replaces=<label>, group=...)`).
 
 Which name an address gets depends on the code that uses it: give code a context (CPU tab).
 The firmware's jumpblock and restart names always win - they are fixed by the machine, so your

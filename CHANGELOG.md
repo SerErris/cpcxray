@@ -10,6 +10,9 @@
   address by the context of the code that uses it. One RAM address can have a label per group.
   The generated source defines the names in one section per group (still byte-identical). Kept
   in `project/annotations.txt` (`group`, `context`, `group=`); older files load unchanged.
+- New: `symbol_add(..., group=, replaces=<old group>)` moves a RAM label to another group in one
+  step, with its type, comment and comment blocks (as `variable_add(replaces=)` does for
+  variables); the Symbols tab's editor uses it.
 - Changed: the firmware's jumpblock and restart names are fixed - a label of yours on such an
   address is refused (a comment is fine); an older annotation file with one loads without it
   and the Symbols tab's status says so.

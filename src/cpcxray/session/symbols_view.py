@@ -71,6 +71,7 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method,too-many-p
         before: str | None = None,
         after: str | None = None,
         group: str | None = None,
+        replaces: str | None = None,
     ) -> dict[str, Any]:
         """Add or change a label, comment or comment block at `address`.
 
@@ -91,10 +92,14 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method,too-many-p
                 can carry one label per group; "" for the ungrouped one. Without it the one
                 symbol at the address is meant (an error that names them if there are
                 several). Not allowed in ROM scopes, nor a label at a firmware name's address.
+            replaces: Moves a global label into `group` from the group it is in now (its name,
+                "" for no group): label, type, comment and blocks go with it unless given -
+                e.g. `symbol_add("BE8F", group="cpm", replaces="vdos")`.
         """
         try:
             symbol = self.symbols.add(self._address(address), label, comment, scope, type,
-                                      before=before, after=after, group=group)  # fmt: skip
+                                      before=before, after=after, group=group,
+                                      replaces=replaces)  # fmt: skip
         except SymbolError as error:
             raise SessionError(str(error)) from None
         return {"address": hex4(symbol.address), "label": symbol.label,

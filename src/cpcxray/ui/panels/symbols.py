@@ -257,11 +257,10 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
         symbol_type = self.value("symbol_edit_type") if label else None
         group = self._chosen_group("symbol_edit_group") if entry["scope"] == "" else None
         old_group = (entry.get("group") or "") if groupable(entry) else group
-        if group is not None and old_group != group:  # moved to another group (D-44)
-            self.session.symbol_remove(entry["address"], "", group=old_group)
+        moved = group is not None and old_group != group  # into another group (D-44)
         result = self.session.symbol_add(entry["address"], label, comment, entry["scope"],
-                                         symbol_type, before=before, after=after,
-                                         group=group)  # fmt: skip
+                                         symbol_type, before=before, after=after, group=group,
+                                         replaces=old_group if moved else None)  # fmt: skip
         if label:
             self._selected_key = (result["type"], entry["address"], entry["scope"], label)
         return result

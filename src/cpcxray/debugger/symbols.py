@@ -187,6 +187,7 @@ class SymbolTable:  # pylint: disable=too-many-instance-attributes,too-many-publ
         before: str | None = None,
         after: str | None = None,
         group: str | None = None,
+        replaces: str | None = None,
     ) -> Symbol:
         """Add or change the owner's symbol at (scope, address[, group]).
 
@@ -208,6 +209,8 @@ class SymbolTable:  # pylint: disable=too-many-instance-attributes,too-many-publ
             group: Global labels only (D-44): the owner's group of the label, "" for the
                 ungrouped one, None for the one symbol at the address (an error if there are
                 several).
+            replaces: Moves a global label to `group`: the group it is in now ("" for the
+                ungrouped one). The parts not given are taken over from it.
 
         Returns:
             The symbol as lookups now see it (both layers, see `at`); an empty one when
@@ -215,19 +218,21 @@ class SymbolTable:  # pylint: disable=too-many-instance-attributes,too-many-publ
 
         Raises:
             SymbolError: On an invalid label, scope, type, group or address, a duplicate label,
-                a label at a firmware name's address, or if no part at all is given.
+                a label at a firmware name's address, a move without a symbol to move or onto
+                another one, or if no part at all is given.
         """
         validate_scope(scope)
         if type is not None and type not in OWNER_TYPES:
             raise SymbolError(f"invalid type {type!r} (use {', '.join(OWNER_TYPES)})")
         if not 0 <= address <= 0xFFFF:
             raise SymbolError(f"address {address} out of range")
-        if label is None and comment is None and before is None and after is None:
-            raise SymbolError("a symbol needs a label, a comment or a comment block")
         key = self._key(address, scope, group)
         if key[2] is not None:
             self._check_owner_group(key[2])
-        existing = self._symbols.get(key)
+        source = key if replaces is None else self._move_source(key, group, replaces)
+        if source == key and label is None and comment is None and before is None and after is None:
+            raise SymbolError("a symbol needs a label, a comment or a comment block")
+        existing = self._symbols.get(source)
         if existing is not None:
             label = existing.label if label is None else label
             comment = existing.comment if comment is None else comment
@@ -243,9 +248,10 @@ class SymbolTable:  # pylint: disable=too-many-instance-attributes,too-many-publ
                 raise SymbolError(f"{address:04X} is the firmware name {firmware.label}: it "
                                   "cannot get another label (a comment can)")  # fmt: skip
         if label is not None:
-            self._check_label(label, key)
+            self._check_label(label, key, source)
         elif key[2] is not None and (comment or before or after):
             raise SymbolError(f"a grouped entry needs a label (group {key[2]})")
+        self._symbols.pop(source, None)  # a moved symbol leaves its old group
         if label is None and comment is None and before is None and after is None:
             self._symbols.pop(key, None)  # nothing of the owner's left
         else:
@@ -294,19 +300,46 @@ class SymbolTable:  # pylint: disable=too-many-instance-attributes,too-many-publ
             raise SymbolError(f"several symbols at {address:04X}: {names} - give the group")
         return keys[0] if keys else (GLOBAL, address, None)
 
-    def _check_label(self, label: str, key: SymbolKey | None) -> None:
+    def _move_source(self, key: SymbolKey, group: str | None, replaces: str) -> SymbolKey:
+        """The key of the global label `add` moves to `key` from group `replaces` (D-44).
+
+        Raises:
+            SymbolError: Outside the global scope, without a target group, without a symbol
+                in the old group, or onto another symbol in the new one.
+        """
+        scope, address, _group = key
+        if scope != GLOBAL:
+            raise SymbolError(f"labels in scope {scope} have no group to move from (D-44)")
+        if group is None:
+            raise SymbolError('give the group to move the label to ("" for no group)')
+        source = (GLOBAL, address, replaces or None)
+        if replaces:
+            self._check_owner_group(replaces)
+        if source not in self._symbols:
+            where = f"in group {replaces}" if replaces else "without a group"
+            raise SymbolError(f"no symbol of yours at {address:04X} {where}")
+        if source != key and key in self._symbols:
+            where = f"group {key[2]}" if key[2] else "no group"
+            raise SymbolError(f"{address:04X} already has a symbol in {where}: "
+                              f"{self._symbols[key].label or '-'}")  # fmt: skip
+        return source
+
+    def _check_label(
+        self, label: str, key: SymbolKey | None, moved: SymbolKey | None = None
+    ) -> None:
         """Raise SymbolError unless `label` is valid and free (a symbol elsewhere, a variable).
 
         Args:
             label: The label.
             key: The symbol's key (its own label there is free); None for a variable.
+            moved: The key of a symbol being moved to `key` (its label is free too).
         """
         if not LABEL_PATTERN.match(label):
             raise SymbolError(f"invalid label {label!r}")
         scope = key[0] if key is not None else GLOBAL
         for other in [*self._symbols.values(), *self._firmware.values()]:
             same = (other.label or "").lower() == label.lower()  # case-insensitive, as before
-            if same and other.scope in (scope, GLOBAL) and other.key != key:
+            if same and other.scope in (scope, GLOBAL) and other.key not in (key, moved):
                 group = f" in group {other.group}" if other.group else ""
                 raise SymbolError(f"label {label!r} already used at {other.address:04X}{group}")
         if key is not None and label.lower() in self._variables:

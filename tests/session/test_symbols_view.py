@@ -248,3 +248,37 @@ def test_group_and_context_tools(tmp_path: Path) -> None:
     fresh = make_session(tmp_path)  # loads project/annotations.txt
     assert fresh.symbols_status()["group_names"] == ["cpm22", "vdos"]
     assert fresh.context_list("rom3")["contexts"][1]["group"] == "cpm22"
+
+
+def test_symbol_moves_to_another_group(tmp_path: Path) -> None:
+    """symbol_add(replaces=) moves a RAM label between groups with all its parts (D-44)."""
+    session = make_session(tmp_path)
+    session.group_add("vdos")
+    session.group_add("cpm")
+    session.symbol_add("BE8F", "dos_seldsk", "SELDSK", type="jump", before="header",
+                       after="tail", group="vdos")  # fmt: skip
+    with pytest.raises(SessionError, match="already used at BE8F in group vdos"):
+        session.symbol_add("BE8F", "dos_seldsk", group="cpm")  # without replaces: a second one
+    moved = session.symbol_add("BE8F", group="cpm", replaces="vdos")
+    parts = ("label", "comment", "type", "before", "after", "group")
+    assert [moved[part] for part in parts] == ["dos_seldsk", "SELDSK", "jump", "header", "tail",
+                                               "cpm"]  # fmt: skip
+    assert [s["group"] for s in session.symbol_list(source="user")["symbols"]] == ["cpm"]
+    renamed = session.symbol_add("BE8F", "seldsk", group="", replaces="cpm")  # out, renamed
+    assert (renamed["label"], renamed["group"], renamed["comment"]) == ("seldsk", None, "SELDSK")
+    session.symbols_save()
+    fresh = make_session(tmp_path)
+    assert [(s["label"], s["group"]) for s in fresh.symbol_list(source="user")["symbols"]] == [
+        ("seldsk", None)
+    ]
+    session.symbol_add("BE8F", "cpm_seldsk", group="cpm")
+    for arguments, message in (
+        ({"group": "cpm", "replaces": "vdos"}, "no symbol of yours at BE8F in group vdos"),
+        ({"group": "cpm", "replaces": ""}, "already has a symbol in group cpm: cpm_seldsk"),
+        ({"replaces": ""}, "give the group"),
+        ({"group": "cpm", "replaces": "basic"}, "basic"),
+    ):
+        with pytest.raises(SessionError, match=message):
+            session.symbol_add("BE8F", **arguments)
+    with pytest.raises(SessionError, match="no group to move from"):
+        session.symbol_add("C000", "x", scope="rom7", replaces="vdos")

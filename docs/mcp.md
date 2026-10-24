@@ -469,7 +469,7 @@ directory, e.g. "output/screen.png") it is also written to that file.
 
 ### Symbols and variables
 
-#### `symbol_add(address: int | str, label: str | None = None, comment: str | None = None, scope: str = "", type: str | None = None, before: str | None = None, after: str | None = None, group: str | None = None)`
+#### `symbol_add(address: int | str, label: str | None = None, comment: str | None = None, scope: str = "", type: str | None = None, before: str | None = None, after: str | None = None, group: str | None = None, replaces: str | None = None)`
 
 Add or change a label, comment or comment block at `address`.
 
@@ -486,6 +486,7 @@ lines before / after the instruction (task 9).
 - `before`: Comment block before the line, e.g. a routine header; several lines separated by line breaks; "" removes it.
 - `after`: Comment block after the line, e.g. a longer explanation; "" removes it.
 - `group`: Global (RAM) labels only (D-44): your group of the label - one RAM address can carry one label per group; "" for the ungrouped one. Without it the one symbol at the address is meant (an error that names them if there are several). Not allowed in ROM scopes, nor a label at a firmware name's address.
+- `replaces`: Moves a global label into `group` from the group it is in now (its name, "" for no group): label, type, comment and blocks go with it unless given - e.g. `symbol_add("BE8F", group="cpm", replaces="vdos")`.
 
 #### `comment_add(address: int | str, comment: str, scope: str = "", position: str = "line", group: str | None = None)`
 
