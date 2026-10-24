@@ -120,8 +120,10 @@ Registers (main and alternate pairs, IX, IY, SP, PC, WZ, the flags as chips, I, 
 those the last step changed in yellow; set registers, Step out, run to an address. Four paging
 tiles show what the CPU sees in each 16 KB quarter (lower ROM, upper ROM n with its file, or RAM
 block). The disassembly (▶ PC, ● breakpoint, bytes switchable) follows the PC; type an address
-to look elsewhere. Beside it the stack from SP up to its top, with the instruction that set the
-stack.
+to look elsewhere. Right-click an instruction's operand to say what it is: **a number** (always
+hex: `call #0010` instead of `call SIDE_CALL`), **an address** (named), or **judged by cpcxray**
+again - your decision holds in the disassembly, the trace and the generated source. Beside it
+the stack from SP up to its top, with the instruction that set the stack.
 
 ### Memory
 16 lines of 16 bytes through a view: `cpu` (what the CPU reads now), `ram` (RAM, also under a
@@ -360,6 +362,8 @@ var  rom5+0012   drives      16  ; at an offset in ROM 5's data area
 before rom5:C4D8 ; read_sector: reads one sector into the buffer
 before rom5:C4D8 ;   in:  D = track, E = sector
 after  rom5:C4D8 ; a comment block after the line
+value  rom5:C123 ; the operand of the instruction is a number, not an address
+address rom5:C200 ; ... or an address, where cpcxray judged it a number
 ```
 
 A comment block is one `before` or `after` line per text line, in order; the text after `; ` is

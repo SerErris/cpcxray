@@ -12,6 +12,10 @@
   offsets, time constants. They are always written in hex: a parameter &0010 no longer turns
   into `defw SIDE_CALL` (the name of RST 2), as it did in a `word_table`, whose words are
   addresses and keep their names. Existing analysis databases stay valid.
+- New: say what an instruction's operand is - right-click it in the CPU tab, or `operand_set`
+  over MCP: a number (always hex, `call #0010` instead of `call SIDE_CALL`), an address (named),
+  or judged by cpcxray again. The decision is kept in `project/annotations.txt` and holds in
+  the disassembly, the trace and the generated source.
 
 ## 0.9.1 - bug fix
 

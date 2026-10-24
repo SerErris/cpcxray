@@ -497,6 +497,22 @@ Set a comment at `address` (keeps an existing label and the other comments).
 - `scope`: "" for global, "lower" or "rom0".."rom15".
 - `position`: "line" (at the end of the line), "before" (a block before the line, e.g. a routine header) or "after" (a block after the line).
 
+#### `operand_set(address: int | str, role: str, scope: str | None = None, comment: str | None = None)`
+
+Decide whether the word operand of the instruction at `address` is a number.
+
+`ld hl,#0010` stays a number instead of `ld hl,SIDE_CALL` (the name of RST 2) with
+"value"; "address" names it even where the judgement of `ld rr,nn` says number. The
+decision wins in the disassembly, the trace and the generated source, and is kept in
+the annotation file (`symbols_save`).
+
+**Args**
+
+- `address`: The instruction's address.
+- `role`: "value" (a number: always hex), "address" (named) or "auto" (remove the decision: cpcxray judges again).
+- `scope`: "" (global, RAM), "lower" or "rom0".."rom15"; default: what is paged in at the address now.
+- `comment`: Why (kept in the annotation file).
+
 #### `symbol_remove(address: int | str, scope: str = "")`
 
 Remove the owner's symbol at `address` in `scope` (a firmware name stays).
@@ -606,7 +622,7 @@ The annotation file: its path, whether it exists, your entries, unsaved changes.
 
 **Returns**
 
-"path", "exists", "symbols" and "variables" (your entries now), "modified" (changed since the last load or save).
+"path", "exists", "symbols", "variables" and "operands" (your entries now: labels and comments, variables, operand overrides), "operand_overrides" (address, scope, role, comment each), "modified" (changed since the last load or save).
 
 ### Analysis
 

@@ -161,18 +161,24 @@ class DebuggerMixin:
     ) -> SymbolLookup:
         """The operand lookup for one instruction: `_operand_label`, judged for `ld rr,nn`.
 
-        The immediate of `ld rr,nn` may be a number: `ld bc,#0000` must not read
-        `ld bc,RESET_ENTRY`. As in the source generator (analysis/operands.py), a value used
-        as a number gets no name; one of unknown use keeps the owner's labels and variables
-        but not a firmware name below the jumpblocks (the restarts at &0000-&003F).
+        The owner's operand override at the instruction ("value" / "address", `operand_set`)
+        wins over everything. The immediate of `ld rr,nn` may be a number: `ld bc,#0000` must
+        not read `ld bc,RESET_ENTRY`. As in the source generator (analysis/operands.py), a
+        value used as a number gets no name; one of unknown use keeps the owner's labels and
+        variables but not a firmware name below the jumpblocks (the restarts at &0000-&003F).
 
         Args:
             instruction: The instruction.
             following: Decodes the code after it (default: memory, `_disassemble`; a file's
                 bytes for code read from a disk).
         """
+        decided = self.symbols.operand_at(  # the owner's decision wins
+            instruction.address, self.machine.symbol_scope(instruction.address)
+        )
+        if decided == "value":
+            return lambda _word: None
         role = immediate_role(instruction, following or self._disassemble)  # UNKNOWN: no ld rr,nn
-        if loaded_pair(instruction) is None or role == Role.ADDRESS:
+        if decided == "address" or loaded_pair(instruction) is None or role == Role.ADDRESS:
             return self._operand_label
         if role == Role.NUMBER:
             return lambda _word: None

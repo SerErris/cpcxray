@@ -54,6 +54,7 @@ class CpuTab(Tab):  # pylint: disable=too-many-instance-attributes  # view state
         """Create the tab; the disassembly starts at the PC."""
         super().__init__(*args, **kwargs)
         self._view_start: int | None = None  # first address of the following view
+        self._row_addresses = [""] * CODE_ROWS  # the instruction address of each row ("": none)
         self._view_addresses: list[int] = []  # instruction addresses shown
         self._highlighted: set[int] = set()  # table rows with a coloured bar
 
@@ -135,11 +136,36 @@ class CpuTab(Tab):  # pylint: disable=too-many-instance-attributes  # view state
                         self.text(f"code_address_{row}", color=colours.TEXT_DIM)
                         self.text(f"code_bytes_{row}", color=colours.TEXT_OFF)
                         self.text(f"code_mnemonic_{row}")
-                        with dpg.group(horizontal=True, horizontal_spacing=0):
+                        with dpg.group(horizontal=True, horizontal_spacing=0) as operands:
                             for part in ("before", "name", "after", "comment"):
                                 self.text(f"code_{part}_{row}")
+                        self._operand_menu(operands, row)
             dpg.add_text("blue firmware · green variable · amber yours",
                          color=colours.TEXT_DIM)  # fmt: skip
+
+    def _operand_menu(self, operands: int | str, row: int) -> None:
+        """Right-click menu of a row's operands: the owner's operand override (`operand_set`)."""
+        self.context.popup_owners.append(operands)
+        # built like dpg.popup, which opens at the window's corner here: shown at the mouse
+        with dpg.window(popup=True, show=False, autosize=True, no_title_bar=True) as menu:
+            dpg.add_text("the operand is", color=colours.TEXT_DIM)
+            for role, text in (("value", "a number (hex)"), ("address", "an address (named)"),
+                               ("auto", "judged by cpcxray")):  # fmt: skip
+                dpg.add_button(label=text, width=150, user_data=(row, role, menu),
+                               callback=lambda _s, _a, data: self._set_operand(*data))  # fmt: skip
+        with dpg.item_handler_registry() as handlers:
+            dpg.add_item_clicked_handler(
+                button=dpg.mvMouseButton_Right, user_data=menu,
+                callback=lambda _s, _a, item: _open_at_mouse(item),
+            )  # fmt: skip
+        dpg.bind_item_handler_registry(operands, handlers)
+
+    def _set_operand(self, row: int, role: str, menu: int | str) -> None:
+        """Store the operand decision of the instruction in `row` and close the menu."""
+        dpg.configure_item(menu, show=False)
+        address = self._row_addresses[row] if row < len(self._row_addresses) else ""
+        if address:
+            self.call(lambda: self.session.operand_set(address, role))
 
     def _build_stack(self) -> None:
         """The stack column: SP marked, words up to the top, the top and its source."""
@@ -244,6 +270,7 @@ class CpuTab(Tab):  # pylint: disable=too-many-instance-attributes  # view state
         self._highlighted = set()
         for index in range(CODE_ROWS):
             row = rows[index] if index < len(rows) else CodeRow("empty")
+            self._row_addresses[index] = row.address if row.kind == "instruction" else ""
             texts = _row_texts(row)
             for part, (text, colour) in texts.items():
                 item = items[f"code_{part}_{index}"]
@@ -274,6 +301,12 @@ class CpuTab(Tab):  # pylint: disable=too-many-instance-attributes  # view state
 _ZERO_REGISTERS = dict.fromkeys(
     ("af", "bc", "de", "hl", "af_", "bc_", "de_", "hl_", "ix", "iy", "sp", "pc", "wz"), 0
 )
+
+
+def _open_at_mouse(menu: int | str) -> None:
+    """Show a popup window at the mouse (the operand menu)."""
+    dpg.configure_item(menu, show=True)
+    dpg.set_item_pos(menu, dpg.get_mouse_pos(local=False))
 
 
 def _set_text(item: int | str, text: str, changed: bool) -> None:

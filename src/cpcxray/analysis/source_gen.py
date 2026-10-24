@@ -44,6 +44,8 @@ the code after the load uses it as one (LDIR's HL/DE, `(hl)`, ...), or - without
 is a line start of the source, lies in the target's own address range, is a firmware
 jumpblock entry (&B900 and up) or the first byte of a known variable. Counters (LDIR's BC,
 DJNZ, `dec bc` loops) and other plain numbers stay hex: `ld bc,#0016`, not `ld bc,JP_DE`.
+The owner's operand override at an instruction (annotation file `value` / `address`) decides
+instead of this judgement, for any instruction with a word operand.
 
 A far address (RST 3) that selects another upper ROM points into that ROM's code: it never
 gets a label of this target (`defw #C1DC ; ROM 7` for an AMSDOS routine called from another ROM,
@@ -423,7 +425,13 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
             self._roles[item.offset] = immediate_role(item.instruction, following)
 
     def _wants_label(self, item: _Item, word: int) -> bool:
-        """True if the word operand of an item should be shown as a label (module docstring)."""
+        """True if the word operand of an item should be shown as a label (module docstring).
+
+        The owner's operand override ("value" / "address") wins over the judgement.
+        """
+        decided = self.symbols.operand_at(self.view.address(item.offset), self._scope(item.offset))
+        if decided is not None:
+            return decided == "address"
         role = self._roles.get(item.offset)
         if role is None or role == Role.ADDRESS:
             return True

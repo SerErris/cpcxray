@@ -9,7 +9,7 @@ Software-compatible, not cycle-exact.
 
 ## Design documents
 
-- **`docs/design.md` is authoritative**: requirements (FR-*/NFR-*), decisions **D-01..D-41**,
+- **`docs/design.md` is authoritative**: requirements (FR-*/NFR-*), decisions **D-01..D-42**,
   architecture (§6), test strategy (§8), implementation plan (§9). Read the relevant sections
   before working on a component.
 - `docs/vortex_decrypt.md` (scrambling rule) and `docs/cpc_rst.md` (RST conventions) are
@@ -367,6 +367,11 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   `Symbol.before` / `.after` hold the blocks; `add(..., before=, after=)`: None keeps, ""
   removes; `symbol_add` / `comment_add(position=)` over MCP; CPU tab rows "note"; Trace tab
   ¶ mark and detail lines (`trace_records`: `comment_before` / `comment_after`, by where it ran).
+  Operand overrides (D-42): `value|address [scope:]address` lines; `SymbolTable.set_operand` /
+  `operand_at`; they win in `_instruction_labels` (session/debugger.py) and `_wants_label`
+  (source_gen); `operand_set` over MCP; CPU tab: right-click menu on the operand (own popup
+  window shown at the mouse - `dpg.popup` opened at the window's corner; the operand groups
+  are `PanelContext.popup_owners`, watched by `ComboWatch` so the keys do not close it).
 - Variables (FR-DBG-11, D-34; debugger/variables.py `VariableMap`): firmware and AMSDOS RAM
   variables from docs/memory.md (generated debugger/variable_tables.py), sized, one address per
   machine, pack areas (`*_WORKSPACE`) for unknown bytes; lookup gives `NAME+offset`, smallest

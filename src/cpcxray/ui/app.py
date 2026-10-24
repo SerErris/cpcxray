@@ -94,6 +94,7 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
         self._characters = CharacterInput()
         self._combo_watch = ComboWatch()
         self._combos: list[int] = []  # every combo of the window (their lists, ComboWatch)
+        self._popup_owners: list[int | str] = []  # items with a right-click menu (ComboWatch)
         self._key_input = 0  # which hidden input collects the characters now
         self._note = ("", 0.0)  # a note for the status line (missing ROMs, …) and until when
         self.panels = DebuggerPanels(session, self.loop)
@@ -123,6 +124,7 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
         self.panels.refresh(force=True)  # fill every panel once (they are frozen while running)
         self._combos = [item for item in dpg.get_all_items()
                         if dpg.get_item_type(item) == "mvAppItemType::mvCombo"]  # fmt: skip
+        self._popup_owners = list(self.panels.context.popup_owners)  # right-click menus
         skipped = getattr(self.session.machine, "skipped_roms", [])
         if skipped:  # e.g. a ROM file missing from roms/: say so instead of a black screen
             self._note = ("missing: " + "; ".join(skipped), time.monotonic() + MISSING_SECONDS)
@@ -227,7 +229,7 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
         combo_open = self._combo_watch.holds_keys(
             any(dpg.is_mouse_button_clicked(button) for button in (0, 1, 2)),
             any(dpg.is_mouse_button_released(button) for button in (0, 1, 2)),
-            next((combo for combo in self._combos if dpg.is_item_hovered(combo)), None),
+            self._list_opener(),
             dpg.get_value,
         )
         if not dpg.is_item_active(hidden) and not elsewhere and not mouse_down and not combo_open:
@@ -252,6 +254,17 @@ class App:  # pylint: disable=too-many-instance-attributes  # loop, widgets, pan
             host.unknown.clear()
         if len(dpg.get_value(hidden)) > MAX_INPUT and not down:
             self._switch_key_input()
+
+    def _list_opener(self) -> int | str | None:
+        """The item under the mouse whose click opens a list, else None.
+
+        A combo, or - on a right click - an item with a right-click menu (the operand in the
+        CPU tab).
+        """
+        combo = next((item for item in self._combos if dpg.is_item_hovered(item)), None)
+        if combo is not None or not dpg.is_mouse_button_clicked(1):
+            return combo
+        return next((item for item in self._popup_owners if dpg.is_item_hovered(item)), None)
 
     def _switch_key_input(self) -> None:
         """Empty the hidden input: the other one takes over (an active input keeps its text)."""

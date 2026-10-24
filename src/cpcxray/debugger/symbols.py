@@ -32,11 +32,17 @@ address can have a block of comment lines *before* it (a routine header) and one
 longer explanation between two instructions). Blocks are the owner's only (`before`, `after`:
 text with line breaks); the source generator writes them as `;` lines around the instruction.
 
+Operand overrides (owner 2026-10-24): the owner decides for the word operand of the instruction
+at an address whether it is a number ("value": always hex, `ld hl,#0010` and not
+`ld hl,SIDE_CALL`) or an address ("address": named, even where the judgement of `ld rr,nn` says
+number). They win over that judgement in the disassembly, the trace and the generated source.
+
 Annotation file format (plain text, one entry per line, `#` starts a comment line):
 
     # [sub|jump|data] [scope:]address  label  [; comment]
     # var address|romN+offset  label  size  [; comment]
     # before|after [scope:]address  ; one line of a comment block
+    # value|address [scope:]address  [; comment]   the operand of the instruction there
     BB5A        my_output       ; print char in A (no type: "sub")
     before rom5:C4D8 ; read_sector: reads one sector into the buffer
     before rom5:C4D8 ;   in:  D = track, E = sector
@@ -45,6 +51,7 @@ Annotation file format (plain text, one entry per line, `#` starts a comment lin
     data C015       disk_messages
     8000        -               ; a comment only, no label
     var rom5+0012   vd_drive_table  16 ; one entry per drive
+    value rom5:C123  ; the 16 is a sector count, not RST 2
 
 Addresses are hex (optionally with a leading & or #); `-` stands for "no label". A block line
 keeps the text after "; " as it is (indentation too; `;` alone is an empty line); the lines of
@@ -66,9 +73,12 @@ LABEL_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 SCOPE_PATTERN = re.compile(r"^(lower|rom([0-9]|1[0-5]))$")
 FILE_HEADER = ("# cpcxray annotations\n# [sub|jump|data] [scope:]address  label  [; comment]\n"
                "# var address|romN+offset  label  size  [; comment]\n"
-               "# before|after [scope:]address  ; one line of a comment block\n")  # fmt: skip
+               "# before|after [scope:]address  ; one line of a comment block\n"
+               "# value|address [scope:]address  [; comment]  (the operand of the instruction)\n"
+               )  # fmt: skip
 OWNER_TYPES = ("sub", "jump", "data")  # the owner's labels; "var": OwnVariable
 BLOCK_POSITIONS = ("before", "after")  # comment blocks around a line (task 9)
+OPERAND_ROLES = ("value", "address")  # the owner's operand overrides ("auto": none)
 VARIABLE_PATTERN = re.compile(r"^(?:rom(\d{1,2})\+)?([&#]?[0-9A-Fa-f]{1,4})$")
 
 
@@ -150,6 +160,23 @@ class BlockLine:
     text: str
 
 
+@dataclass(frozen=True)
+class OperandOverride:
+    """The owner's decision about the word operand of the instruction at an address.
+
+    Attributes:
+        address: 16-bit address of the instruction.
+        scope: "" (global), "lower" or "romN".
+        role: "value" (a number: always hex) or "address" (named).
+        comment: Why, or None.
+    """
+
+    address: int
+    scope: str
+    role: str
+    comment: str | None = None
+
+
 def _block_text(text: str | None) -> str | None:
     """A comment block as stored: lines without trailing blanks, no empty lines at the end.
 
@@ -207,6 +234,7 @@ class SymbolTable:
         self._symbols: dict[tuple[str, int], Symbol] = {}  # the owner's layer
         self._firmware: dict[int, Symbol] = {}  # the firmware layer, all global
         self._variables: dict[str, OwnVariable] = {}  # the owner's variables by label
+        self._operands: dict[tuple[str, int], OperandOverride] = {}  # by (scope, address)
         self.firmware_model: str | None = None
         self.modified = False  # the owner's symbols or variables changed since load / save
         if preload_firmware:
@@ -386,6 +414,48 @@ class SymbolTable:
         """The owner's variables, sorted by label."""
         return sorted(self._variables.values(), key=lambda variable: variable.label.lower())
 
+    # -- the owner's operand overrides --------------------------------------------------------
+
+    def set_operand(
+        self, address: int, role: str, scope: str = GLOBAL, comment: str | None = None
+    ) -> OperandOverride | None:
+        """Decide the operand of the instruction at (scope, address).
+
+        Args:
+            address: The instruction's address.
+            role: "value" (a number), "address" (named) or "auto" (remove the decision: the
+                judgement applies again).
+            scope: "" (global), "lower" or "romN".
+            comment: Why, or None.
+
+        Returns:
+            The override, or None after "auto".
+
+        Raises:
+            SymbolError: On an invalid role, scope or address.
+        """
+        validate_scope(scope)
+        if not 0 <= address <= 0xFFFF:
+            raise SymbolError(f"address {address} out of range")
+        if role not in (*OPERAND_ROLES, "auto"):
+            raise SymbolError(f"invalid role {role!r} (use value, address or auto)")
+        self.modified = True
+        if role == "auto":
+            self._operands.pop((scope, address), None)
+            return None
+        override = OperandOverride(address, scope, role, comment or None)
+        self._operands[(scope, address)] = override
+        return override
+
+    def operand_at(self, address: int, scope: str = GLOBAL) -> str | None:
+        """The owner's operand decision at `address` ("value" / "address"; scope, else global)."""
+        override = self._operands.get((scope, address)) or self._operands.get((GLOBAL, address))
+        return override.role if override is not None else None
+
+    def operand_overrides(self) -> list[OperandOverride]:
+        """The owner's operand overrides, sorted by scope and address."""
+        return [self._operands[key] for key in sorted(self._operands)]
+
     # -- lookups -----------------------------------------------------------------------------
 
     def at(self, address: int, scope: str = GLOBAL) -> Symbol | None:
@@ -497,6 +567,8 @@ class SymbolTable:
                 if isinstance(entry, BlockLine):
                     key = (entry.scope, entry.address, entry.position)
                     blocks.setdefault(key, []).append(entry.text)
+                elif isinstance(entry, OperandOverride):
+                    self.set_operand(entry.address, entry.role, entry.scope, entry.comment)
                 elif entry is not None:
                     self._merge_entry(entry)
             except SymbolError as error:
@@ -523,14 +595,18 @@ class SymbolTable:
         """
         user = self.owner_symbols()
         variables = self.own_variables()
+        operands = self.operand_overrides()
         text = (FILE_HEADER + "".join(format_symbol_lines(s) for s in user)
-                + "".join(format_variable_line(v) for v in variables))  # fmt: skip
+                + "".join(format_variable_line(v) for v in variables)
+                + "".join(format_operand_line(o) for o in operands))  # fmt: skip
         Path(path).write_text(text, encoding="utf-8")
         self.modified = False
-        return len(user) + len(variables)
+        return len(user) + len(variables) + len(operands)
 
 
-def parse_annotation_line(line: str) -> Symbol | OwnVariable | BlockLine | None:
+def parse_annotation_line(  # pylint: disable=too-many-return-statements  # one per line type
+    line: str,
+) -> Symbol | OwnVariable | BlockLine | OperandOverride | None:
     """Parse one annotation file line; None for blank and `#` comment lines.
 
     A line without a type word is a "sub" label (or a comment only), as in older files.
@@ -552,6 +628,12 @@ def parse_annotation_line(line: str) -> Symbol | OwnVariable | BlockLine | None:
         scope, _, address_text = fields[1].rpartition(":")
         block_text = comment.removeprefix(" ").rstrip()  # keeps the indentation of the text
         return BlockLine(parse_address(address_text), validate_scope(scope), fields[0], block_text)
+    if fields and fields[0] in OPERAND_ROLES:
+        if len(fields) != 2:
+            raise SymbolError(f"expected 'value|address [scope:]address [; comment]', got {line!r}")
+        scope, _, address_text = fields[1].rpartition(":")
+        return OperandOverride(parse_address(address_text), validate_scope(scope), fields[0],
+                               comment_text)  # fmt: skip
     symbol_type = fields.pop(0) if fields and fields[0] in OWNER_TYPES else None
     if len(fields) not in (1, 2):
         raise SymbolError(f"expected '[type] [scope:]address label [; comment]', got {line!r}")
@@ -623,6 +705,15 @@ def format_annotation_line(symbol: Symbol) -> str:
     return line.strip() + "\n"
 
 
+def format_operand_line(override: OperandOverride) -> str:
+    """Format an operand override as an annotation file line (with trailing newline)."""
+    location = override.scope + ":" if override.scope else ""
+    line = f"{override.role:<7} {location}{override.address:04X}"
+    if override.comment:
+        line += f" ; {override.comment}"
+    return line + "\n"
+
+
 def format_variable_line(variable: OwnVariable) -> str:
     """Format one of the owner's variables as an annotation file line (with trailing newline)."""
     line = f"var  {variable.base_text:<11} {variable.label:<20} {variable.size}"
@@ -632,12 +723,17 @@ def format_variable_line(variable: OwnVariable) -> str:
 
 
 def merge(tables: Iterable[SymbolTable]) -> SymbolTable:
-    """Return a new table with the user symbols and variables of all `tables` (later ones win)."""
+    """A new table with the owner's symbols, variables and operand overrides of all `tables`.
+
+    Later tables win.
+    """
     tables = list(tables)
     model = next((table.firmware_model for table in tables if table.firmware_model), "464")
     merged = SymbolTable(preload_firmware=True, model=model)
     for table in tables:
         for entry in [*table.owner_symbols(), *table.own_variables()]:
             merged._merge_entry(entry)  # pylint: disable=protected-access  # same class
+        for override in table.operand_overrides():
+            merged.set_operand(override.address, override.role, override.scope, override.comment)
     merged.modified = False
     return merged

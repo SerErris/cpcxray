@@ -166,3 +166,19 @@ def test_comment_blocks(tmp_path: Path) -> None:
     assert session.symbol_search("reads the counter")["total"] == 1
     session.comment_add("C000", "", "rom3", position="before")  # "" removes the block
     assert session.symbol_detail("C000", "rom3")["yours"]["before"] is None
+
+
+def test_operand_set(tmp_path: Path) -> None:
+    """operand_set: the disassembly follows it; the scope defaults to what is paged in."""
+    session = make_session(tmp_path)
+    session.memory_write("9000", "CD 10 00")  # call &0010 in RAM
+    assert session.disassemble("9000", 1)["lines"][0].endswith("call SIDE_CALL")
+    result = session.operand_set("9000", "value", comment="a parameter")
+    assert result == {"address": "9000", "scope": "", "role": "value", "comment": "a parameter"}
+    assert session.disassemble("9000", 1)["lines"][0].endswith("call #0010")
+    status = session.symbols_status()
+    assert status["operands"] == 1 and status["operand_overrides"][0]["role"] == "value"
+    assert session.operand_set("9000", "auto")["role"] == "auto"
+    assert session.disassemble("9000", 1)["lines"][0].endswith("call SIDE_CALL")
+    with pytest.raises(SessionError, match="invalid role"):
+        session.operand_set("9000", "hex")

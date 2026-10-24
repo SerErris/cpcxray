@@ -43,6 +43,8 @@ class PanelContext:  # pylint: disable=too-many-instance-attributes  # shared st
         inputs: Text inputs: while one has the focus, PC keys go to it, not to the CPC.
         lists: Scroll lists: while the mouse is over one, the list keys go to it.
         selectors: File selectors: while one is open, PC keys stay away from the CPC.
+        popup_owners: Items with a right-click menu: while it is open the window must not take
+            the keys back for the CPC (that would close it, ui/host_keys.py `ComboWatch`).
         refresh_all: Refreshes every tab (after an action).
         show_tab: Opens a tab by its title (e.g. "show this address in the CPU tab").
     """
@@ -54,6 +56,7 @@ class PanelContext:  # pylint: disable=too-many-instance-attributes  # shared st
     inputs: list[int | str] = field(default_factory=list)
     lists: list[ScrollList] = field(default_factory=list)
     selectors: list[FileSelector] = field(default_factory=list)
+    popup_owners: list[int | str] = field(default_factory=list)
     refresh_all: Callable[[], None] = lambda: None
     show_tab: Callable[[str], None] = lambda _title: None
 

@@ -5,6 +5,8 @@ A mixin of `Session` (every public method is an MCP tool, D-27):
 * the owner's labels and comments (`symbol_add` with a type "sub" / "jump" / "data",
   `symbol_remove`) - a comment at the end of the line and comment blocks before / after it
   (task 9: routine headers, longer explanations; `comment_add` with a position);
+* the owner's operand overrides (`operand_set`): the word operand of an instruction is a number
+  ("value": always hex) or an address ("address": named), over the judgement of `ld rr,nn`;
 * the owner's variables (`variable_add`, `variable_remove`): a named byte range at an absolute
   address or in a background ROM's data area; they behave like the known OS/AMSDOS variables
   everywhere (debugger/variables.py);
@@ -119,6 +121,38 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         except SymbolError as error:
             raise SessionError(str(error)) from None
         return {"removed": removed.label or hex4(removed.address), "scope": removed.scope}
+
+    def operand_set(
+        self,
+        address: int | str,
+        role: str,
+        scope: str | None = None,
+        comment: str | None = None,
+    ) -> dict[str, Any]:
+        """Decide whether the word operand of the instruction at `address` is a number.
+
+        `ld hl,#0010` stays a number instead of `ld hl,SIDE_CALL` (the name of RST 2) with
+        "value"; "address" names it even where the judgement of `ld rr,nn` says number. The
+        decision wins in the disassembly, the trace and the generated source, and is kept in
+        the annotation file (`symbols_save`).
+
+        Args:
+            address: The instruction's address.
+            role: "value" (a number: always hex), "address" (named) or "auto" (remove the
+                decision: cpcxray judges again).
+            scope: "" (global, RAM), "lower" or "rom0".."rom15"; default: what is paged in at
+                the address now.
+            comment: Why (kept in the annotation file).
+        """
+        value = self._address(address)
+        where = self.machine.symbol_scope(value) if scope is None else scope
+        try:
+            override = self.symbols.set_operand(value, role, where, comment)
+        except SymbolError as error:
+            raise SessionError(str(error)) from None
+        return {"address": hex4(value), "scope": where,
+                "role": override.role if override is not None else "auto",
+                "comment": override.comment if override is not None else None}  # fmt: skip
 
     # -- the owner's variables --------------------------------------------------------------
 
@@ -411,11 +445,15 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method  # Session
         """The annotation file: its path, whether it exists, your entries, unsaved changes.
 
         Returns:
-            "path", "exists", "symbols" and "variables" (your entries now), "modified"
-            (changed since the last load or save).
+            "path", "exists", "symbols", "variables" and "operands" (your entries now: labels
+            and comments, variables, operand overrides), "operand_overrides" (address, scope,
+            role, comment each), "modified" (changed since the last load or save).
         """
         file = self._path(path)
+        operands = self.symbols.operand_overrides()
         return {"path": str(file), "exists": file.is_file(),
                 "symbols": len(self.symbols.owner_symbols()),
-                "variables": len(self.symbols.own_variables()),
+                "variables": len(self.symbols.own_variables()), "operands": len(operands),
+                "operand_overrides": [{"address": hex4(o.address), "scope": o.scope,
+                                       "role": o.role, "comment": o.comment} for o in operands],
                 "modified": self.symbols.modified, "types": list(OWNER_TYPES)}  # fmt: skip

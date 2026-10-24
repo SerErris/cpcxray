@@ -365,7 +365,7 @@ class SymbolsTab(Tab):  # pylint: disable=too-many-instance-attributes  # filter
     def _refresh_file(self) -> None:
         """Your entries and whether they are saved."""
         status = self.session.symbols_status(self.value("symbols_path"))
-        count = status["symbols"] + status["variables"]
+        count = status["symbols"] + status["variables"] + status["operands"]
         dpg.set_value(self.items["symbols_entries"], f"{count} entries of yours")
         if status["modified"]:
             set_badge(self.styles, self.items["symbols_saved"], "not saved", "changed")

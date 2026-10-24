@@ -274,6 +274,34 @@ def test_word_data_stays_numbers(tmp_path: Path) -> None:
     assert verify_source(source, expected, view.start, generated.line_of_offset).identical
 
 
+def test_operand_overrides_in_the_source(tmp_path: Path) -> None:
+    """The owner's operand decision wins: "value" keeps a number, "address" names it."""
+    image = bytes.fromhex("21 10 00 CD 10 00 C9")  # ld hl,&0010 / call &0010 / ret
+    view = plain_view(image)
+    database = classified(view, starts=[0, 3, 6])
+    symbols = SymbolTable()
+    symbols.add(0xC006, "done", scope="rom1")
+
+    def lines() -> list[str]:
+        """The generated source's lines (stripped), checked by the sjasmplus round trip."""
+        generated = generate_source(
+            view.resolve(database, "static"), database, symbols, title="t",
+            output_name="t.bin", fill_policy="static",
+        )  # fmt: skip
+        source = tmp_path / "operands.asm"
+        source.write_text(generated.text, encoding="utf-8")
+        expected = view.final_image(database, "static")
+        assert verify_source(source, expected, view.start, generated.line_of_offset).identical
+        return [line.split(";")[0].strip() for line in generated.text.splitlines()]
+
+    assert "call SIDE_CALL" in lines()  # a call target is named by default
+    symbols.set_operand(0xC003, "value", "rom1")
+    symbols.set_operand(0xC000, "address", "rom1")
+    named = lines()
+    assert "call #0010" in named  # the owner said: a number
+    assert "ld hl,SIDE_CALL" in named  # the owner said: an address
+
+
 def test_compare_reports_lines() -> None:
     """Differences carry both values and the source line."""
     result = compare(b"\x01\x02", b"\x01\x03\x04", 0xC000, ["a", "defb 2,3"], [1, 2, 2])

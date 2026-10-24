@@ -9,6 +9,7 @@ import pytest
 from cpcxray.debugger.firmware_symbols import FIRMWARE_464, FIRMWARE_664, FIRMWARE_6128
 from cpcxray.debugger.symbols import (
     BlockLine,
+    OperandOverride,
     OwnVariable,
     Symbol,
     SymbolError,
@@ -357,3 +358,26 @@ def test_comment_blocks_in_the_annotation_file(tmp_path: Path) -> None:
     )
     with pytest.raises(SymbolError, match="scope:"):
         parse_annotation_line("before rom5:C000 extra ; text")
+
+
+def test_operand_overrides(tmp_path: Path) -> None:
+    """The owner decides an instruction's operand: value / address; auto removes; in the file."""
+    table = SymbolTable()
+    assert table.set_operand(0xC123, "value", "rom5", "a sector count") == OperandOverride(
+        0xC123, "rom5", "value", "a sector count"
+    )
+    table.set_operand(0x9000, "address")
+    assert table.operand_at(0xC123, "rom5") == "value" and table.operand_at(0xC123) is None
+    assert table.operand_at(0x9000, "rom5") == "address"  # a global one applies everywhere
+    with pytest.raises(SymbolError, match="invalid role"):
+        table.set_operand(0x9000, "number")
+    path = tmp_path / "annotations.txt"
+    table.save(path)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert "value   rom5:C123 ; a sector count" in lines and "address 9000" in lines
+    loaded = SymbolTable()
+    loaded.load(path)
+    assert loaded.operand_overrides() == table.operand_overrides()
+    assert merge([table]).operand_at(0xC123, "rom5") == "value"
+    table.set_operand(0x9000, "auto")
+    assert table.operand_at(0x9000) is None
