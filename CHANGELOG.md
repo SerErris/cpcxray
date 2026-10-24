@@ -2,10 +2,19 @@
 
 ## Unreleased
 
-- Fixed: BASIC could hang in `MC WAIT FLYBACK` (for example after a disc LOAD). The 300 Hz
-  interrupt now follows the Gate Array's real line counter (R52): the first interrupt of a frame
-  comes 2 scan lines into VSYNC, and the phase is resynchronised every frame, also after an RMR
-  bit 4 write or a snapshot load. The Devices tab shows the frame line next to R52.
+## 0.9.2 - comment blocks, groups and contexts, interrupt timing
+
+**Comments and names**
+- New: comment blocks before and after a line - a routine header above it, a longer explanation
+  below it, several lines each - besides the comment at the end of the line. Edit them in the
+  Symbols tab or with `symbol_add` / `comment_add` over MCP; the CPU tab shows them, the Trace
+  tab marks them (¶) and shows them for the selected instruction, and the generated source
+  writes them as comment lines (still byte-identical). They are kept in
+  `project/annotations.txt` as `before` / `after` lines; older files load unchanged.
+- New: say what an instruction's operand is - right-click it in the CPU tab, or `operand_set`
+  over MCP: a number (always hex, `call #0010` instead of `call SIDE_CALL`), an address (named),
+  or judged by cpcxray again. The decision is kept in `project/annotations.txt` and holds in
+  the disassembly, the trace and the generated source.
 - New: groups for your variables and RAM labels, and code contexts - for programs that use the
   same RAM differently (VDOS and CP/M, for example). Put variables and global labels in groups
   (Symbols tab: Groups panel, or `group_add` / `variable_add(group=)` / `symbol_add(group=)`),
@@ -17,27 +26,25 @@
 - New: `symbol_add(..., group=, replaces=<old group>)` moves a RAM label to another group in one
   step, with its type, comment and comment blocks (as `variable_add(replaces=)` does for
   variables); the Symbols tab's editor uses it.
-- Fixed: the generated source no longer labels the target of a FAR CALL into another ROM in
-  the analysed ROM (VDOS: `rst #18` to &C1DC in ROM 7 made a `sub_c1dc` in ROM 5), nor that of
-  a SIDE CALL to another slot; the far address stays `defw #C1DC ; ROM 7`.
 - Changed: the firmware's jumpblock and restart names are fixed - a label of yours on such an
   address is refused (a comment is fine); an older annotation file with one loads without it
   and the Symbols tab's status says so.
 
-- New: comment blocks before and after a line - a routine header above it, a longer explanation
-  below it, several lines each - besides the comment at the end of the line. Edit them in the
-  Symbols tab or with `symbol_add` / `comment_add` over MCP; the CPU tab shows them, the Trace
-  tab marks them (¶) and shows them for the selected instruction, and the generated source
-  writes them as comment lines (still byte-identical). They are kept in
-  `project/annotations.txt` as `before` / `after` lines; older files load unchanged.
+**Analysis and source**
 - New: the data kind `word_data` (`classify`) for words that are numbers - parameters,
   offsets, time constants. They are always written in hex: a parameter &0010 no longer turns
   into `defw SIDE_CALL` (the name of RST 2), as it did in a `word_table`, whose words are
   addresses and keep their names. Existing analysis databases stay valid.
-- New: say what an instruction's operand is - right-click it in the CPU tab, or `operand_set`
-  over MCP: a number (always hex, `call #0010` instead of `call SIDE_CALL`), an address (named),
-  or judged by cpcxray again. The decision is kept in `project/annotations.txt` and holds in
-  the disassembly, the trace and the generated source.
+- Fixed: the generated source no longer labels the target of a FAR CALL into another ROM in
+  the analysed ROM (VDOS: `rst #18` to &C1DC in ROM 7 made a `sub_c1dc` in ROM 5), nor that of
+  a SIDE CALL to another slot; the far address stays `defw #C1DC ; ROM 7`.
+
+**The machine**
+- Fixed: BASIC could hang in `MC WAIT FLYBACK` (for example after a disc LOAD). The 300 Hz
+  interrupt now follows the Gate Array's real line counter (R52): the first interrupt of a frame
+  comes 2 scan lines into VSYNC, and the phase is resynchronised every frame, also after an RMR
+  bit 4 write or a snapshot load. The Devices tab shows the frame line next to R52. Emulation
+  is slightly faster as a side effect.
 
 ## 0.9.1 - bug fix
 

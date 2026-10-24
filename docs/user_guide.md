@@ -139,7 +139,9 @@ known variables are coloured; the table below lists the variables in view. Write
 everything written since the last stop, and jumps there at every stop.
 
 ### Devices
-Gate Array (mode, border, the 16 pens as colour swatches), ROM select, PPI, CRTC registers with
+Gate Array (mode, border, the 16 pens as colour swatches; the interrupt timing: time to the next
+interrupt, the line counter R52 and the current scan line of the frame - VSYNC is lines 0-7, the
+first interrupt of a frame comes at line 2), ROM select, PPI, CRTC registers with
 the screen layout, the floppy controller (motor, drives, head position, last commands) and the
 keyboard matrix with the keys held.
 

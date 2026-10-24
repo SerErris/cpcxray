@@ -60,7 +60,10 @@ program.
 - Memory views of the CPU, RAM blocks, ROM images and decoded ROMs, coloured by the known
   firmware and AMSDOS variables; the paging of each 16 KB quarter; the stack; the devices'
   state; `.sna` snapshots.
-- Firmware names for all three machines, your own labels, comments and variables.
+- Firmware names for all three machines, your own labels, comments, comment blocks above and
+  below a line, and variables; groups for programs that use the same RAM differently (code
+  contexts decide which name an address gets); you decide whether an operand is a number or
+  an address.
 
 ![The CPU tab inside the firmware's text output: main and alternate registers with the changed ones in yellow, the flags, the paging of the four 16 KB quarters, the disassembly with firmware names and variables in colour, and the stack from SP up to its top with the return address of CALL TXT_OUT_ACTION and the four pushed registers](docs/img/window_cpu.png)
 
@@ -130,7 +133,7 @@ Each release on the [releases page](https://github.com/SerErris/cpcxray/releases
   Python 3.12 or newer. With [pipx](https://pipx.pypa.io):
 
   ```bash
-  pipx install "cpcxray[gui,mcp] @ https://github.com/SerErris/cpcxray/releases/download/v0.9.1/cpcxray-0.9.1-py3-none-any.whl"
+  pipx install "cpcxray[gui,mcp] @ https://github.com/SerErris/cpcxray/releases/download/v0.9.2/cpcxray-0.9.2-py3-none-any.whl"
   ```
 
 - **A ready-made program** for Linux (`…-linux-x86_64.tar.gz`) or Windows
