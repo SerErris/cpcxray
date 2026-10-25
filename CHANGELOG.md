@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.3 - RAM copies kept
+
 - Fixed: a RAM copy of ROM code is no longer forgotten when another program overwrites it. The
   analysis kept only the copies still in RAM, so after running BASIC the source lost the DISP
   blocks of the copies CP/M had made at the same addresses (VDOS: &BE80 and &AC00 beside

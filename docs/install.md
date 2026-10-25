@@ -22,10 +22,10 @@ Install it with [pipx](https://pipx.pypa.io) - it keeps cpcxray and its librarie
 environment and puts the `cpcxray` command on your PATH:
 
 ```bash
-pipx install "cpcxray[gui,mcp] @ https://github.com/SerErris/cpcxray/releases/download/v0.9.2/cpcxray-0.9.2-py3-none-any.whl"
+pipx install "cpcxray[gui,mcp] @ https://github.com/SerErris/cpcxray/releases/download/v0.9.3/cpcxray-0.9.3-py3-none-any.whl"
 ```
 
-(Replace `0.9.2` with the release you want.) The extras: `gui` adds the window (Dear PyGui,
+(Replace `0.9.3` with the release you want.) The extras: `gui` adds the window (Dear PyGui,
 numpy), `mcp` the MCP server for Claude Code. `pip install` into a virtual environment works the
 same way. To update, run `pipx install --force` with the new release's URL.
 
