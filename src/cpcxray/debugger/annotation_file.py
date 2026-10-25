@@ -119,8 +119,8 @@ def _parse_symbol(fields: list[str], comment: str | None, group: str | None, lin
     label = fields[1] if len(fields) == 2 and fields[1] != "-" else None
     if label is None and comment is None:
         raise SymbolError(f"entry without label and comment: {line!r}")
-    if group is not None and (scope != GLOBAL or label is None):
-        raise SymbolError(f"only a global label can have a group: {line!r}")
+    if group is not None and scope != GLOBAL:  # a comment alone may have one (D-44)
+        raise SymbolError(f"only a global entry can have a group: {line!r}")
     if label is not None:
         symbol_type = symbol_type or "sub"
     return Symbol(address, label, comment, scope, type=symbol_type, group=group)

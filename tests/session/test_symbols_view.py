@@ -226,13 +226,18 @@ def test_group_and_context_tools(tmp_path: Path) -> None:
     with pytest.raises(SessionError, match="several symbols at BE8F"):
         session.symbol_remove("BE8F")
     assert session.symbol_detail("BE8F", group="cpm")["yours"]["label"] == "cpm_seldsk"
+    session.comment_add("BF03", "HL = its address", group="vdos")  # no label needed (D-44)
+    session.comment_add("BF03", "HELLO loader", position="before", group="vdos")
+    yours = session.symbol_detail("BF03", group="vdos")["yours"]
+    assert (yours["label"], yours["comment"], yours["before"], yours["group"]) == (
+        None, "HL = its address", "HELLO loader", "vdos")  # fmt: skip
     assert session.context_set("vdos", scope="rom3")["context"] == "rom3"
     session.run(max_instructions=2)  # ROM 3 paged in at &C000
     assert session.context_set("cpm", first="C003", last="C005")["context"] == "rom3:C003-C005"
     contexts = [c["context"] for c in session.context_list()["contexts"]]
     assert contexts == ["rom3", "rom3:C003-C005"]
     vdos = next(g for g in session.group_list()["groups"] if g["name"] == "vdos")
-    assert (vdos["variables"], vdos["labels"], vdos["contexts"]) == (1, 1, 1)
+    assert (vdos["variables"], vdos["labels"], vdos["contexts"]) == (1, 2, 1)  # + BF03
     with pytest.raises(SessionError, match="in use"):
         session.group_remove("cpm")
     session.group_rename("cpm", "cpm22")

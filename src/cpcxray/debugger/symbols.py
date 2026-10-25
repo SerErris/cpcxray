@@ -41,8 +41,10 @@ and puts their variables and global (RAM) labels in at most one; the built-in gr
 address may carry one owner label per group plus one ungrouped: the key of a global symbol is
 (scope, address, group), that of a ROM symbol (scope, address). A context gives a code range
 (or a whole scope, ROM or RAM) a group: where a RAM address is named, the item of the group of
-the code's context is preferred (debugger/names.py `NameResolver`). Without groups everything
-works as before.
+the code's context is preferred (debugger/names.py `NameResolver`). A comment needs no label to
+have a group: several programs copied to the same RAM each keep their own comments there, and
+code sees only the comments of its context's group and the ungrouped ones (`owner_at`).
+Without groups everything works as before.
 
 The annotation file (project/annotations.txt) is read and written line by line in
 debugger/annotation_file.py; `load` / `save` here apply and order its entries. Files of
@@ -127,6 +129,9 @@ __all__ = [  # the names other modules import from here (the types live in symbo
     "parse_variable_base",
     "validate_scope",
 ]
+
+
+NOTE_PARTS = ("comment", "before", "after")  # what only a context's group shows (D-44)
 
 
 def _where(scope: str, address: int) -> str:
@@ -249,8 +254,6 @@ class SymbolTable:  # pylint: disable=too-many-instance-attributes,too-many-publ
                                   "cannot get another label (a comment can)")  # fmt: skip
         if label is not None:
             self._check_label(label, key, source)
-        elif key[2] is not None and (comment or before or after):
-            raise SymbolError(f"a grouped entry needs a label (group {key[2]})")
         self._symbols.pop(source, None)  # a moved symbol leaves its old group
         if label is None and comment is None and before is None and after is None:
             self._symbols.pop(key, None)  # nothing of the owner's left
@@ -260,7 +263,7 @@ class SymbolTable:  # pylint: disable=too-many-instance-attributes,too-many-publ
                 address, label, comment, scope, "user", type, before, after, key[2]
             )
         self.modified = True
-        found = self.at(address, scope, prefer=key[2])
+        found = self._with_firmware(address, self._symbols.get(key))
         return found if found is not None else Symbol(address, scope=scope)  # nothing left
 
     def remove(self, address: int, scope: str = GLOBAL, group: str | None = None) -> Symbol:
@@ -622,7 +625,10 @@ class SymbolTable:  # pylint: disable=too-many-instance-attributes,too-many-publ
         result has source "user"). Several global owner's labels at the address: see
         `owner_at` (`prefer`: the group of the code's context).
         """
-        owner = self.owner_at(address, scope, prefer)
+        return self._with_firmware(address, self.owner_at(address, scope, prefer))
+
+    def _with_firmware(self, address: int, owner: Symbol | None) -> Symbol | None:
+        """The owner's symbol at `address` laid over the firmware name there (see `at`)."""
         firmware = self._firmware.get(address)
         if owner is None or firmware is None:
             return owner or firmware
@@ -633,20 +639,38 @@ class SymbolTable:  # pylint: disable=too-many-instance-attributes,too-many-publ
         )  # fmt: skip
 
     def owner_at(
-        self, address: int, scope: str = GLOBAL, prefer: str | None = None
+        self, address: int, scope: str = GLOBAL, prefer: str | None = None, strict: bool = False
     ) -> Symbol | None:
         """Return only the owner's symbol for `address` (in `scope`, else global), or None.
 
-        With several global labels at the address (D-44) the ranking of D-43 picks one: the
-        group `prefer` (the code's context), then the ungrouped one, then the groups in their
-        order.
+        With several global entries at the address (D-44) the label comes from the best ranked
+        one that has a label (D-43): the group `prefer` (the code's context), then the
+        ungrouped one, then the groups in their order. The comment and each comment block come
+        only from the entry of `prefer`'s group, else from the ungrouped one: a comment of
+        another group describes other code copied to the same RAM. Without a context (`prefer`
+        None) they come from the best ranked entry that has them, or with `strict` (the
+        generated source) only from the ungrouped one.
         """
         if scope != GLOBAL:
             symbol = self._symbols.get((scope, address, None))
             if symbol is not None:
                 return symbol
         candidates = self.owners_at(address, prefer)
-        return candidates[0] if candidates else None
+        if prefer is not None or strict:  # rank 0: the context's group, 1: ungrouped
+            candidates_with_notes = [s for s in candidates if self.rank(s.group, prefer)[0] < 2]
+        else:
+            candidates_with_notes = candidates
+        notes = {part: next((getattr(s, part) for s in candidates_with_notes if getattr(s, part)),
+                            None) for part in NOTE_PARTS}  # fmt: skip
+        labelled = next((s for s in candidates if s.label), None)
+        if labelled is None:
+            if not any(notes.values()):
+                return None  # only comments of other groups
+            labelled = next(s for s in candidates_with_notes
+                            if any(getattr(s, part) for part in NOTE_PARTS))  # fmt: skip
+        if all(getattr(labelled, part) == text for part, text in notes.items()):
+            return labelled
+        return replace(labelled, **notes)
 
     def scope_symbol(self, address: int, scope: str) -> Symbol | None:
         """Only the owner's symbol of exactly this ROM scope (no global fallback), or None."""
@@ -723,7 +747,7 @@ class SymbolTable:  # pylint: disable=too-many-instance-attributes,too-many-publ
             group: Only this group ("" for ungrouped), or None for all.
         """
         needle = text.lower()
-        layered = [self.at(key[1], key[0], key[2]) for key in self._symbols]
+        layered = [self._with_firmware(key[1], symbol) for key, symbol in self._symbols.items()]
         owned = {key[1] for key in self._symbols if key[0] == GLOBAL}
         layered += [s for a, s in self._firmware.items() if a not in owned]
         result = [

@@ -46,11 +46,14 @@ def group_choices(groups: list[str]) -> list[str]:
 
 
 def groupable(entry: dict[str, Any] | None) -> bool:
-    """True if the entry can have a group: the owner's variable or global label (D-43, D-44)."""
+    """True if the entry can have a group: the owner's variable or global entry (D-43, D-44).
+
+    A global comment without a label (type None) can have one too.
+    """
     if entry is None or entry.get("mark") != "yours":
         return False
     return entry["type"] == "var" or (
-        entry["scope"] == "" and entry["type"] in ("sub", "jump", "data")
+        entry["scope"] == "" and entry["type"] in ("sub", "jump", "data", None)
     )
 
 

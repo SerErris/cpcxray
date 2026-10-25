@@ -194,6 +194,14 @@ built-in and ungrouped ones, then the other groups in their order - labels befor
 smallest variable first. Code without a context names as before groups existed. RAM code copied
 from a ROM takes the context of the ROM code it came from (when the analysis saw the copy).
 
+Comments follow the same contexts, but stricter: where several programs are copied to the same
+RAM, give each program's comments the group of its context - a comment needs no label for that
+(editor, or `comment_add(address, text, group=...)`). Code then shows the comment and comment
+blocks of its context's group, else the ungrouped ones, never another group's. The CPU and
+Trace tabs show RAM code without a known context the best ranked comment; the generated source
+shows such code only the ungrouped ones. In the generated source, a RAM copy whose code has a
+context also takes only its group's or the ungrouped labels - else cpcxray's own `ram_` name.
+
 ### Disks
 Drive chips for A (3", 40 tracks) and B (5.25", 80 tracks, double-sided); per drive the disk,
 read-only or writable, "changed" while the CPC's writes are not saved, the head position;

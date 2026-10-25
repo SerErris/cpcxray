@@ -341,6 +341,90 @@ def test_overlay_blocks_share_a_ram_range(tmp_path: Path) -> None:
     assert "ram_8000_c007:" in lines and "jr ram_8000_c007" in lines
 
 
+def test_overlay_comments_by_group(tmp_path: Path) -> None:
+    """Three routines copied to &8000 show only their own comments (D-44).
+
+    Each copy shows the comments of its context's group, else the ungrouped ones - never those
+    of another group, also not in a copy without a context. The bytes stay identical.
+    """
+    image = bytes.fromhex(
+        "C9 00 00 00"  # &C000 ret
+        "00 18 FD"  # &C004 → RAM &8000, context "hello"
+        "00 00 18 FC"  # &C007 → RAM &8000, context "romcat"
+        "00 00 00 18 FB"  # &C00B → RAM &8000, no context
+    )
+    blocks = (RelocatedBlock("rom1", 4, 3, 0x8000, executed=3),
+              RelocatedBlock("rom1", 7, 4, 0x8000, executed=4),
+              RelocatedBlock("rom1", 11, 5, 0x8000, executed=5))  # fmt: skip
+    view = plain_view(image, blocks=blocks)
+    database = classified(view, starts=[0, 4, 5, 7, 8, 9, 11, 12, 13, 14])
+    symbols = SymbolTable()
+    symbols.add_group("hello", "HELLO loader")
+    symbols.add_group("romcat", "|ROMCAT helper")
+    symbols.set_context("hello", "rom1", 0xC004, 0xC006)
+    symbols.set_context("romcat", "rom1", 0xC007, 0xC00A)
+    symbols.add(0x8000, comment="hello: first byte", group="hello", before="HELLO header")
+    symbols.add(0x8000, comment="romcat: first byte", group="romcat")
+    symbols.add(0x8000, comment="any copy: first byte", group="")
+    symbols.add(0x8001, comment="hello only", group="hello")
+    generated = generate_source(
+        view.resolve(database, "static"), database, symbols, title="t", output_name="t.bin",
+        fill_policy="static",
+    )  # fmt: skip
+    lines = code_lines(generated.text)
+    comments = [line.split("; ", 1)[1] for line in lines
+                if line.startswith(("nop", "jr")) and "; " in line]  # fmt: skip
+    assert comments == ["hello: first byte", "hello only", "romcat: first byte",
+                        "any copy: first byte"]  # fmt: skip
+    assert lines.count("; HELLO header") == 1
+    assert lines.index("; HELLO header") < lines.index("DISP #8000") + 3
+    source = tmp_path / "overlay.asm"
+    source.write_text(generated.text, encoding="utf-8")
+    result = verify_source(source, view.final_image(database, "static"), view.start,
+                           generated.line_of_offset)  # fmt: skip
+    assert result.identical, result.differences
+
+
+def test_overlay_labels_by_group(tmp_path: Path) -> None:
+    """In a copy with a context, another group's RAM label is not used (D-44).
+
+    The copy takes its group's label, else the ungrouped one, else its own ram_ name; a copy
+    without a context keeps the ranking (the other group's label, made unique).
+    """
+    image = bytes.fromhex(
+        "C9 00 00 00"  # &C000 ret
+        "00 18 FD"  # &C004 → RAM &8000, context "hello"
+        "00 00 18 FC"  # &C007 → RAM &8000, context "romcat"
+        "00 00 00 18 FB"  # &C00B → RAM &8000, no context
+    )
+    blocks = (RelocatedBlock("rom1", 4, 3, 0x8000, executed=3),
+              RelocatedBlock("rom1", 7, 4, 0x8000, executed=4),
+              RelocatedBlock("rom1", 11, 5, 0x8000, executed=5))  # fmt: skip
+    view = plain_view(image, blocks=blocks)
+    database = classified(view, starts=[0, 4, 5, 7, 8, 9, 11, 12, 13, 14])
+    symbols = SymbolTable()
+    symbols.add_group("hello", "HELLO loader")
+    symbols.add_group("romcat", "|ROMCAT helper")
+    symbols.set_context("hello", "rom1", 0xC004, 0xC006)
+    symbols.set_context("romcat", "rom1", 0xC007, 0xC00A)
+    symbols.add(0x8000, "hello_start", group="hello")
+    symbols.add(0x8001, "any_copy", group="")
+    generated = generate_source(
+        view.resolve(database, "static"), database, symbols, title="t", output_name="t.bin",
+        fill_policy="static",
+    )  # fmt: skip
+    lines = code_lines(generated.text)
+    assert "hello_start:" in lines and "jr hello_start" in lines
+    assert "ram_8000_c007:" in lines and "jr ram_8000_c007" in lines  # not hello_start
+    assert "hello_start_2:" in lines and "jr hello_start_2" in lines  # no context: ranking
+    assert lines.count("any_copy:") == 1 and "any_copy_2:" in lines and "any_copy_3:" in lines
+    source = tmp_path / "overlay.asm"
+    source.write_text(generated.text, encoding="utf-8")
+    result = verify_source(source, view.final_image(database, "static"), view.start,
+                           generated.line_of_offset)  # fmt: skip
+    assert result.identical, result.differences
+
+
 def test_immediates_labels_only_for_addresses(tmp_path: Path) -> None:
     """LDIR's HL/DE become labels, its BC stays a number; low firmware addresses stay hex."""
     image = (

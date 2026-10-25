@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- New: a RAM comment can have a group without a label (`comment_add(address, text,
+  group=...)`, the Symbols tab's editor; `BF03 - group=vdos ; text` in `annotations.txt`). Where
+  several programs are copied to the same RAM (VDOS: the HELLO loader and the two |ROMCAT
+  helpers at &BF00), each copy shows only the comments and comment blocks of its context's
+  group, else the ungrouped ones - in the generated source, the CPU tab and the Trace tab.
+- Changed: in the generated source, a RAM copy whose origin has a context no longer takes a
+  label of another group: its lines get the label of the context's group, else the ungrouped
+  one, else the generator's own `ram_xxxx_yyyy` name (no more `rre_skip_name_2` from the other
+  |ROMCAT helper). Code outside such copies names RAM addresses as before.
+- `symbols_load` says in its description that it merges the file into what is loaded.
+
 ## 0.9.3 - RAM copies kept
 
 - Fixed: a RAM copy of ROM code is no longer forgotten when another program overwrites it. The

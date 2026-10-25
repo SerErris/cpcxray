@@ -448,11 +448,46 @@ def test_ram_labels_per_group() -> None:
         table.add(0xBE90, "cpm_seldsk", group="vdos")  # names stay unique
     with pytest.raises(SymbolError, match="cannot have a group"):
         table.add(0xC000, "rom_start", scope="rom5", group="vdos")
-    with pytest.raises(SymbolError, match="needs a label"):
-        table.add(0xBE91, comment="no label", group="vdos")
     with pytest.raises(SymbolError, match="no group"):
         table.add(0xBE92, "x", group="nonsense")
     assert table.remove(0xBE8F, group="cpm").label == "cpm_seldsk"
+
+
+def test_grouped_comments_without_label(tmp_path: Path) -> None:
+    """A RAM comment can have a group without a label; code sees only its context's (D-44).
+
+    The comment and each block come from the context's group, else the ungrouped entry, never
+    from another group; the label still falls back by rank. Without a context the best ranked
+    comment shows, unless strict (the generated source: ungrouped only).
+    """
+    table = grouped_table()
+    table.add(0xBF03, comment="HL = its address", group="vdos", before="HELLO loader")
+    table.add(0xBF03, comment="ROM number", group="cpm")
+    assert table.owner_at(0xBF03, prefer="vdos").comment == "HL = its address"  # type: ignore[union-attr]
+    assert table.owner_at(0xBF03, prefer="cpm").before is None  # type: ignore[union-attr]
+    assert table.comment_at(0xBF03, prefer="other") is None  # another group's: not shown
+    assert table.comment_at(0xBF03) == "HL = its address"  # no context: by rank
+    assert table.owner_at(0xBF03, strict=True) is None
+    table.add(0xBF03, comment="any copy", group="")
+    assert table.owner_at(0xBF03, strict=True).comment == "any copy"  # type: ignore[union-attr]
+    assert table.comment_at(0xBF03, prefer="other") == "any copy"
+    table.add(0xBF00, "hello_start", group="vdos", comment="HELLO")
+    table.add(0xBF00, comment="romcat entry", group="cpm")
+    seen = table.at(0xBF00, prefer="cpm")
+    assert seen is not None and (seen.label, seen.comment) == ("hello_start", "romcat entry")
+    assert table.label_at(0xBF00, prefer="cpm") == "hello_start"
+    assert len(table.symbols(scope="", source="user")) == 5  # each entry listed on its own
+    path = tmp_path / "annotations.txt"
+    table.save(path)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert any(line.startswith("BF03") and "- " in line and line.endswith(
+        "group=cpm ; ROM number") for line in lines)  # fmt: skip
+    assert "before BF03        group=vdos ; HELLO loader" in lines
+    loaded = SymbolTable()
+    loaded.load(path)
+    assert loaded.owner_symbols() == table.owner_symbols()
+    with pytest.raises(SymbolError, match="global entry"):
+        parse_annotation_line("rom5:C000 - group=vdos ; no")
 
 
 def test_contexts() -> None:

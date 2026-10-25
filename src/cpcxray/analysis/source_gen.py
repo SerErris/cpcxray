@@ -399,7 +399,7 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         used_names: set[str] = set()
         for item in self.items:
             owner = self._owner_symbol(item.offset)  # the owner's name wins over RSX names
-            name = item.forced_label or (owner.label if owner is not None else None)
+            name = item.forced_label or self._own_label(owner, item.offset)
             from_analysis = item.forced_label is not None  # a header field's name
             if name is None and item.offset in names:
                 name, from_analysis = names[item.offset], True
@@ -435,9 +435,13 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         return uses
 
     def _owner_symbol(self, offset: int) -> Symbol | None:
-        """Return the owner's (user) symbol of a byte's address, if any (by its context)."""
+        """Return the owner's (user) symbol of a byte's address, if any (by its context).
+
+        Strict (D-44): a RAM copy without a context shows only the ungrouped comments, never
+        those of a group, which belong to other code copied to the same RAM.
+        """
         return self.symbols.owner_at(self.view.address(offset), self._scope(offset),
-                                     self._context_of(offset))  # fmt: skip
+                                     self._context_of(offset), strict=True)  # fmt: skip
 
     def _owner_comment(self, offset: int) -> str:
         """Return the owner's comment at a byte's address, or ""."""
@@ -454,7 +458,22 @@ class SourceGenerator:  # pylint: disable=too-many-instance-attributes,too-few-p
         """Return the owner/firmware label of a byte's address, if any (by its context)."""
         symbol = self.symbols.at(self.view.address(offset), self._scope(offset),
                                  self._context_of(offset))  # fmt: skip
-        return symbol.label if symbol is not None and symbol.label else None
+        return self._own_label(symbol, offset)
+
+    def _own_label(self, symbol: Symbol | None, offset: int) -> str | None:
+        """The symbol's label for the line at an offset, unless another group's (D-44).
+
+        In a DISP block whose origin has a context group, a RAM label of another group names
+        other code copied to the same RAM: the line gets the context's or the ungrouped label,
+        else the generator's own name. Elsewhere the ranking of D-43 stands.
+        """
+        if symbol is None or not symbol.label:
+            return None
+        group = self._context_of(offset)
+        if (group is not None and self.view.block_at(offset) is not None
+                and symbol.group not in (group, None, *BUILTIN_GROUPS)):  # fmt: skip
+            return None
+        return symbol.label
 
     def _context_of(self, offset: int) -> str | None:
         """The group of the context of the code at an offset (D-43).

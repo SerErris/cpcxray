@@ -88,10 +88,12 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method,too-many-p
             before: Comment block before the line, e.g. a routine header; several lines
                 separated by line breaks; "" removes it.
             after: Comment block after the line, e.g. a longer explanation; "" removes it.
-            group: Global (RAM) labels only (D-44): your group of the label - one RAM address
-                can carry one label per group; "" for the ungrouped one. Without it the one
-                symbol at the address is meant (an error that names them if there are
-                several). Not allowed in ROM scopes, nor a label at a firmware name's address.
+            group: Global (RAM) entries only (D-44): your group of the label or comment - one
+                RAM address can carry one entry per group (code copied there shows the
+                comments of its context's group, then the ungrouped ones); "" for the
+                ungrouped one. Without it the one symbol at the address is meant (an error
+                that names them if there are several). Not allowed in ROM scopes, nor a
+                label at a firmware name's address.
             replaces: Moves a global label into `group` from the group it is in now (its name,
                 "" for no group): label, type, comment and blocks go with it unless given -
                 e.g. `symbol_add("BE8F", group="cpm", replaces="vdos")`.
@@ -124,7 +126,9 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method,too-many-p
             scope: "" for global, "lower" or "rom0".."rom15".
             position: "line" (at the end of the line), "before" (a block before the line, e.g.
                 a routine header) or "after" (a block after the line).
-            group: Which RAM label's comment, where several are at the address (D-44).
+            group: The group of a RAM comment (D-44; "" ungrouped): code copied to the same
+                RAM shows only the comments of its context's group, then the ungrouped ones -
+                a label is not needed. Also picks the entry where several are at the address.
         """
         if position == "line":
             return self.symbol_add(address, comment=comment, scope=scope, group=group)
@@ -513,6 +517,7 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method,too-many-p
         owner = self.symbols.owner_at(value, scope)
         if scope == GLOBAL:  # several RAM labels at the address (D-44): the one meant
             candidates = self.symbols.owners_at(value)
+            owner = candidates[0] if candidates else None  # one entry, not a merged view
             if group is not None:
                 owner = next((s for s in candidates if (s.group or "") == group), None)
             elif label and any(s.label == label for s in candidates):
@@ -620,7 +625,12 @@ class SymbolsMixin(DebuggerMixin):  # pylint: disable=abstract-method,too-many-p
     # -- the annotation file ----------------------------------------------------------------
 
     def symbols_load(self, path: str = str(ANNOTATIONS_FILE)) -> dict[str, Any]:
-        """Merge an annotation file (default project/annotations.txt) into the symbols."""
+        """Merge an annotation file (default project/annotations.txt) into the symbols.
+
+        Merging, not replacing: an entry of the file sets its (scope, address, group) entry,
+        entries the file does not have stay. A line whose group was edited in the file is a
+        new entry beside the old one - remove the old one with `symbol_remove(group=...)`.
+        """
         file = self._path(path)
         if not file.is_file():
             raise SessionError(f"file not found: {file}")

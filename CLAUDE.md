@@ -230,7 +230,10 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   files: dropped with a warning in `symbols_status`). symbol_types.py (data classes),
   annotation_file.py (`group`, `context`, `group=` lines; `:BE8F` read). Source: EQU sections per
   group (`; ---- name: description ----`, then "other"); the CPU tab's address column has the
-  "code context" menu, the Symbols tab a Groups panel.
+  "code context" menu, the Symbols tab a Groups panel. Comments (2026-10-25): an entry needs no
+  label for a group; `owner_at` takes the label by rank but comment/blocks only from the
+  context's group or ungrouped (`strict=True` in source_gen: no context → ungrouped only).
+  source_gen `_own_label`: in a DISP block with a context group no other group's label either.
 - Symbols (D-35): session/symbols_view.py `SymbolsMixin` (`symbol_search`, `symbol_detail`,
   `variable_add`, `symbols_status`); own variables resolve in debugger/variables.py
   (`VariableMap.own_variables`, KL_ROM_IY_TABLE); `_label_type` gives the real type.

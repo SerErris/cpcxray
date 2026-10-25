@@ -79,6 +79,7 @@ def test_groups_and_contexts() -> None:
     rom_label = {**own_variable, "type": "sub", "scope": "rom7"}
     assert groupable(own_variable) and not groupable(rom_label) and not groupable(None)
     assert groupable({**rom_label, "scope": ""}) and not groupable(FW_ENTRY)
+    assert groupable({**own_variable, "type": None, "label": None})  # a RAM comment (D-44)
     assert group_line({"name": "firmware", "built_in": True, "description": "OS"}) == (
         "firmware (built in): OS"
     )
