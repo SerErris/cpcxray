@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.4 - grouped comments for RAM copies
+
 - New: a RAM comment can have a group without a label (`comment_add(address, text,
   group=...)`, the Symbols tab's editor; `BF03 - group=vdos ; text` in `annotations.txt`). Where
   several programs are copied to the same RAM (VDOS: the HELLO loader and the two |ROMCAT

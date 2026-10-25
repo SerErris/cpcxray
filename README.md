@@ -133,7 +133,7 @@ Each release on the [releases page](https://github.com/SerErris/cpcxray/releases
   Python 3.12 or newer. With [pipx](https://pipx.pypa.io):
 
   ```bash
-  pipx install "cpcxray[gui,mcp] @ https://github.com/SerErris/cpcxray/releases/download/v0.9.3/cpcxray-0.9.3-py3-none-any.whl"
+  pipx install "cpcxray[gui,mcp] @ https://github.com/SerErris/cpcxray/releases/download/v0.9.4/cpcxray-0.9.4-py3-none-any.whl"
   ```
 
 - **A ready-made program** for Linux (`…-linux-x86_64.tar.gz`) or Windows
