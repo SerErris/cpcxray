@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cpcxray.analysis.provenance import AnalysisObserver
+from cpcxray.analysis.provenance import AnalysisObserver, RelocatedBlock, merge_copies
 from cpcxray.analysis.targets import (
     EXEC_VIA_RAM,
     INSN_START,
@@ -114,3 +114,56 @@ def test_single_value_match_is_not_executed_code() -> None:
     assert origin is not None and origin.endswith("?")
     flags = targets["rom3"].flags
     assert not flags[0x07] & EXEC_VIA_RAM and not flags[0x20] & EXEC_VIA_RAM  # ... not executed
+
+
+# Copy A (&C100, 4 bytes) to &4000 and run it, then copy B (&C110, 4 bytes) over &4002 and run
+# B - as CP/M and BASIC put their own jumpblocks into the same RAM.
+OVERLAY = {
+    0x0000: "2100C1 110040 010400 EDB0 CD0040 2110C1 110240 010400 EDB0 CD0240 76",
+    0x0100: "3C 3C C9 00",
+    0x0110: "3D C9 00 00",
+}
+
+
+def overlay_blocks(upper: dict[int, str]) -> list[tuple[int, int, int, int, bool]]:
+    """Run the ROM; return the blocks as (rom start, length, RAM start, executed, exact)."""
+    machine = make_test_cpc(OS, upper)
+    observer = AnalysisObserver(machine.memory, {"rom3": rom_target("rom3")})
+    machine.bus.add_observer(observer)
+    run_until_halt(machine)
+    return [(b.rom_start, b.length, b.ram_start, b.executed, b.exact)
+            for b in observer.relocated_blocks()]  # fmt: skip
+
+
+def test_overwritten_copy_is_remembered() -> None:
+    """A copy partly overwritten by another keeps its full length and its own executions (D-22).
+
+    A ran inc a / inc a / ret (3 instructions); B ran dec a / ret (2) at &4002 - the count of
+    &4002 starts again for B instead of adding to A's ret.
+    """
+    assert overlay_blocks(OVERLAY) == [
+        (0x100, 4, 0x4000, 3, True),
+        (0x110, 4, 0x4002, 2, True),
+    ]
+
+
+def test_copy_made_again_stays_one_block() -> None:
+    """Copying the same bytes to the same place again keeps one block and its count."""
+    again = {0x0000: "2100C1 110040 010400 EDB0 CD0040 2100C1 110040 010400 EDB0 CD0040 76",
+             0x0100: "3C 3C C9 00"}  # fmt: skip
+    assert overlay_blocks(again) == [(0x100, 4, 0x4000, 6, True)]
+
+
+def test_merge_copies_joins_pieces_of_one_copy() -> None:
+    """Fragments inside a saved copy vanish; overlapping pieces join; other copies stay (D-22)."""
+    saved = RelocatedBlock("rom5", 0x100, 40, 0xBE80, 100)
+    fragment = RelocatedBlock("rom5", 0x110, 8, 0xBE90, 5, exact=False)
+    other = RelocatedBlock("rom5", 0x105, 40, 0xBE8F, 7)  # BASIC's copy: another distance
+    first, second = RelocatedBlock("rom5", 0x300, 10, 0xAC00, 1), RelocatedBlock(
+        "rom5", 0x308, 10, 0xAC08, 2)  # fmt: skip
+    merged = merge_copies([fragment, other, saved, second, first])
+    assert [(b.rom_start, b.length, b.ram_start, b.executed, b.exact) for b in merged] == [
+        (0x300, 18, 0xAC00, 2, True),
+        (0x100, 40, 0xBE80, 100, True),
+        (0x105, 40, 0xBE8F, 7, True),
+    ]

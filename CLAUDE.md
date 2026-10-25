@@ -253,6 +253,9 @@ dominated by the "aluop a,<b,c,...>" group (2.5 billion instructions, ~26 min on
   coordinates). Never-read scrambled bytes: opcode reads see raw, data reads decoded;
   `final_image` per fill policy ("static" keeps opcode bytes of classified code raw). Static
   descent from observed code and the ROM header jumpblock; never into &FF or non-canonical code.
+- Copies survive overwriting (D-22, 2026-10-25): `AnalysisObserver.copy_history` keeps
+  overwritten trusted bytes per (target, RAM - ROM distance); `merge_copies` joins detected and
+  saved pieces of one copy (session `_all_relocations`).
 - Only relocated blocks that ran in RAM (or manual ones) become DISP blocks; unexecuted copies
   are data tables (e.g. a jumpblock copied to RAM). Of those, only position-dependent blocks
   (relative branch inside, or an absolute reference into the RAM copy) get DISP; the others stay

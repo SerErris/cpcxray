@@ -22,7 +22,12 @@ calling ROM look like executed code.
 Relocated blocks (D-22): consecutive RAM addresses whose tags point to consecutive offsets of
 the same target form a block (target, rom_start, length, ram_start). The same ROM range copied
 to several places gives several blocks; the one with the most executed instructions is the
-preferred one for disassembly.
+preferred one for disassembly. A copy is remembered after it is overwritten: before a trusted
+tag is replaced by another origin (or cleared), the byte goes into a history per copy - the
+target and the distance RAM address - ROM offset, which all bytes of one copy share - so a copy
+that one program made (CP/M's jumpblocks at &BE80) stays a block when another program (BASIC's
+at &BE8F) later uses the same RAM. The RAM byte's execution count starts again for the new
+origin. `merge_copies` joins the pieces of one copy (detected now, saved earlier).
 
 RAM targets (D-23): captured at their first M1 fetch (capture = "first_m1") or on command;
 writes into the range afterwards are recorded with the runtime value.
@@ -32,7 +37,7 @@ from __future__ import annotations
 
 from array import array
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from cpcxray.analysis.targets import (
     EXEC_VIA_RAM,
@@ -105,6 +110,8 @@ class AnalysisObserver:  # pylint: disable=too-many-instance-attributes  # per-i
         self.targets = targets
         self.ram_origin: list[RamTag | None] = [None] * 0x10000
         self.ram_executed = array("I", bytes(4 * 0x10000))
+        # overwritten copies: (target, RAM address - ROM offset) → RAM address → (exact, executed)
+        self.copy_history: dict[tuple[str, int], dict[int, tuple[bool, int]]] = {}
         self._recent: deque[tuple[str, int, int]] = deque(maxlen=RECENT_READS)
         self._instruction_reads: list[tuple[str, int, int]] = []
         self._block_move = False
@@ -199,6 +206,9 @@ class AnalysisObserver:  # pylint: disable=too-many-instance-attributes  # per-i
             origin = self.targets.get(old.target)
             if origin is not None:
                 origin.flags[old.offset] |= MODIFIED_AFTER_COPY
+        new_origin = None if tag is None else (tag.target, tag.offset)
+        if old is not None and new_origin != (old.target, old.offset):  # another copy or none
+            self._remember_overwritten(address, old)
         self.ram_origin[address] = tag
         for target in self.targets.values():
             if target.kind == "ram" and target.image is not None and target.contains(address):
@@ -207,38 +217,82 @@ class AnalysisObserver:  # pylint: disable=too-many-instance-attributes  # per-i
 
     # -- relocated blocks ------------------------------------------------------------------------
 
+    def _remember_overwritten(self, address: int, old: RamTag) -> None:
+        """Keep a copied byte that gets another origin in the copy history (D-22).
+
+        Only trusted tags count (exact, or inside a copied run): a lone value match is no copy.
+        The byte's execution count goes with it; the RAM address starts counting again.
+        """
+        if self.trusted_origin(address) is None:
+            return
+        copy = self.copy_history.setdefault((old.target, address - old.offset), {})
+        exact, executed = copy.get(address, (True, 0))
+        copy[address] = (exact and old.exact, executed + self.ram_executed[address])
+        self.ram_executed[address] = 0
+
     def relocated_blocks(self) -> list[RelocatedBlock]:
-        """Detect runs of RAM bytes copied from consecutive ROM offsets (D-22)."""
+        """Runs of RAM bytes copied from consecutive ROM offsets, now or earlier (D-22).
+
+        The bytes of a copy - the current tags and the copy history - share target and the
+        distance RAM address - ROM offset; each run of consecutive addresses is a block.
+        """
+        copies = {key: dict(history) for key, history in self.copy_history.items()}
+        for address, tag in enumerate(self.ram_origin):
+            if tag is not None:
+                copy = copies.setdefault((tag.target, address - tag.offset), {})
+                exact, executed = copy.get(address, (True, 0))
+                copy[address] = (exact and tag.exact, executed + self.ram_executed[address])
         blocks = []
-        address = 0
-        while address < 0x10000:
-            tag = self.ram_origin[address]
-            if tag is None:
-                address += 1
-                continue
-            start, exact, executed = address, tag.exact, 0
-            while address < 0x10000:
-                current = self.ram_origin[address]
-                expected_offset = tag.offset + (address - start)
-                if (
-                    current is None
-                    or current.target != tag.target
-                    or current.offset != expected_offset
-                ):
-                    break
-                exact = exact and current.exact
-                executed += self.ram_executed[address]
-                address += 1
-            if address - start >= MIN_BLOCK_LENGTH:
-                blocks.append(
-                    RelocatedBlock(tag.target, tag.offset, address - start, start, executed, exact)
-                )
-        return blocks
+        for (target, distance), copy in copies.items():
+            addresses = sorted(copy)
+            start = 0
+            for index in range(1, len(addresses) + 1):
+                if index < len(addresses) and addresses[index] == addresses[index - 1] + 1:
+                    continue
+                run = addresses[start:index]
+                if len(run) >= MIN_BLOCK_LENGTH:
+                    blocks.append(RelocatedBlock(
+                        target, run[0] - distance, len(run), run[0],
+                        sum(copy[a][1] for a in run), all(copy[a][0] for a in run),
+                    ))  # fmt: skip
+                start = index
+        return sorted(blocks, key=lambda b: (b.ram_start, b.rom_start))
 
     def origin_text(self, address: int) -> str | None:
         """Describe the provenance of a RAM byte, e.g. "rom5:&1234" (None if untagged)."""
         tag = self.ram_origin[address]
         return tag.text() if tag is not None else None
+
+
+def merge_copies(blocks: list[RelocatedBlock]) -> list[RelocatedBlock]:
+    """Join the pieces of each copy: blocks of the same target and RAM - ROM distance (D-22).
+
+    A block inside another one of the same copy disappears (a fragment left in RAM after part
+    of a copy was overwritten must not hide the full copy saved earlier); overlapping or
+    adjacent ones become one block with the higher execution count.
+    """
+    by_copy: dict[tuple[str, int], list[RelocatedBlock]] = {}
+    for block in blocks:
+        by_copy.setdefault((block.target, block.ram_start - block.rom_start), []).append(block)
+    merged = []
+    for pieces in by_copy.values():
+        pieces.sort(key=lambda b: (b.ram_start, -b.length))
+        current = pieces[0]
+        for piece in pieces[1:]:
+            end = current.ram_start + current.length
+            if piece.ram_start > end:
+                merged.append(current)
+                current = piece
+                continue
+            inside = piece.ram_start + piece.length <= end  # a fragment: only its count counts
+            current = replace(
+                current,
+                length=max(end, piece.ram_start + piece.length) - current.ram_start,
+                executed=max(current.executed, piece.executed),
+                exact=current.exact and (inside or piece.exact),
+            )
+        merged.append(current)
+    return sorted(merged, key=lambda b: (b.ram_start, b.rom_start))
 
 
 def capture(target: AnalysisTarget, memory: MemoryMap) -> None:

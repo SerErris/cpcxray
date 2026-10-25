@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed: a RAM copy of ROM code is no longer forgotten when another program overwrites it. The
+  analysis kept only the copies still in RAM, so after running BASIC the source lost the DISP
+  blocks of the copies CP/M had made at the same addresses (VDOS: &BE80 and &AC00 beside
+  BASIC's &BE8F), and a leftover fragment could replace a saved copy. Every copy seen is now
+  kept with its own execution count and saved; fragments join their copy. Copies lost before
+  come back the next time the program that makes them runs.
+
 ## 0.9.2 - comment blocks, groups and contexts, interrupt timing
 
 **Comments and names**

@@ -34,7 +34,7 @@ from cpcxray.analysis.classifier import (
 from cpcxray.analysis.cpc_profile import CpcProfile
 from cpcxray.analysis.database import Kind, TargetDatabase
 from cpcxray.analysis.observers import ExecutionObserver
-from cpcxray.analysis.provenance import AnalysisObserver, RelocatedBlock, capture
+from cpcxray.analysis.provenance import AnalysisObserver, RelocatedBlock, capture, merge_copies
 from cpcxray.analysis.source_gen import generate_source
 from cpcxray.analysis.targets import AnalysisTarget, ram_target, rom_target
 from cpcxray.analysis.verify import AssemblyError, verify_source
@@ -490,13 +490,16 @@ class AnalysisMixin:  # pylint: disable=too-many-public-methods,too-many-instanc
         return self.reloc_list(target)
 
     def _all_relocations(self) -> list[RelocatedBlock]:
-        """Detected blocks of this run, manual ones, and saved ones not detected again."""
+        """Manual blocks, and the detected and saved ones joined per copy (D-22).
+
+        A copy seen in an earlier session stays even when this run has not made it (yet), and
+        a fragment of it detected now does not replace it (`merge_copies`).
+        """
         detected = self._analysis_observer.relocated_blocks() if self._analysis_observer else []
-        blocks = detected + self.manual_relocations
-        keys = {(b.target, b.rom_start, b.ram_start) for b in blocks}
-        return blocks + [
-            b for b in self.saved_relocations if (b.target, b.rom_start, b.ram_start) not in keys
-        ]
+        keys = {(b.target, b.rom_start, b.ram_start) for b in self.manual_relocations}
+        found = [b for b in merge_copies(detected + self.saved_relocations)
+                 if (b.target, b.rom_start, b.ram_start) not in keys]  # fmt: skip
+        return self.manual_relocations + found
 
     # == analysis database and source (phase 8) ==================================================
 
